@@ -2,7 +2,7 @@
 name: Pactly
 description: A trust-backed booking marketplace for appointment-based services — the "Two Sides" visual system
 status: final
-updated: 2026-09-17
+updated: 2026-09-19
 sources:
   - "../../prd.md"
 colors:
@@ -86,7 +86,7 @@ components:
     color: '{colors.escrow-text}'
     radius: '{rounded.md}'
     padding: '16px 24px'
-    note: 'The only button that locks a deposit'
+    note: 'The Lock with Pactly button — the only button that commits money'
   button-ghost:
     background: 'transparent'
     color: '{colors.ink}'
@@ -225,7 +225,9 @@ The logo is the system in miniature: one mustard half, one teal half, and a blac
 
 **Escrow lane** (`{components.band-escrow}`) — The black column down the middle of the booking screen. It holds the lock icon, the deposit amount and the contract id. The thin lines reaching out to either side are mustard on the left and teal on the right: the money comes from both sides and stops in the middle.
 
-**Lock button** (`{components.button-escrow}`) — The only black button in the product. It is used solely for the action that puts the deposit into escrow. No other button may be black; otherwise the signal "this button commits money" loses its worth.
+**Lock with Pactly button** (`{components.button-escrow}`) — The only black button in the product and the centerpiece of the booking flow. It is used solely for the action that funds the Trustless Work escrow. No other button may be black; otherwise the signal "this button commits money" loses its worth.
+
+**Escrow proof** — A secondary mono label under the funded state reads `ESCROW POWERED BY TRUSTLESS WORK ON STELLAR`, followed by the shortened contract or transaction record. It is evidence, never a competing CTA.
 
 **Seal** (`{components.seal-locked}`) — The circular mark stamped on confirmation. Martian Mono text rotates around it carrying the two parties, the date and the promise number. Used at that moment only, never repeated elsewhere.
 

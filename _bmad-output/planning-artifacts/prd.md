@@ -2,15 +2,15 @@
 title: Pactly — Product Requirements Document
 status: final
 created: 2026-09-15
-updated: 2026-09-17
+updated: 2026-09-19
 ---
 
 # Pactly — Product Requirements Document
 
-**Product:** A trust-backed booking marketplace for appointment-based services — the deposit is held in escrow
+**Product:** A cross-border appointment marketplace that turns Trustless Work escrow into a consumer booking experience
 **Event:** Rise In × Stellar Pro Hackathon 2026 — Genesis Track
-**Demo scenario:** An online therapy session
-**Status:** v1.2
+**Demo scenario:** A client abroad locks the deposit for an in-person hair-transplant consultation in Istanbul
+**Status:** v1.3
 
 ---
 
@@ -23,15 +23,18 @@ updated: 2026-09-17
 - Remove the risk a client takes when paying up front — "will my money just disappear?"
 - Make small cross-border deposits collectable without declined cards, delayed transfers or heavy fees
 - Let the professional collect in their local currency without knowing anything about crypto
+- Turn Trustless Work's generic Stellar escrow lifecycle into a clear appointment flow centered on **Lock with Pactly**
 - Ship a proof of concept that runs end to end on Stellar testnet
 
 ### Background
 
-In every appointment-based profession, the product is time. A therapist's 14:00 session, a coach's court hour, a consultant's reserved hour — when the client does not show up, that time cannot be resold. The industry tries to cover the loss with cancellation policies ("cancel less than 24 hours ahead and you will be charged"), but a policy is not a collection mechanism.
+In every appointment-based profession, the product is time. A clinic's procedure day, a therapist's 14:00 session, or a barber's chair at 17:30 cannot be resold after the client fails to appear. The industry tries to cover the loss with cancellation policies ("cancel less than 24 hours ahead and you will be charged"), but a policy is not a collection mechanism.
 
-When the professional asks for prepayment, the risk moves to the client. Paying a stranger up front takes trust, especially a stranger in another country. As remote work spreads, the two sides are increasingly in different places, and collecting a small deposit becomes disproportionately hard.
+When the professional asks for prepayment, the risk moves to the client. Paying an unfamiliar clinic or provider in another country takes blind trust. A bank transfer can move money, but it cannot hold that money neutrally, make the escrow state publicly verifiable, or provide a shared approval and dispute workflow.
 
-Pactly locks the deposit in neutral escrow: it releases to the professional when the appointment happens and resolves according to the cancellation policy when it does not. The payer can use crypto or local currency; the professional is always paid in local currency.
+Pactly turns Trustless Work's programmable Stellar escrow into an appointment-booking experience. A client locks the deposit without sending it directly to the provider. The provider records completion, the designated approver approves it, and the designated release signer releases the funds. A disagreement enters a visible dispute and resolution flow. The payer can use stablecoin or local currency; the professional can cash out in local currency.
+
+Stellar is required for the neutral, verifiable stablecoin rail and signed authorization. Trustless Work supplies the escrow contracts and role-based lifecycle. Pactly supplies the appointment marketplace, slot hold, local-currency orchestration, consumer language, and the **Lock with Pactly** interaction.
 
 The product does this as a marketplace rather than for one professional at a time. Clients search, compare and book on the platform; a client tracks bookings across different providers in a single panel. Only approved providers are listed, and the quality signals cannot be fabricated: an approved-provider badge, and a count of sessions that actually happened — that is, sessions whose deposit was released.
 
@@ -42,6 +45,7 @@ The product does this as a marketplace rather than for one professional at a tim
 | 2026-09-15 | v1.0 | First draft |
 | 2026-09-16 | v1.1 | Marketplace decision: discovery, search and filters; curated provider onboarding with admin approval; reviews tied to verified sessions; wallet requested only at payment; the balance paid before the session. Source: UX round (`ux-designs/ux-Pactly-2026-09-15/`) |
 | 2026-09-17 | v1.2 | Product goes global: all content, interface copy and documentation in English. The TRY rail stays for the demo; the architecture stays open to additional anchors and currencies. Acceptance criteria traced from the architecture spine (AD-2, AD-6, AD-13, AD-14) |
+| 2026-09-19 | v1.3 | Jury-feedback pivot: "Lock with Pactly" becomes the product centerpiece; Trustless Work replaces the custom escrow as the proposed runtime, pending a compatibility gate; USDT0 leaves the pitch; the hero scenario becomes a cross-border physical appointment. Source: `sprint-change-proposal-2026-09-19.md` |
 
 ---
 
@@ -51,15 +55,15 @@ The product does this as a marketplace rather than for one professional at a tim
 
 - **FR1:** A professional can define an availability calendar, a session price, a deposit rate and a cancellation policy (deadline).
 - **FR2:** A client can pick an available slot and create a booking request; the deposit amount and the cancellation policy are visible before payment.
-- **FR3:** The system locks the deposit in a Soroban contract; the locked amount reaches neither the platform nor the other party.
+- **FR3:** The system initializes and funds a version-pinned Trustless Work single-release escrow identified by the booking id; the locked principal reaches neither Pactly nor the provider.
 - **FR4:** A client can pay the deposit two ways: (a) with stablecoin from their wallet, (b) with local currency through SEP-6 deposit.
 - **FR5:** Once the deposit is locked the slot closes — no other client can take it.
-- **FR6:** When the session happens and is confirmed, the locked amount is released to the professional.
-- **FR7:** When an appointment does not happen, the outcome depends on who cancelled it. If the professional cancels, the full deposit is refunded to the client, whatever the time. If the client cancels before the cancellation deadline, the full deposit is refunded. If the client cancels after the deadline, or never shows up, the deposit is transferred to the professional.
+- **FR6:** After the appointment, the provider records completion, the designated approver approves the appointment milestone, and the designated release signer releases the deposit through Trustless Work.
+- **FR7:** When an appointment does not happen or either side contests the outcome, the booking enters the Trustless Work dispute and resolution flow. Before a user opens a dispute, Pactly states the outcome implied by the booking policy. The MVP does not claim that Trustless Work automatically enforces cancellation deadlines or no-show forfeiture unless Story 1.8 proves that behavior on chain.
 - **FR8:** A professional can withdraw the released amount in local currency through SEP-6 withdraw.
 - **FR9:** Both parties can see the booking and deposit state (locked / released / refunded) from a single panel.
 - **FR10:** Authentication happens through a wallet signature (SEP-10); there are no passwords and no sign-up forms.
-- **FR11:** The contract emits an event on every state transition (locked, released, refunded).
+- **FR11:** Pactly reconciles money state from Trustless Work contract/indexer records and transaction hashes. The database never marks an escrow funded, released, or resolved without chain-backed evidence.
 
 **Marketplace (v1.1)**
 
@@ -75,6 +79,9 @@ The product does this as a marketplace rather than for one professional at a tim
 - **FR21:** A review can only be written by the client of a booking whose deposit was released.
 - **FR22:** The part of the session price beyond the deposit — the balance — is paid before the session; the client can pay it off-platform (in person) or through Pactly. The booking carries the balance payment state.
 - **FR23:** A professional's own cancellations are counted and shown on their profile beside the verified-session count. The platform applies no monetary penalty for them.
+- **FR24:** Every booking maps the Pactly actors to Trustless Work roles explicitly: funder, service provider, receiver, approver, release signer, platform and dispute resolver.
+- **FR25:** Booking detail and confirmation surfaces show "Escrow powered by Trustless Work on Stellar" and link to verifiable transaction or contract evidence.
+- **FR26:** **Lock with Pactly** is the primary booking action and the central interaction in the demo.
 
 ### Non-Functional Requirements
 
@@ -82,7 +89,7 @@ The product does this as a marketplace rather than for one professional at a tim
 - **NFR2:** Anchor integration follows the SEP standards; moving to mainnet changes only the home domain and the network passphrase.
 - **NFR3:** Deposit amounts stay inside anchor limits (min 50 TRY, max 3000 TRY per transaction).
 - **NFR4:** The product is only the booking and payment layer; session content, notes, video calls and health data are out of scope.
-- **NFR5:** The contract has explicit integer-overflow checks; amounts are held as `i128`.
+- **NFR5:** Pactly never uses floating point for money. API amounts use integer smallest units encoded as strings; Trustless Work payload conversion is isolated and tested at the adapter boundary.
 - **NFR6:** The demo can be shown end to end in five minutes or less.
 - **NFR7:** The product is vertical-agnostic; interface copy is never written for a single profession. Therapy is only the demo scenario.
 - **NFR8:** The interface follows `ux-designs/ux-Pactly-2026-09-15/DESIGN.md` and `EXPERIENCE.md`. Where they disagree with a mockup, the documents win.
@@ -90,6 +97,7 @@ The product does this as a marketplace rather than for one professional at a tim
 - **NFR10:** The interface is responsive: the client flow is mobile-first (from 375px up), the provider panel is desktop-first. Breakpoints 375 · 768 · 1024 · 1440.
 - **NFR11:** All product content, interface copy, documentation, code identifiers and commit messages are in English. The product is built for a global audience from the start.
 - **NFR12:** Currency is not hard-coded. The demo runs on the TRY rail the hackathon anchor provides, but no module assumes TRY; the local-currency leg is a property of the configured anchor.
+- **NFR13:** The Trustless Work API and contract revision are pinned and recorded. Product copy may say "audited infrastructure" only with version-qualified evidence; it must not imply that unaudited changes are covered.
 
 ---
 
@@ -98,14 +106,14 @@ The product does this as a marketplace rather than for one professional at a tim
 ### Repository Layout
 Monorepo:
 ```
-contracts/escrow/   → Soroban (Rust) escrow contract
+contracts/escrow/   → completed custom-contract reference/fallback; not the proposed MVP runtime
 backend/            → Node.js + TypeScript, SEP integrations
 frontend/           → React + TypeScript + Vite
 scripts/            → testnet account funding, trustline setup
 ```
 
 ### Service Architecture
-The escrow logic lives on chain (Soroban contract). The backend runs the SEP-10 auth, SEP-6 deposit/withdraw and SEP-38 quote flows and wraps the contract calls. The frontend is only presentation and wallet signing.
+Escrow authority lives in a version-pinned Trustless Work contract. The backend runs the SEP-10 auth, SEP-6 deposit/withdraw and SEP-38 quote flows and wraps Trustless Work's REST/indexer surface. The frontend is presentation and wallet signing: it receives unsigned XDR only for the role the current user or managed account is authorized to perform.
 
 ### Anchor Configuration (provided by the hackathon)
 
@@ -119,16 +127,18 @@ The escrow logic lives on chain (Soroban contract). The backend runs the SEP-10 
 | Identity | SEP-10 wallet signature (no API key, no registration) |
 | Discovery | Endpoints are read from `stellar.toml` |
 
-### Asset Decision: USDC vs USDT0
+### Asset Decision
 
-The MVP is built on the **USDC + SEP-6** rail that works on testnet. USDT0 is live on mainnet (LayerZero OFT) but is not on the hackathon's list of eligible integration partners and has no testnet registration — so it is positioned as a **vision/roadmap layer**, not a required integration.
+The MVP uses the **USDC + SEP-6** rail that works on testnet. Cross-chain assets are outside the product story; Pactly's differentiator is cross-border appointment escrow, not bridge coverage.
 
 ### Test Requirements
-Unit tests are mandatory for the contract: lock+release, on-time cancellation (refund), no-show (transfer to the professional). Integration tests for the backend's SEP flows.
+The completed custom contract keeps its existing unit tests as regression evidence, but it is not the proposed runtime. MVP tests cover the Trustless Work adapter with recorded payloads and testnet integration for initialize, fund, complete, approve, release, dispute and resolve. Reconciliation, wrong-role signatures, duplicate callbacks and the SEP flows are mandatory.
 
 ### Additional Technical Notes
 - Use a current Soroban SDK release; avoid deprecated APIs such as `register_contract`.
 - The wallet's XLM balance and USDC trustline must be set up in the first step of the flow; otherwise the anchor waits in `pending_trust`.
+- Validate the Trustless Work API base URL, API key, network, asset contract, platform address and role addresses at startup.
+- Story 1.8 is a go/no-go gate. The custom contract remains available as reference until the Trustless Work role, fee, signer and lifecycle fit is proven on testnet.
 - Submission requirement: the skill files used must be listed with their paths in the README.
 
 ### Data Model Additions (v1.1)
@@ -142,7 +152,7 @@ The marketplace decision brings four new concepts to the backend:
 | Provider profile | Category, bio, languages, session format, price, deposit rate, cancellation window, verified-session counter |
 | Review | Rating and comment bound to a booking; can only exist for a booking in the `Released` state |
 
-The verified-session counter increases by listening to the contract's `released` event; it cannot be written by hand.
+The verified-session counter increases only after Trustless Work/chain evidence shows an approved appointment was released; it cannot be written by hand.
 
 ### UX Sources
 
@@ -156,16 +166,16 @@ Interface decisions were made during the UX round and live in:
 
 ## 4. Epic List
 
-- **Epic 1 — Foundation and Escrow Contract:** Monorepo skeleton, the Soroban escrow contract and its tests, testnet setup scripts.
+- **Epic 1 — Foundation and Escrow Validation:** Preserve the completed custom-contract implementation as executable requirements, then prove Trustless Work's appointment fit on testnet.
 - **Epic 2 — Anchor Integration and Payment Rail:** SEP-10 auth, SEP-6 deposit/withdraw, SEP-38 quotes; the backend service layer.
 - **Epic 3 — Marketplace and Booking Flow:** Provider profile, discovery page, search and filters, client booking, payment and the two-sided panel.
 - **Epic 4 — Provider Onboarding and Trust:** Provider application, admin approval, verified-session counter and reviews.
 
 ---
 
-## Epic 1 — Foundation and Escrow Contract
+## Epic 1 — Foundation and Escrow Validation
 
-**Goal:** Stand up the skeleton of the project and get the escrow logic working on chain. By the end of this epic, locking and resolving a deposit is verified by tests.
+**Goal:** Stand up the project and validate the escrow runtime. Stories 1.2–1.7 document the completed custom-contract implementation; Story 1.8 decides whether Trustless Work can replace it without unsupported appointment claims.
 
 ### Story 1.1 — Monorepo skeleton and development environment
 
@@ -248,6 +258,20 @@ As a developer, I want to prepare testnet accounts and trustlines with one comma
 3. The contract is deployed to testnet and the contract ID is printed.
 4. The script output is in a form that can be written to a `.env` file.
 
+### Story 1.8 — Trustless Work appointment compatibility
+
+As a product team, we want to prove Trustless Work against Pactly's appointment lifecycle before replacing the custom runtime.
+
+**Acceptance Criteria**
+1. A Trustless Work single-release escrow can be initialized and funded with USDC on testnet.
+2. The funder, service provider, receiver, approver, release signer, platform and dispute resolver assignments are documented and exercised.
+3. Complete → approve → release succeeds end to end.
+4. Dispute → resolve can return or allocate funds according to the signed resolution.
+5. The required signatures and transaction count are measured for wallet and managed-account payment paths.
+6. Fees, indexer visibility, API limits, API authentication, contract revision and audit coverage are recorded.
+7. Deadline-based refund, provider cancellation and no-show support are each classified as on-chain, externally orchestrated or unsupported.
+8. A written go/no-go decision names the exact user-facing claims the integration can support.
+
 ---
 
 ## Epic 2 — Anchor Integration and Payment Rail
@@ -305,8 +329,20 @@ As a developer, I need a backend that holds booking and user data, so the fronte
 1. The provider profile (availability, price, deposit rate, cancellation policy) is stored.
 1a. Marketplace concepts are stored: category, provider application and its state, verified-session counter, review (see §3 Data Model Additions).
 2. Booking records are matched with the on-chain booking_id.
-3. Contract calls can be made from the service layer: `create_booking`, `release`, `cancel_by_professional`, `cancel_by_client` and `claim_no_show`.
-4. Contract events are consumed and the booking state is updated.
+3. Escrow access is isolated behind one interface so the completed custom client can be replaced without changing booking services.
+4. Escrow evidence is consumed idempotently and the booking state is updated only from chain-backed records.
+
+### Story 2.6 — Trustless Work escrow adapter and reconciliation
+
+As a developer, I need one Trustless Work adapter, so Pactly can use audited ecosystem infrastructure without leaking its lifecycle into every feature.
+
+**Acceptance Criteria**
+1. All Trustless Work REST, indexer and XDR operations pass through one adapter.
+2. Unsigned XDR is returned only to the wallet or managed signer assigned to the required Trustless Work role.
+3. Booking money state is reconciled from Trustless Work contract/indexer evidence.
+4. Retries, repeated callbacks and repeated indexer rows are idempotent.
+5. Trustless Work failures are translated to Pactly's stable error envelope; raw implementation text never reaches the user.
+6. The adapter pins and logs the network, API version and contract revision used by the demo.
 
 ---
 
@@ -355,7 +391,7 @@ As a client, I want to pick a slot and confirm my booking by paying the deposit.
 2. After selection, the deposit amount, the total price and the cancellation policy are clearly shown; the deposit amount and the free-cancellation window always appear together.
 3. The wallet is requested only at the payment step (Stellar Wallets Kit); no sign-in is asked for earlier.
 4. The payment method can be chosen: stablecoin or local currency (SEP-6 deposit).
-5. After payment the booking is confirmed and the slot closes.
+5. The primary action reads **Lock with Pactly**. After Trustless Work funding is confirmed, the booking is confirmed and the slot closes.
 6. If the deposit falls outside the anchor limits (below 50 TRY, above 3,000 TRY) the user is warned **before** the payment step.
 7. If the chosen slot is taken by someone else meanwhile, a clear message and the other slots of the same day are shown.
 8. At the payment step the backend opens a hold: it generates the `booking_id`, blocks the slot for 10 minutes and writes the booking in the `pending_lock` state (AD-13).
@@ -373,17 +409,17 @@ As a user, I want to see the state of my booking and my deposit, so I can follow
 4. The on-chain transaction can be verified through an explorer link.
 5. The time left in the free-cancellation window is shown as a countdown.
 
-### Story 3.6 — Session confirmation and cancellation
+### Story 3.6 — Appointment completion, release and resolution
 
-As a user, I want to confirm a session that happened, or cancel when I need to.
+As a user, I want to complete and release an appointment deposit, or open a transparent resolution flow when the appointment does not happen as agreed.
 
 **Acceptance Criteria**
-1. After the session the client can confirm it happened; this calls `release`.
-2. The client can cancel; this calls `cancel_by_client`.
-3. Before cancelling, the outcome implied by the deadline is shown to the user.
-4. The result is reflected in the panel.
-5. The professional can cancel a booking from the provider panel; the client is refunded in full and told the professional cancelled.
-6. Before either party confirms a cancellation, the outcome implied by their role and the deadline is stated in words.
+1. The provider can mark the appointment milestone complete through their Trustless Work role.
+2. The designated approver can approve the completed appointment.
+3. The designated release signer can release an approved, undisputed escrow.
+4. Either party can open the supported Trustless Work dispute flow before release.
+5. The designated dispute resolver can execute the supported allocation, with the result reflected from chain evidence.
+6. Before opening a dispute, Pactly states the policy outcome in words and clearly distinguishes policy guidance from on-chain automatic enforcement.
 
 ### Story 3.7 — Paying the balance before the session
 
@@ -404,7 +440,7 @@ As a team, we want a demo we can show end to end in five minutes.
 1. The README covers the product, installation, running and an architecture summary.
 2. A mermaid architecture diagram is included.
 3. The skill files used are listed with their paths.
-4. The demo scenario is written step by step (therapy session).
+4. The demo scenario is written step by step: a client abroad locks a meaningful deposit for an in-person hair-transplant consultation in Istanbul; therapy and salon listings demonstrate marketplace breadth.
 5. At least one full flow (lock → release → cash out) works on testnet.
 6. At least six approved sample providers across at least two categories are seeded for the marketplace demo.
 
@@ -443,11 +479,11 @@ As an administrator, I want to review pending applications and decide on them.
 As a client, I want to see how many sessions a provider has actually held, so I do not have to trust invented references.
 
 **Acceptance Criteria**
-1. The counter increases only on the contract's `released` event.
+1. The counter increases only after reconciled Trustless Work/chain evidence proves that the appointment milestone was approved and its escrow released.
 2. The counter cannot be written by hand.
 3. The number is shown as "verified sessions" on the provider card and profile.
-4. Cancelled or refunded bookings do not increase the counter; a no-show emits `forfeited`, not `released`, so it never reaches it either.
-5. The professional's own cancellation count is shown beside the verified-session count; it increases only on the contract's `cancelled` event.
+4. Disputed, refunded or policy-forfeited bookings do not increase the counter unless the approved appointment-completion evidence exists.
+5. The professional's own cancellation count is shown beside the verified-session count and is backend-derived unless Story 1.8 identifies a distinct verifiable Trustless Work cancellation transition.
 
 ### Story 4.4 — Reviews
 

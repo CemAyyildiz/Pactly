@@ -3,12 +3,12 @@ name: Pactly
 type: architecture-spine
 purpose: build-substrate
 altitude: feature
-paradigm: 'Chain-authoritative layered services'
-scope: 'The whole Pactly product — Soroban escrow contract, Node.js backend, React frontend'
+paradigm: 'Trustless Work-authoritative layered services'
+scope: 'The whole Pactly product — Trustless Work escrow, Node.js backend, React frontend'
 status: final
 created: '2026-09-16'
-updated: '2026-09-17'
-binds: [FR1-FR22, NFR1-NFR12, Epic1, Epic2, Epic3, Epic4]
+updated: '2026-09-19'
+binds: [FR1-FR26, NFR1-NFR13, Epic1, Epic2, Epic3, Epic4]
 sources:
   - '../../prd.md'
   - '../../ux-designs/ux-Pactly-2026-09-15/DESIGN.md'
@@ -20,22 +20,24 @@ companions: []
 
 ## Design Paradigm
 
-**Chain-authoritative layered services.** The Soroban contract is the sole authority on money state; the backend is a mirror that reflects what it reads from chain; the frontend is presentation and signing.
+**Trustless Work-authoritative layered services.** A version-pinned Trustless Work contract is the sole authority on money state; the backend is a mirror and appointment orchestrator; the frontend is presentation and role-correct signing.
 
 | Layer | Directory | Responsibility |
 |---|---|---|
-| Authority | `contracts/escrow/` | Locking, releasing and refunding the deposit, and emitting those transitions |
-| Mirror + orchestration | `backend/` | Marketplace data, SEP flows, chain event ingestion, booking lifecycle |
+| Authority | Trustless Work contracts | Funding, milestone approval, release, dispute and resolution |
+| Mirror + orchestration | `backend/` | Marketplace data, appointment policy, SEP flows, Trustless Work adapter/reconciliation |
 | Presentation + signing | `frontend/` | Screens, wallet signatures, state display |
-| Tooling | `scripts/` | Testnet funding, trustlines, deployment, seed data |
+| Reference | `contracts/escrow/` | Completed custom appointment-contract fallback; not the proposed MVP runtime |
+| Tooling | `scripts/` | Testnet funding, trustlines, integration checks, seed data |
 
-Dependencies run one way: frontend → backend → contract. The frontend touches the chain only to sign and to read; it never restates the contract's business logic.
+Dependencies run one way: frontend → Pactly backend → Trustless Work API/contract. The frontend signs unsigned XDR for the role it owns; it never restates escrow rules.
 
 ```mermaid
 graph TD
   FE[frontend · React] -->|REST + JWT| BE[backend · Node]
-  FE -->|signed transaction| CH[(Soroban escrow contract)]
-  BE -->|read + event poll| CH
+  FE -->|sign unsigned XDR| TW[(Trustless Work contracts)]
+  BE -->|REST API + indexer query| TWA[Trustless Work API]
+  TWA --> TW
   BE -->|SEP-10/6/12/38| AN[anchor · tr-mock-anchor.fly.dev]
   BE --> DB[(SQLite · Drizzle)]
 ```
@@ -45,14 +47,14 @@ graph TD
 ### AD-1 — The chain is the authority on money state
 
 - **Binds:** all units, FR3, FR6, FR7, FR9, FR11
-- **Prevents:** The backend and the contract silently diverging on deposit state; two units carrying different truths.
-- **Rule:** A booking's money state (`Locked` / `Released` / `Refunded`) is written to the database only after the corresponding contract event is processed. No code path may set that state without an event. On conflict the chain wins and the database is corrected.
+- **Prevents:** The backend and Trustless Work silently diverging on deposit state; two units carrying different truths.
+- **Rule:** A booking's money state is written to the database only after corresponding Trustless Work/chain evidence is reconciled. No code path may settle it from an API request alone. On conflict the chain wins and the database is corrected.
 
-### AD-2 — On-chain authority: every money path is signed by the party it serves
+### AD-2 — Trustless Work roles are explicit and least-privileged
 
-- **Binds:** contract, Story 1.4, 1.5, 3.6
-- **Prevents:** The backend moving money on a user's behalf; a third party closing a booking neither party asked to close; a professional being paid for a session they cancelled themselves; the provider being stuck when a client no-shows.
-- **Rule:** Every deposit function is authorized by the party it serves. `release` and `cancel_by_client` require the client's `require_auth`; `cancel_by_professional` and `claim_no_show` require the professional's. No deposit function is permissionless, and the backend's signing key may call none of them. The clock is a condition inside the signed paths, never the sole decider: it gates when a late cancellation forfeits and when a no-show may be claimed.
+- **Binds:** Stories 1.8, 2.6, 3.6, FR24
+- **Prevents:** Pactly silently becoming the owner of every money action; the wrong user receiving unsigned XDR; product copy promising automatic policy enforcement that the selected role map does not provide.
+- **Rule:** Every booking stores its Trustless Work funder, service provider, receiver, approver, release signer, platform and dispute resolver. The adapter returns unsigned XDR only to the signer assigned to the requested role. Any Pactly-controlled signer is documented as a trust assumption, not described as trustless.
 
 ### AD-3 — A booking carries two independent states
 
@@ -64,7 +66,7 @@ graph TD
 
 - **Binds:** backend, frontend, FR12-FR21
 - **Prevents:** Non-money data (categories, profiles, applications, reviews) being pushed on chain and creating a second record of truth.
-- **Rule:** Categories, provider profiles, applications, availability and reviews live only in the database. The chain holds only the deposit record. The `verified_sessions` counter is no exception: it is stored in the database but only ever incremented by a `released` event (AD-1) and never written by hand. A no-show emits `forfeited`, not `released`, so it never reaches the counter. The provider's own cancellation count is incremented by `cancelled` events on the same terms.
+- **Rule:** Categories, provider profiles, applications, availability, appointment policy and reviews live only in the database. Trustless Work holds escrow roles, funds, milestones and lifecycle flags. `verified_sessions` increments only after chain-backed evidence shows that the appointment milestone was approved and its escrow released. Provider cancellation counts remain backend-derived unless Story 1.8 identifies a distinct verifiable transition.
 
 ### AD-5 — Two separate identities: the Pactly session and the anchor session
 
@@ -72,29 +74,29 @@ graph TD
 - **Prevents:** A unit mistaking the anchor JWT for the Pactly session; sign-in breaking when the anchor changes.
 - **Rule:** Pactly issues its own challenge and its own JWT; authorization is done with that token only. The anchor JWT is a separate identity used only for SEP-6/12/38 calls, stored on the backend, and never handed to the frontend.
 
-### AD-6 — The wallet appears only at payment; the local-currency path uses a managed account
+### AD-6 — The wallet appears only at payment; managed accounts sign only assigned roles
 
 - **Binds:** backend, frontend, FR4, FR15, Story 2.4, 3.4
 - **Prevents:** A sign-in wall in front of discovery and profiles; forcing a wallet on a client who pays in local currency.
-- **Rule:** Discovery, search, profiles and prices require no authentication. When the client pays from a wallet, the deposit is locked from their own account. When they pay in local currency, the backend opens a managed Stellar account on their behalf; the SEP-6 deposit lands there and the escrow is locked from it. The managed account's key is used only until the deposit is locked; release and refund remain bound by AD-2.
+- **Rule:** Discovery, search, profiles and prices require no authentication. A wallet payer funds Trustless Work from their own account. For local currency, a managed Stellar account receives the SEP-6 deposit and may sign only the Trustless Work roles explicitly assigned to that account. Story 1.8 must prove which later approval, release or resolution signatures the no-wallet path requires before it becomes a supported claim.
 
 ### AD-7 — Amounts travel as integers
 
 - **Binds:** all units, NFR5
 - **Prevents:** Rounding drift and two units assuming different decimal precision.
-- **Rule:** On chain and in the API, amounts are integers in the asset's smallest unit (7 decimals for USDC, `i128`). JSON carries them as strings. Decimal conversion and currency formatting happen only in the presentation layer. No fiat equivalent is ever persisted; it is fetched from SEP-38 and stamped with the moment it was quoted.
+- **Rule:** Pactly stores and transports amounts as integers in the asset's smallest unit (7 decimals for USDC), encoded as strings in JSON. If the pinned Trustless Work API requires human-readable decimals, only the adapter converts at the boundary with exact decimal arithmetic; JavaScript floating point is forbidden. No fiat equivalent is persisted; it is fetched from SEP-38 and stamped with the quote time.
 
-### AD-8 — Every contract call goes through one wrapper
+### AD-8 — Every Trustless Work call goes through one adapter
 
 - **Binds:** backend, Story 2.5
 - **Prevents:** Each module building its own RPC client, its own error translation and its own retry logic.
-- **Rule:** All chain access goes through the single client under `backend/src/chain/`. Contract errors are translated to application errors there. No other module calls RPC directly.
+- **Rule:** Trustless Work REST, indexer, unsigned-XDR and direct chain reads go through `backend/src/escrow/trustless-work/`. Pactly services depend on an escrow interface, not vendor endpoints. Errors are translated there; no other module calls the Trustless Work API directly.
 
-### AD-9 — Event processing is cursored and idempotent
+### AD-9 — Escrow reconciliation is cursored and idempotent
 
 - **Binds:** backend, FR11
 - **Prevents:** An event being processed twice and inflating counters; losing events on restart.
-- **Rule:** The event reader keeps the last processed ledger cursor in the database. Every event is deduplicated by `(booking_id, event_type)`; processing the same event again changes nothing. On restart the backend resumes from the cursor.
+- **Rule:** The reconciler stores the last processed Trustless Work indexer/ledger cursor and deduplicates evidence by transaction hash plus lifecycle action. Repeated callbacks, index rows and polling results change nothing. On restart it resumes from the persisted cursor and corrects the database when chain evidence disagrees.
 
 ### AD-10 — Anchor endpoints are discovered, never hard-coded
 
@@ -114,17 +116,17 @@ graph TD
 - **Prevents:** Every endpoint inventing its own role check.
 - **Rule:** There are three roles: `client`, `provider`, `admin`. The role is resolved from the Pactly JWT; the admin list is read from the `PACTLY_ADMIN_WALLETS` environment variable. Authorization is applied as middleware in the route definition, never inside a handler body.
 
-### AD-13 — The slot is held by the backend before the chain call
+### AD-13 — The slot is held before Trustless Work initialization/funding
 
-- **Binds:** backend, frontend, contract call, FR5, Story 3.4
-- **Prevents:** The same slot being sold twice in the gap between signature and event; two units generating `booking_id` in different places.
-- **Rule:** When the client moves to payment the backend opens a *hold*: it generates the `booking_id` (ULID), blocks the slot for 10 minutes and writes the booking in the `pending_lock` state. That state is not an `escrow_state`, so AD-1 still holds. The chain is only ever called with the backend's `booking_id`. On a `locked` event the booking becomes `Locked`; if the hold expires, it is dropped and the slot returns to sale.
+- **Binds:** backend, frontend, escrow initialization/funding, FR5, Story 3.4
+- **Prevents:** The same slot being sold twice in the gap between signature and funding evidence; two units generating `booking_id` in different places.
+- **Rule:** When the client moves to payment the backend opens a *hold*: it generates the `booking_id` (ULID), blocks the slot for 10 minutes and writes `pending_lock`. The same id is written into Trustless Work's engagement identifier. The booking becomes `Locked` only after initialize/fund evidence is reconciled; an expired unsigned hold returns the slot to sale.
 
-### AD-14 — A refund into a managed account is never left stranded
+### AD-14 — Funds returned to a managed account are never left stranded
 
 - **Binds:** backend, FR4, FR7, AD-6
 - **Prevents:** A client who paid in local currency being refunded into an account they cannot reach.
-- **Rule:** If the deposit was locked from a managed account, the refund returns there. On the `refunded` event the backend starts a SEP-6 withdraw for that user and the money goes to the bank account they provided. The managed account's key is used for exactly two jobs: locking the deposit and paying a refund out. A user may instead move the balance to their own wallet.
+- **Rule:** If Trustless Work dispute resolution allocates funds back to a managed payer, chain-backed resolution evidence starts SEP-6 withdraw to the user's bank destination. A user may instead move the balance to their own wallet. The managed key may sign no operation outside the roles and transactions approved by Story 1.8.
 
 ```mermaid
 graph LR
@@ -135,13 +137,13 @@ graph LR
   subgraph backend
     R[routes] --> S[services]
     S --> D[db · drizzle]
-    S --> X[chain client]
+    S --> X[escrow interface]
     S --> N[anchor client]
-    W[event worker] --> X
+    W[reconciler] --> X
     W --> D
   end
   A --> R
-  X --> CT[(escrow contract)]
+  X --> TW[Trustless Work API/indexer/contracts]
 ```
 
 Dependencies are one-way. `services` may not call `routes`; `db` may not call `services`.
@@ -151,15 +153,15 @@ Dependencies are one-way. `services` may not call `routes`; `db` may not call `s
 | Concern | Convention |
 |---|---|
 | Language | All identifiers, comments, commit messages, documentation and user-facing copy are English (NFR11). |
-| Naming | Contract functions and events are `snake_case` (`create_booking`, `released`). TypeScript uses `camelCase`, types `PascalCase`. File names are `kebab-case`. Database tables are plural `snake_case` (`bookings`, `provider_applications`). |
-| Identifiers | `booking_id` is the shared key between chain and database; the backend generates it (ULID) and writes it on chain as `BytesN<16>`. Other records use integer primary keys. |
+| Naming | External Trustless Work field names stay at the adapter edge. Pactly TypeScript uses `camelCase`, types `PascalCase`; file names use `kebab-case`; database tables use plural `snake_case` (`bookings`, `provider_applications`). |
+| Identifiers | `booking_id` is generated by Pactly (ULID) and used as the Trustless Work engagement identifier; Pactly also stores the returned escrow contract id. Other records use integer primary keys. |
 | Dates and times | Stored as UTC epoch seconds (the chain's unit). ISO 8601 in the API. Rendered in the viewer's timezone with English formatting. |
 | Money | AD-7. API shape `{ amount: "6000000000", asset: "USDC" }`; any fiat equivalent is a separate field carrying a `quotedAt` stamp and a currency code. |
 | Error envelope | AD-11. HTTP status plus `{ code, message, details? }`. `code` is a stable machine-readable constant (`SLOT_TAKEN`, `AMOUNT_OUT_OF_RANGE`, `WALLET_REJECTED`). |
-| State mutation | Money state is written only by the event worker (AD-1). Every other write goes through the service layer; routes never write to the database directly. |
+| State mutation | Money state is written only by the escrow reconciler from Trustless Work/chain evidence (AD-1). Every other write goes through the service layer; routes never write to the database directly. |
 | Configuration | All environment variables are read and validated once in `backend/src/config.ts`; the process refuses to start when one is missing. |
 | Logging | Structured JSON on the server; every request carries `booking_id` and `request_id`. Chain transactions always log their hash. |
-| Testing | Contract: unit tests via `cargo test` (Story 1.6, mandatory). Backend: integration tests for the SEP flows and the event worker. Frontend: manual verification of the demo flow instead of a test suite. |
+| Testing | Legacy custom contract: retained `cargo test` regression suite. Runtime: Trustless Work adapter contract tests plus testnet integration for initialize/fund/complete/approve/release/dispute/resolve; SEP integration tests; manual frontend demo verification. |
 
 ## Stack
 
@@ -173,6 +175,7 @@ Dependencies are one-way. `services` may not call `routes`; `db` may not call `s
 | Drizzle ORM | 0.45.2 |
 | better-sqlite3 | 13.0.3 |
 | @stellar/stellar-sdk | 17.1.0 |
+| Trustless Work API / contract | Pinned by Story 1.8; never floating |
 | React | 19.x |
 | Vite | 8.3.0 |
 | @creit.tech/stellar-wallets-kit | 2.6.0 |
@@ -185,13 +188,15 @@ Network: Stellar testnet (`Test SDF Network ; September 2015`). Anchor: `tr-mock
 
 ```text
 pactly/
-  contracts/escrow/      # Soroban contract: Booking, BookingState, create/release/cancel/claim_no_show
+  contracts/escrow/      # completed custom-contract reference/fallback, not proposed MVP runtime
   backend/
     src/
       config.ts          # environment variables, read in one place
       routes/            # HTTP endpoints + authorization middleware (AD-12)
       services/          # booking, profile, application and review logic
-      chain/             # the single contract client (AD-8) + event worker (AD-9)
+      escrow/
+        interface.ts     # vendor-neutral booking escrow boundary
+        trustless-work/  # REST, indexer, XDR adapter + reconciliation (AD-8, AD-9)
       anchor/            # SEP-1/10/6/12/38 client (AD-10)
       db/                # drizzle schema and migrations
   frontend/
@@ -214,7 +219,7 @@ erDiagram
   BOOKING ||--o{ CHAIN_EVENT : mirrors
 ```
 
-`BOOKING` mirrors the on-chain record and also carries what the chain does not: `balance_state` (AD-3), anchor transaction references, and cancellation and confirmation timestamps.
+`BOOKING` mirrors the Trustless Work engagement and also carries what the escrow does not: slot, appointment policy, `balance_state` (AD-3), anchor references, contract id, role addresses and appointment timestamps.
 
 **Runtime environment:** local only (`npm run dev`), with the contract live on testnet. Nothing is deployed; the demo is presented live with a recorded video as backup. Secrets stay in `.env` and never enter the repository.
 
@@ -222,11 +227,11 @@ erDiagram
 
 | Area | Lives in | Governed by |
 |---|---|---|
-| Locking, releasing and refunding the deposit (FR3, FR6, FR7) | `contracts/escrow/` | AD-1, AD-2, AD-7, AD-14 |
+| Funding, approving, releasing and resolving the deposit (FR3, FR6, FR7) | Trustless Work via `backend/src/escrow/trustless-work/` | AD-1, AD-2, AD-7, AD-8, AD-14 |
 | Booking lifecycle, slot holds, balance (FR5, FR22) | `backend/services/` | AD-1, AD-3, AD-13 |
 | Discovery, search, filters, profiles (FR12-FR16) | `backend/services/` + `frontend/pages/` | AD-4, AD-6 |
 | Applications and admin approval (FR18, FR19) | `backend/routes/` + `services/` | AD-4, AD-12 |
-| Verified sessions, reviews (FR20, FR21) | `backend/services/` + event worker | AD-1, AD-4, AD-9 |
+| Verified sessions, reviews (FR20, FR21) | `backend/services/` + escrow reconciler | AD-1, AD-4, AD-9 |
 | Local-currency deposit, withdrawal, quotes (FR4, FR8, Story 2.2-2.4) | `backend/anchor/` | AD-5, AD-6, AD-10 |
 | Identity and session (FR10, FR15) | `backend/routes/auth` + `frontend/wallet/` | AD-5, AD-6, AD-12 |
 | Screens, states, copy (NFR8, NFR9, NFR10, NFR11) | `frontend/` | AD-11, `DESIGN.md`, `EXPERIENCE.md` |
@@ -234,9 +239,9 @@ erDiagram
 ## Deferred
 
 - **Commission and platform revenue.** Not in the PRD; it would touch the contract, so it stays closed until there is a product decision.
-- **Dispute resolution.** What happens when both sides claim to be right is undefined. Today the only rule is the deadline. Arbitration would require a new contract state.
+- **Automatic appointment-policy enforcement.** Deadline refunds, provider cancellations and no-show forfeiture are unsupported product claims until Story 1.8 proves whether they are on-chain, externally orchestrated or unavailable in the pinned Trustless Work revision.
 - **Mainnet migration.** AD-10 should keep it to a home domain and passphrase change; the real migration comes after the hackathon.
-- **The USDT0 rail.** A vision layer in the PRD. The architecture keeps asset selection in one place so it can be added later.
+- **Cross-chain assets.** The MVP story is cross-border escrow over USDC and anchor rails, not bridge coverage.
 - **Additional anchors and currencies.** NFR12 forbids hard-coding TRY, but how a user's anchor gets selected is an open product question.
 - **Deployment and scaling.** Local-only was decided; deployment, persistent disks, backups and monitoring are outside this spine.
 - **Notifications.** No email or push; users read state from the panel.

@@ -2,7 +2,7 @@
 name: Pactly
 description: A trust-backed booking marketplace for appointment-based services — experience spine
 status: final
-updated: 2026-09-17
+updated: 2026-09-19
 sources:
   - "../../prd.md"
   - "./DESIGN.md"
@@ -16,7 +16,7 @@ sources:
 
 One surface: a **responsive web app** (React + TypeScript + Vite, PRD §3). A native mobile app is out of scope and stays a vision item.
 
-No component library is adopted; components are built from `DESIGN.md`. Motion uses Framer Motion.
+No component library is adopted; components are built from `DESIGN.md`. Motion uses Framer Motion. Escrow lifecycle and unsigned transactions come from a version-pinned Trustless Work integration.
 
 There are two user roles and one operator role:
 
@@ -26,7 +26,7 @@ There are two user roles and one operator role:
 
 Authentication is a wallet signature (SEP-10). **The wallet is requested only at payment.** Discovery, search, profile viewing and price comparison need no sign-in.
 
-The product is vertical-agnostic: copy is never written for a single profession. The interface says "session" and addresses the reader as "you". Therapy is only the demo scenario.
+The product is vertical-agnostic: copy is never written for a single profession. The interface says "appointment" and addresses the reader as "you". Hair-transplant clinics, therapy, barbers and beauty salons are demo categories; the hero story is a client abroad reserving an in-person clinic appointment with a meaningful deposit.
 
 The product is built for a global audience: all copy is English, amounts carry their currency code, and no screen assumes a single country. The demo runs on the TRY rail the hackathon anchor provides, but no component hard-codes it.
 
@@ -50,7 +50,7 @@ The product is built for a global audience: all copy is English, amounts carry t
 
 A client can hold bookings with several providers at once; "My bookings" shows them in one list, ordered by date.
 
-→ Composition reference: `mockups/discover.html`, `mockups/booking-and-payment.html`. This spine wins on conflict.
+→ Composition reference: `mockups/discover-v2-marketplace.html`, `mockups/booking-and-payment.html`. This spine wins on conflict.
 
 ## Voice and Tone
 
@@ -59,15 +59,15 @@ Copy is short, direct and in the second person. Implementation vocabulary is nev
 | Do | Don't |
 |---|---|
 | "Your deposit is in escrow." | "Your payment has been successfully transferred to escrow." |
-| "Cancel before Sep 17, 2:00 PM and you get all of it back." | "Cancellation policy: 24 hours." |
-| "Cancel after this and the deposit goes to Dr. Aydın." | "No refunds on late cancellations." |
-| "Dr. Aydın cancelled this session. All 600.00 TRY is on its way back to you." | "Booking cancelled by provider. Refund issued." |
+| "Your booking policy says a cancellation before Sep 17, 2:00 PM returns all 600.00 TRY." | "Cancellation policy: 24 hours." |
+| "This needs resolution. Your booking policy says the clinic keeps the deposit after the deadline." | "No refunds on late cancellations." |
+| "The clinic cancelled. Open resolution to return 600.00 TRY." | "Booking cancelled by provider. Refund issued." |
 | "You're set." | "Transaction successful! 🎉" |
 | "Approve it in your wallet." | "Please confirm the signature request." |
 | "No providers open at that hour. Try:" | "No results found." |
 | "Connection dropped. Your deposit is untouched." | "An error occurred." |
 
-**Crypto words:** "Stellar", "USDC", "wallet", "transaction" and "contract" are used, because trust rests on them. "Smart contract", "Soroban", "trustline", "SEP-6", "ledger" and "hash" are never shown to the user. Say: escrow, contract, deposit account, transaction record.
+**Crypto words:** "Stellar", "Trustless Work", "USDC", "wallet", "transaction" and "contract" are used, because trust rests on them. "Smart contract", "Soroban", "trustline", "SEP-6", "ledger", "XDR", "milestone" and "hash" are never shown to the user. Say: escrow, appointment completed, approve release, needs resolution, deposit account, transaction record.
 
 **Every sentence about the deposit carries two facts:** the amount and the free-cancellation window.
 
@@ -87,10 +87,11 @@ Visual specs live in `DESIGN.md.Components`.
 | Deposit pill | Card, profile, booking, my bookings | Informational, never clickable. Amount and free-cancellation window together. |
 | Balance row | Booking, booking detail | "Balance 1,400.00 TRY · due before the session" — payment state is one of three: unpaid, paid through Pactly, paid in person. The provider can mark a cash payment. |
 | Escrow lane | Booking | Stays visible through the page. On mobile it pins to the bottom carrying the deposit amount. |
-| Lock button | Booking | One tap asks for the wallet signature. After it is pressed the button disables and moves to "Approve it in your wallet". |
+| Lock with Pactly button | Booking | The sole money-commit action. It initializes/funds the Trustless Work escrow and asks for the required wallet signature. While waiting it reads "Approve it in your wallet". |
+| Escrow proof | Booking, confirmation, booking detail | Reads "Escrow powered by Trustless Work on Stellar" with the contract/transaction record. It is secondary to the Pactly action, never the CTA. |
 | Countdown | My bookings, locked confirmation | Time left in the free-cancellation window. Turns `{colors.alert}` under 6 hours. |
 | Proof row | Locked confirmation, booking detail | The shortened transaction id and an explorer link. Opens in a new tab. |
-| State label | My bookings, provider panel | Four states: Locked · Released · Refunded · Transferred. Text always accompanies the colour. |
+| State label | My bookings, provider panel | Funded · Appointment completed · Awaiting approval · Ready to release · Released · In resolution · Resolved. Consumer copy may group technical sub-states, but text always accompanies colour. |
 
 ## State Patterns
 
@@ -103,11 +104,12 @@ Visual specs live in `DESIGN.md.Components`.
 | Wallet rejected | Booking | Information, not a warning: "You didn't sign. The slot is still yours for 10 minutes." |
 | Missing trustline | Booking | The user never sees the term. The flow prepares the account automatically under the copy "Getting your wallet ready". If an extra approval is needed it is asked for in one sentence. |
 | Waiting on a local-currency payment | Booking | Bank details and a reference are shown and can be copied. The state updates by itself; the user never has to refresh. |
-| Waiting on chain confirmation | Locking | The seal is not stamped yet. A "Locking" state and the transaction id are shown; the seal animates once the event confirms. |
+| Waiting on chain confirmation | Locking | The seal is not stamped yet. A "Locking with Pactly" state and transaction id are shown; the seal animates once Trustless Work funding evidence is reconciled. |
 | Amount outside limits | Booking | If the deposit is below 50 TRY or above 3,000 TRY the user is warned **before** the payment step and offered the other payment method. |
 | Slot taken | Booking | If the chosen slot was locked by someone else: "That slot just went." plus the other slots that day. |
 | Connection dropped | Any surface | "Connection dropped. Your deposit is untouched." with a retry action. |
-| Window closed | My bookings | When the free-cancellation window passes, the card takes an `{colors.alert}` border and the consequence of cancelling is written into the copy. |
+| Window closed | My bookings | When the policy window passes, the card takes an `{colors.alert}` border and states the policy consequence. It does not claim the escrow automatically moved; a contested outcome opens resolution. |
+| Needs resolution | Booking detail | State what each side claims, the booking policy guidance and the next signer. Never imply that Pactly has already decided the outcome. |
 | Pending approval (provider) | Provider panel | Until the application is approved the panel is read-only, with a status banner and an expected timeframe on top. |
 
 ## Interaction Primitives
@@ -120,11 +122,11 @@ Visual specs live in `DESIGN.md.Components`.
 
 With `prefers-reduced-motion` all three are off; the seal appears in its final state.
 
-**No undo.** Once a deposit is locked there is no undo; the rule lives in the contract. So the one irreversible action is preceded by a summary: who, when, how much, and the date until which a refund is full.
+**No hidden undo.** Funding places the deposit in Trustless Work escrow. The action is preceded by a summary: provider, appointment, amount, booking-policy deadline, Trustless Work roles and who may approve, release or resolve.
 
-**Cancelling.** Every cancellation states the outcome before it asks for confirmation, and the outcome depends on who is cancelling. For the client: "Cancel now and you get all 600.00 TRY back" or "Cancel now and the deposit goes to Dr. Aydın." For the professional it never depends on the clock — the deposit always goes back — so the confirmation says what that costs them instead: "Cem gets all 600.00 TRY back, and this cancellation will show on your profile."
+**Cancelling and resolution.** Every cancellation states the booking-policy outcome before opening resolution. Policy guidance and chain state are separate: copy says what the policy calls for, then identifies the Trustless Work role that must sign the supported resolution. It never says an automatic refund or forfeiture occurred before chain evidence exists.
 
-**One signature.** A client signs once per booking in their wallet.
+**Signature budget.** Story 1.8 measures the real Trustless Work signature count. The UI may not promise one signature until the chosen role map proves it. Each request explains the human action ("Lock deposit", "Approve release", "Resolve booking"), not the transaction primitive.
 
 ## Accessibility Floor
 
@@ -138,29 +140,29 @@ With `prefers-reduced-motion` all three are off; the seal appears in its final s
 
 ## Key Flows
 
-### 1. Aisha locks her first deposit (client, mobile)
+### 1. Aisha locks a cross-border clinic deposit (client, mobile)
 
-Aisha is 34 and has never used crypto. She is looking for a therapist on her phone.
+Aisha lives abroad and has never used crypto. She is reserving an in-person hair-transplant consultation in Istanbul.
 
-1. She opens Discover and types "psychologist". Suggestions appear; she picks the first.
-2. On the cards, right under the price, she sees the deposit and the cancellation window: `600.00 TRY deposit · full refund up to 24h before`. She compares on that line.
-3. On Dr. Elif Aydın's card she taps the "Fri 2:00 PM" chip; the profile opens with that slot selected.
+1. She opens Discover and types "hair transplant". Suggestions show clinics near her destination.
+2. On each card she sees the appointment price, deposit and policy window before opening checkout.
+3. She picks a consultation slot at Marmara Hair Clinic.
 4. The booking screen shows three lanes: her choices, the deposit in the middle, the provider's commitment on the other side.
 5. She picks "Local currency" because she has no wallet. Bank details and a reference appear.
 6. She pays. The screen advances on its own; Aisha never refreshes.
-7. **The climax:** the two colours meet in the middle and the seal stamps down: "You're set." The screen states that 600.00 TRY is in escrow, that cancelling before Sep 17 at 2:00 PM returns all of it, and shows the transaction's record on chain.
+7. **The climax:** she taps **Lock with Pactly**. The two colours meet and the seal stamps down: "You're set." The screen states the locked amount and policy window, then shows "Escrow powered by Trustless Work on Stellar" with the transaction record.
 8. She taps "Add to calendar" and leaves. She never created an account.
 
-### 2. Cem cancels in time (client, before the window closes)
+### 2. Cem opens resolution after cancelling
 
 1. He opens "My bookings". The card shows a countdown: `Free cancellation · 2d 19h`.
-2. He taps "Cancel". The screen states the outcome: "Cancel now and you get all 600.00 TRY back."
-3. He confirms and signs once in his wallet.
-4. The state becomes "Refunded" and the refund's record appears on the card.
+2. He taps "Cancel". The screen states: "Your booking policy says cancelling now returns all 600.00 TRY."
+3. He opens resolution and signs the role-correct Trustless Work transaction.
+4. The card shows "In resolution" until chain-backed resolution evidence arrives, then shows the final allocation and record.
 
 ### 3. Dr. Elif cashes out (provider, desktop)
 
-1. After the session the client confirms it happened and the deposit is released.
+1. After the appointment the provider records completion, the designated approver approves it, and the release signer releases the deposit.
 2. In her panel Dr. Elif sees the "Released" state and her withdrawable total.
 3. She taps "Cash out". Identity verification is asked once and never repeated.
 4. The amount is sent to her bank account; the state moves to "On its way" and then "Landed".
@@ -177,7 +179,7 @@ Aisha is 34 and has never used crypto. She is looking for a therapist on her pho
 
 The development budget is about two days. Not every surface will land at once; the order is:
 
-1. **Non-negotiable:** the Discover list (it can ship without search), provider profile, booking and payment, locked confirmation, My bookings, provider panel, cash out.
+1. **Non-negotiable:** Trustless Work compatibility, the Discover list (it can ship without search), provider profile, **Lock with Pactly**, locked confirmation with proof, My bookings, provider panel and cash out.
 2. **Next:** search and autocomplete, the filter rail, the application form and admin approval (for the demo, providers can be seeded pre-approved).
 3. **Vision:** writing reviews, editing the provider profile, a native mobile app, advanced filters.
 

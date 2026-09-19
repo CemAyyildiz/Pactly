@@ -1,10 +1,10 @@
-# Epic 1 Context: Foundation and Escrow Contract
+# Epic 1 Context: Foundation and Escrow Validation
 
 <!-- Generated from planning artifacts. Regenerate with compile-epic-context if planning docs change. -->
 
 ## Goal
 
-Stand up the project skeleton and get the escrow logic working on chain. By the end of this epic a deposit can be locked, released, refunded and forfeited, and every one of those paths is proven by unit tests. This is the foundation the whole product rests on: the contract — not the backend, not the platform — is the sole authority on money state, so everything built later mirrors what happens here.
+Stand up the project skeleton and validate the escrow runtime. Stories 1.2–1.7 preserve the completed custom-contract implementation as executable appointment requirements and fallback evidence. Story 1.8 proves whether a version-pinned Trustless Work integration can become the MVP runtime without unsupported product claims.
 
 ## Stories
 
@@ -15,6 +15,14 @@ Stand up the project skeleton and get the escrow logic working on chain. By the 
 - Story 1.5: Cancelling and settling a booking
 - Story 1.6: Contract unit tests
 - Story 1.7: Testnet setup scripts
+- Story 1.8: Trustless Work appointment compatibility
+
+## Course Correction — 2026-09-19
+
+- The custom contract remains in the repository, with its tests, but is not the proposed MVP runtime.
+- Trustless Work is the preferred runtime only after Story 1.8 verifies testnet funding, role mapping, complete/approve/release, dispute/resolve, fees, signatures, indexer evidence and audit/version scope.
+- Deadline refunds, provider cancellations and no-show forfeiture are not described as automatic Trustless Work behavior unless Story 1.8 proves them.
+- "Lock with Pactly" is the product interaction; "Escrow powered by Trustless Work on Stellar" is the proof layer.
 
 ## Requirements & Constraints
 
@@ -57,6 +65,6 @@ Stand up the project skeleton and get the escrow logic working on chain. By the 
 - Story 1.2 defines the data model every later contract story builds on; 1.3–1.5 extend it and must not redefine it. The settlement rework does not change the `Booking` struct or the state enum.
 - Story 1.6 tests the behaviour of 1.3–1.5 and should follow them.
 - Story 1.7 needs a deployable contract, so it lands after 1.3–1.5 compile.
-- Epic 2 (backend, event worker) consumes all five money events defined here — `locked`, `released`, `refunded`, `cancelled`, `forfeited`, of which the last four settle a booking; changing an event's name or payload after this epic breaks the worker, the verified-session counter (Epic 4) and the provider cancellation counter.
+- The legacy custom adapter consumes the five custom events defined here. The proposed runtime instead uses the vendor-neutral escrow interface and Trustless Work reconciler introduced by Stories 1.8 and 2.6.
 - The backend generates `booking_id` and holds a slot before calling the contract, so the contract must accept an externally supplied id.
 - A reverted earlier attempt at Story 1.5 built against the superseded clock-only model is preserved at `_bmad-output/implementation-artifacts/spec-1-5-attempted-implementation.patch`. Useful only as reference for the parts that survive — transfer/write/emit order, storage and event reuse, the terminal-state guard and test scaffolding. `resolve_cancel` no longer exists.
