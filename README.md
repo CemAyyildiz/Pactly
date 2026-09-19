@@ -67,7 +67,7 @@ Full set with rationale: [`ARCHITECTURE-SPINE.md`](_bmad-output/planning-artifac
 contracts/escrow/   # Soroban escrow contract (Rust)
 backend/            # Node.js + TypeScript: marketplace, SEP integrations, event worker
 frontend/           # React + TypeScript + Vite
-scripts/            # testnet funding, trustlines, deployment, seed data
+scripts/            # testnet funding, trustlines, deployment (npm run setup:testnet)
 ```
 
 ## Setup
@@ -80,7 +80,7 @@ scripts/            # testnet funding, trustlines, deployment, seed data
 | npm | 10 or newer | workspaces |
 | Rust (rustup) | 1.97.1, pinned in `rust-toolchain.toml` (rustup installs it on first cargo run) | escrow contract |
 | `wasm32v1-none` target | `rustup target add wasm32v1-none` | contract wasm build |
-| Stellar CLI | current release — [install guide](https://developers.stellar.org/docs/tools/cli/install-cli) | testnet deployment only (Story 1.7); not needed to run the app or the contract tests |
+| Stellar CLI | current release — [install guide](https://developers.stellar.org/docs/tools/cli/install-cli) | `npm run setup:testnet`'s deploy step only; not needed to run the app or the contract tests |
 
 ### Install and run
 
@@ -104,7 +104,7 @@ npm run contracts:test      # cargo test in contracts/escrow
 npm run contracts:build     # release wasm → contracts/escrow/target/wasm32v1-none/release/pactly_escrow.wasm
 ```
 
-`npm run setup:testnet` (test accounts, trustlines, contract deploy → `.env`) arrives with Story 1.7; see [`scripts/README.md`](scripts/README.md).
+`npm run --silent setup:testnet` (test accounts, trustlines, contract deploy → `.env` lines) — see [`scripts/README.md`](scripts/README.md).
 
 ## Stack
 
