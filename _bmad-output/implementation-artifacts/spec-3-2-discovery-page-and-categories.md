@@ -2,8 +2,9 @@
 title: 'Story 3.2 — Discovery page and categories'
 type: 'feature'
 created: '2026-09-19'
-status: 'ready-for-dev'
+status: 'done'
 review_loop_iteration: 0
+baseline_revision: 'a2f5f7d7aeafb2155446c4224e21ac4382869d0d'
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
@@ -90,6 +91,17 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-19 — Review pass (2 katman, Sonnet: Verification Gap + Edge Case Hunter)
+- verdicts: 7 bulgu — high 0, medium 3, low 4, false 0, maybe-false 0
+- findings:
+  - `[low]` `[patch]` V1 Aynı en erken slota sahip iki sağlayıcının isim sıralaması testsiz — test eklendi.
+  - `[medium]` `[patch]` V2 Kategoriler yüklenmeden `?category=` doğrulanıyor, önce filtresiz liste görünüyor (= E3).
+  - `[low]` `[reject]` E1 `limit` 0 verilirse ilk slot yine tutuluyor — tek çağıran 3 geçiyor, günlük kullanımda oluşmaz.
+  - `[medium]` `[patch]` E2 `/categories` hata verirse kenar çubuğu sessizce "All providers (0)" gösteriyor — tekrar dene butonlu hata bandı.
+  - `[medium]` `[patch]` E3 = V2 — kategoriler yüklenene kadar sorgu bekletiliyor, iskelet gösteriliyor.
+  - `[low]` `[patch]` E4 "All" seçimi diğer URL parametrelerini siliyor — yalnızca `category` siliniyor.
+  - `[low]` `[patch]` E5 Nokta ile biten her kelime atlanıyor, monogram yanlış ya da boş — yalnızca baştaki ünvan atlanıyor, boş kalırsa ismin ilk harfi.
+
 ## Design Notes
 
 - **Why the backend sorts.** "Soonest open slot" needs every provider's earliest slot. The backend already has it, and sorting there keeps the order identical for Story 3.3's filtered lists.
@@ -103,3 +115,17 @@ deferred: []
 
 **Manual checks:**
 - Seed, run `npm run dev`, open `/`. Cards show, the category rail has counts, and a category click updates the URL while back restores it. Clicking a slot chip opens the profile with that slot selected. At 375px width the layout is a single column. Tabbing reaches the tabs, cards and slot chips with a visible focus ring.
+
+## Auto Run Result
+
+Status: done
+
+**Özet:** `GET /providers[?category=]` onaylı sağlayıcıları kart verisiyle döndürüyor: en erken 3 slot tek sorguda geliyor, sıralama en yakın slota göre, slotu olmayanlar sonda. `GET /categories` onaylı sağlayıcı sayılarını da veriyor. `/` artık Discover sayfası: URL'de tutulan kategori sekmeleri ya da kenar çubuğu, DESIGN.md'deki sağlayıcı kartları (monogram, rozetler, depozito pill'i, slotlar), 6 iskelet kart, boş kategori ve bağlantı hatası durumları.
+
+**Commit'ler:** `862828b` spec, `c182ad6` feat (worktree'de yazıldı, `main` üzerine rebase edildi), fix(3.2), chore(3.2).
+
+**Review:** 7 bulgu (medium 3, low 4). Patch: V1, V2, E2, E3, E4, E5. Reddedilen: E1 (low). Takip review önerisi: false.
+
+**Doğrulama:** backend typecheck ve build temiz, test 239/239; frontend typecheck ve build temiz. Route'lar çalışan bir backend üzerinde denendi. Tarayıcıda etkileşimli QA yapılmadı.
+
+**Kalan riskler:** Frontend'de test runner yok. 375px genişlikte yerleşim ve klavye odağı yalnızca kod incelemesiyle doğrulandı.
