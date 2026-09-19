@@ -19,6 +19,7 @@ import {
   getProviderProfileByWallet,
   insertProviderProfile,
   listApprovedProviderProfiles,
+  listApprovedProviderProfilesForDiscover,
   updateProviderProfileRules,
   type ProviderProfileRow,
 } from "../db/providerProfiles.js";
@@ -430,17 +431,48 @@ export function buildProviderCardView(
   };
 }
 
-/** `GET /providers[?category=<slug>]`: approved providers as card objects
- * (AC1 -- enforced by `listApprovedProviderProfiles`, never by filtering
- * here), sorted by soonest open slot ascending; a provider with no open
- * slot sorts last, and ties (including "both slotless") break by
- * `displayName` (the spec's own "Always" sort rule). An unknown category
- * slug returns an empty list, never an error (the I/O matrix's own row) --
- * this is the one place a slug is resolved to a category id for the
- * list's own filter. */
+/** Story 3.3's own availability windows (the I/O matrix's "Availability"
+ * row): "at least one open future slot within 24h/7 days". */
+const AVAILABILITY_WINDOW_SECONDS: Record<"24h" | "week", number> = {
+  "24h": 24 * 60 * 60,
+  week: 7 * 24 * 60 * 60,
+};
+
+export interface DiscoverFilters {
+  /** Trimmed search text (AC1) -- matched against display name, title,
+   * bio and category name, case-insensitively, by
+   * `listApprovedProviderProfilesForDiscover`. */
+  query?: string;
+  /** Raw `sessionFormat` values (AC3) -- a profile matches if its own
+   * `sessionFormat` is any one of these (OR, not AND: "the formats
+   * present" is a multi-select). */
+  formats?: string[];
+  /** Integer strings, smallest unit (AD-7) -- compared as `BigInt` here,
+   * never pushed into SQL (see `listApprovedProviderProfilesForDiscover`'s
+   * own comment on why). */
+  minPriceAmount?: string;
+  maxPriceAmount?: string;
+  /** Basis points, inclusive upper bound (AC3: "deposit rate (max %)"). */
+  maxDepositRateBps?: number;
+  /** `undefined` means "Any" -- the spec's own default, so no filtering at
+   * all (the I/O matrix never mentions filtering out slotless providers
+   * unless a window is actually chosen). */
+  availability?: "24h" | "week";
+}
+
+/** `GET /providers[?category=<slug>&...]`: approved providers as card
+ * objects (AC1 -- enforced by `listApprovedProviderProfilesForDiscover`,
+ * never by filtering here), sorted by soonest open slot ascending; a
+ * provider with no open slot sorts last, and ties (including "both
+ * slotless") break by `displayName` (the spec's own "Always" sort rule,
+ * unchanged from Story 3.2 -- Story 3.3 filters the input, never the
+ * order). An unknown category slug returns an empty list, never an error
+ * (the I/O matrix's own row) -- this is the one place a slug is resolved
+ * to a category id for the list's own filter. */
 export async function listDiscoverProviders(
   db: Db,
   categorySlug?: string,
+  filters: DiscoverFilters = {},
   now: number = Math.floor(Date.now() / 1000),
 ): Promise<ProviderCardView[]> {
   let categoryId: string | undefined;
@@ -452,7 +484,33 @@ export async function listDiscoverProviders(
     categoryId = category.id;
   }
 
-  const profiles = await listApprovedProviderProfiles(db, categoryId);
+  let profiles = await listApprovedProviderProfilesForDiscover(db, {
+    categoryId,
+    query: filters.query,
+    formats: filters.formats,
+  });
+  if (profiles.length === 0) {
+    return [];
+  }
+
+  // Money filters: BigInt comparisons over the SQL layer's already-
+  // text/category/format-filtered rows (the I/O matrix's own "Price range"
+  // and "Deposit cap" rows) -- app.ts has already dropped a non-integer or
+  // out-of-bounds param, so every value reaching here is trusted.
+  if (filters.minPriceAmount !== undefined || filters.maxPriceAmount !== undefined) {
+    const min = filters.minPriceAmount !== undefined ? BigInt(filters.minPriceAmount) : undefined;
+    const max = filters.maxPriceAmount !== undefined ? BigInt(filters.maxPriceAmount) : undefined;
+    profiles = profiles.filter((profile) => {
+      const price = BigInt(profile.priceAmount);
+      if (min !== undefined && price < min) return false;
+      if (max !== undefined && price > max) return false;
+      return true;
+    });
+  }
+  if (filters.maxDepositRateBps !== undefined) {
+    const maxDepositRateBps = filters.maxDepositRateBps;
+    profiles = profiles.filter((profile) => profile.depositRateBps <= maxDepositRateBps);
+  }
   if (profiles.length === 0) {
     return [];
   }
@@ -464,6 +522,18 @@ export async function listDiscoverProviders(
     profiles.map((profile) => profile.id),
     { now, limit: CARD_EARLIEST_SLOTS_LIMIT },
   );
+
+  // Availability: a provider's *earliest* future slot is, by definition,
+  // its closest one to `now` -- so "at least one open slot within the
+  // window" reduces to just checking that single earliest value, never a
+  // second query over every future slot.
+  if (filters.availability !== undefined) {
+    const windowSeconds = AVAILABILITY_WINDOW_SECONDS[filters.availability];
+    profiles = profiles.filter((profile) => {
+      const earliest = earliestSlotsByProvider.get(profile.id)?.[0];
+      return earliest !== undefined && earliest <= now + windowSeconds;
+    });
+  }
 
   const cards = profiles.map((profile) => {
     const category = categoryById.get(profile.categoryId);
@@ -517,4 +587,89 @@ export async function listCategoriesWithProviderCounts(db: Db): Promise<Category
     slug: category.slug,
     providerCount: counts.get(category.id) ?? 0,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Story 3.3: search suggestions.
+// ---------------------------------------------------------------------------
+
+export type DiscoverSuggestionKind = "category" | "service" | "provider";
+
+export interface DiscoverSuggestion {
+  kind: DiscoverSuggestionKind;
+  label: string;
+  value: string;
+  /** Approved providers picking this suggestion would return (the I/O
+   * matrix's own "Suggestions" row) -- for a category, its
+   * `providerCount`; for a service or provider name, how many approved
+   * profiles share that exact title/display name. */
+  count: number;
+}
+
+/** `q` shorter than this returns an empty list outright (the I/O matrix's
+ * own "Suggestions" row) -- a single character is too broad to be useful
+ * and would otherwise suggest almost everything. */
+const MIN_SUGGESTION_QUERY_LENGTH = 2;
+/** At most this many suggestions, across all three kinds combined (the
+ * I/O matrix's own "Suggestions" row). */
+const MAX_SUGGESTIONS = 8;
+
+/** `GET /providers/suggest?q=`: up to {@link MAX_SUGGESTIONS} suggestions
+ * grouped into categories, services (distinct provider titles) and
+ * providers (display names), each carrying the approved-provider count
+ * picking it would return (AC2). Matching is case-insensitive substring,
+ * the same "good enough at demo scale" rule
+ * `listApprovedProviderProfilesForDiscover` follows -- no separate search
+ * index. A `q` shorter than two characters is an empty list, never an
+ * error. */
+export async function suggestDiscoverQueries(db: Db, rawQuery: string): Promise<DiscoverSuggestion[]> {
+  const query = rawQuery.trim();
+  if (query.length < MIN_SUGGESTION_QUERY_LENGTH) {
+    return [];
+  }
+  const needle = query.toLowerCase();
+
+  const [allCategories, categoryCounts, approvedProfiles] = await Promise.all([
+    listCategories(db),
+    countApprovedProvidersByCategory(db),
+    listApprovedProviderProfilesForDiscover(db),
+  ]);
+
+  const categorySuggestions: DiscoverSuggestion[] = allCategories
+    .filter((category) => category.name.toLowerCase().includes(needle))
+    .map((category) => ({
+      kind: "category",
+      label: category.name,
+      value: category.slug,
+      count: categoryCounts.get(category.id) ?? 0,
+    }));
+
+  // Grouped by the exact string so "count" reflects how many approved
+  // profiles that specific title/name actually covers, not a broader
+  // substring match -- a suggestion is a single concrete pick, not another
+  // free-text search.
+  const titleCounts = new Map<string, number>();
+  const nameCounts = new Map<string, number>();
+  for (const profile of approvedProfiles) {
+    if (profile.title.toLowerCase().includes(needle)) {
+      titleCounts.set(profile.title, (titleCounts.get(profile.title) ?? 0) + 1);
+    }
+    if (profile.displayName.toLowerCase().includes(needle)) {
+      nameCounts.set(profile.displayName, (nameCounts.get(profile.displayName) ?? 0) + 1);
+    }
+  }
+  const serviceSuggestions: DiscoverSuggestion[] = [...titleCounts.entries()].map(([title, count]) => ({
+    kind: "service",
+    label: title,
+    value: title,
+    count,
+  }));
+  const providerSuggestions: DiscoverSuggestion[] = [...nameCounts.entries()].map(([name, count]) => ({
+    kind: "provider",
+    label: name,
+    value: name,
+    count,
+  }));
+
+  return [...categorySuggestions, ...serviceSuggestions, ...providerSuggestions].slice(0, MAX_SUGGESTIONS);
 }

@@ -22,10 +22,17 @@ export function openTestDatabase(): OpenDatabaseResult {
 
 export { closeDatabase };
 
-export async function seedCategory(result: OpenDatabaseResult, id: string = randomUUID()): Promise<string> {
+export async function seedCategory(
+  result: OpenDatabaseResult,
+  id: string = randomUUID(),
+  /** Story 3.3: category name search needs a distinctive name to search
+   * for -- defaults to "Consulting" (every existing caller's assumption)
+   * so this stays a purely additive change. */
+  name: string = "Consulting",
+): Promise<string> {
   await result.db.insert(categories).values({
     id,
-    name: "Consulting",
+    name,
     slug: `consulting-${id}`,
   });
   return id;
@@ -38,6 +45,10 @@ export interface SeedProviderProfileOptions {
   displayName?: string;
   title?: string;
   location?: string;
+  /** Story 3.3: search covers this too -- most tests never need it, so it
+   * defaults to `''` (the schema's own default), same as every other
+   * unspecified profile column here. */
+  bio?: string;
   sessionFormat?: string;
   sessionLengthMinutes?: number;
   priceAmount?: string;
@@ -63,6 +74,7 @@ export async function seedProviderProfile(
     displayName: options.displayName ?? "Test Provider",
     title: options.title ?? "Licensed Professional",
     location: options.location ?? "Istanbul",
+    bio: options.bio ?? "",
     sessionFormat: options.sessionFormat ?? "video",
     sessionLengthMinutes: options.sessionLengthMinutes ?? 50,
     priceAmount: options.priceAmount ?? "10000000",

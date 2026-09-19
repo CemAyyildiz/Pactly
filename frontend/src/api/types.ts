@@ -67,3 +67,34 @@ export interface ProviderCard {
 export interface ProvidersResponse {
   providers: ProviderCard[];
 }
+
+/** `GET /providers/suggest?q=`'s Story 3.3 shape -- mirrors
+ * `backend/src/services/profile.ts`'s `DiscoverSuggestion` exactly. */
+export interface DiscoverSuggestion {
+  kind: "category" | "service" | "provider";
+  label: string;
+  value: string;
+  count: number;
+}
+
+export interface SuggestResponse {
+  suggestions: DiscoverSuggestion[];
+}
+
+/** Story 3.3's own availability window values (`?when=`) -- `undefined`
+ * means "Any", the spec's own default (no filtering at all). */
+export type DiscoverAvailability = "24h" | "week";
+
+/** Every Story 3.3 filter `useDiscoverProviders` turns into `GET
+ * /providers`'s query string, alongside 3.2's own `category`. Mirrors
+ * `backend/src/services/profile.ts`'s `DiscoverFilters` (plus `category`,
+ * which the backend takes as a separate positional argument). */
+export interface DiscoverFiltersParams {
+  category?: string;
+  q?: string;
+  formats?: string[];
+  minPrice?: string;
+  maxPrice?: string;
+  maxDepositBps?: number;
+  when?: DiscoverAvailability;
+}

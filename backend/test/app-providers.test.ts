@@ -109,6 +109,172 @@ test("GET /providers?category=<unknown-slug> gives 200 with an empty list, never
   }
 });
 
+// ---------------------------------------------------------------------------
+// Story 3.3: search and filters, at the HTTP boundary.
+// ---------------------------------------------------------------------------
+
+test("GET /providers?q= filters by text search", async () => {
+  const result = openTestDatabase();
+  try {
+    const match = await seedProviderProfile(result, { isApproved: true, displayName: "Marmara Hair Clinic" });
+    await seedProviderProfile(result, { isApproved: true, displayName: "Northside Barber" });
+    const app = createApp(result.db);
+    const response = await app.request("/providers?q=hair");
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { providers: Array<{ id: string }> };
+    assert.deepEqual(
+      body.providers.map((p) => p.id),
+      [match],
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("GET /providers?format=a&format=b matches either format (repeated query param)", async () => {
+  const result = openTestDatabase();
+  try {
+    const inPerson = await seedProviderProfile(result, { isApproved: true, sessionFormat: "in_person" });
+    const video = await seedProviderProfile(result, { isApproved: true, sessionFormat: "video" });
+    await seedProviderProfile(result, { isApproved: true, sessionFormat: "phone" });
+    const app = createApp(result.db);
+    const response = await app.request("/providers?format=in_person&format=video");
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { providers: Array<{ id: string }> };
+    assert.deepEqual(
+      body.providers.map((p) => p.id).sort(),
+      [inPerson, video].sort(),
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("GET /providers?minPrice=&maxPrice= filters the price range", async () => {
+  const result = openTestDatabase();
+  try {
+    const mid = await seedProviderProfile(result, { isApproved: true, priceAmount: "50000000" });
+    await seedProviderProfile(result, { isApproved: true, priceAmount: "5000000" });
+    await seedProviderProfile(result, { isApproved: true, priceAmount: "500000000" });
+    const app = createApp(result.db);
+    const response = await app.request("/providers?minPrice=10000000&maxPrice=100000000");
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { providers: Array<{ id: string }> };
+    assert.deepEqual(
+      body.providers.map((p) => p.id),
+      [mid],
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("GET /providers?minPrice=not-a-number ignores the invalid param rather than erroring", async () => {
+  const result = openTestDatabase();
+  try {
+    const id = await seedProviderProfile(result, { isApproved: true, priceAmount: "5000000" });
+    const app = createApp(result.db);
+    const response = await app.request("/providers?minPrice=not-a-number");
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { providers: Array<{ id: string }> };
+    assert.deepEqual(
+      body.providers.map((p) => p.id),
+      [id],
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("GET /providers?maxDepositBps= filters the deposit cap, ignoring an out-of-bounds value", async () => {
+  const result = openTestDatabase();
+  try {
+    const low = await seedProviderProfile(result, { isApproved: true, depositRateBps: 2000 });
+    const high = await seedProviderProfile(result, { isApproved: true, depositRateBps: 5000 });
+    const app = createApp(result.db);
+
+    const filtered = await app.request("/providers?maxDepositBps=3000");
+    const filteredBody = (await filtered.json()) as { providers: Array<{ id: string }> };
+    assert.deepEqual(
+      filteredBody.providers.map((p) => p.id),
+      [low],
+    );
+
+    // Out of the 1-10000 bounds: ignored, both providers come back.
+    const outOfBounds = await app.request("/providers?maxDepositBps=99999");
+    const outOfBoundsBody = (await outOfBounds.json()) as { providers: Array<{ id: string }> };
+    assert.deepEqual(
+      outOfBoundsBody.providers.map((p) => p.id).sort(),
+      [low, high].sort(),
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("GET /providers?when=24h / ?when=week filter availability; an unknown value is ignored", async () => {
+  const result = openTestDatabase();
+  try {
+    const soon = await seedProviderProfile(result, { isApproved: true, displayName: "Soon" });
+    const farOut = await seedProviderProfile(result, { isApproved: true, displayName: "Far Out" });
+    const now = Math.floor(Date.now() / 1000);
+    await replaceFutureSlots(result.db, soon, [now + 3600], now);
+    await replaceFutureSlots(result.db, farOut, [now + 20 * 24 * 60 * 60], now);
+    const app = createApp(result.db);
+
+    const dayResponse = await app.request("/providers?when=24h");
+    const dayBody = (await dayResponse.json()) as { providers: Array<{ id: string }> };
+    assert.deepEqual(
+      dayBody.providers.map((p) => p.id),
+      [soon],
+    );
+
+    const unknownResponse = await app.request("/providers?when=nonsense");
+    const unknownBody = (await unknownResponse.json()) as { providers: Array<{ id: string }> };
+    assert.deepEqual(
+      unknownBody.providers.map((p) => p.id).sort(),
+      [soon, farOut].sort(),
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("GET /providers/suggest?q= gives suggestions with counts; a short q gives an empty list", async () => {
+  const result = openTestDatabase();
+  try {
+    await seedProviderProfile(result, { isApproved: true, displayName: "Marmara Hair Clinic", title: "Hair transplant" });
+    const app = createApp(result.db);
+
+    const short = await app.request("/providers/suggest?q=h");
+    assert.equal(short.status, 200);
+    const shortBody = (await short.json()) as { suggestions: unknown[] };
+    assert.deepEqual(shortBody.suggestions, []);
+
+    const response = await app.request("/providers/suggest?q=hair");
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { suggestions: Array<{ kind: string; label: string; count: number }> };
+    assert.ok(body.suggestions.length > 0);
+    assert.ok(body.suggestions.every((s) => typeof s.count === "number"));
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("GET /providers/suggest is not captured by /providers/:id", async () => {
+  const result = openTestDatabase();
+  try {
+    const app = createApp(result.db);
+    const response = await app.request("/providers/suggest?q=hair");
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as Record<string, unknown>;
+    assert.ok("suggestions" in body);
+    assert.ok(!("code" in body));
+  } finally {
+    closeDatabase(result);
+  }
+});
+
 test("GET /providers/:id returns the public view for an approved provider, with the deposit pill's two facts", async () => {
   const result = openTestDatabase();
   try {

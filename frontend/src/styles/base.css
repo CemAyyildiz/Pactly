@@ -436,6 +436,12 @@ button {
   }
 }
 
+.discover__rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
 .discover__results {
   margin-top: var(--space-4);
 }
@@ -444,6 +450,330 @@ button {
   .discover__results {
     margin-top: 0;
   }
+}
+
+/* ---------------------------------------------------------------------
+ * Discover search row -- the search box plus the mobile "Filters" trigger.
+ * --------------------------------------------------------------------- */
+
+.discover__search-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  margin-bottom: var(--space-4);
+}
+
+.discover__search-row .search-box {
+  flex: 1;
+  min-width: 0;
+}
+
+.discover__filters-trigger {
+  flex: none;
+  white-space: nowrap;
+}
+
+@media (min-width: 1024px) {
+  .discover__filters-trigger {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------------
+ * Search box -- DESIGN.md Components: the suggestions dropdown is a
+ * transient layer, so it uses the "offset solid block" elevation (4px 4px
+ * 0), never a blurred shadow.
+ * --------------------------------------------------------------------- */
+
+.search-box {
+  position: relative;
+}
+
+.search-box__field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 4px 4px 4px 14px;
+  border: 1.5px solid var(--color-ink);
+  border-radius: var(--radius-md);
+  background: var(--color-card);
+  color: var(--color-faint);
+}
+
+.search-box__field svg {
+  flex: none;
+}
+
+.search-box__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--text-16);
+  color: var(--color-ink);
+}
+
+.search-box__input::-webkit-search-cancel-button {
+  display: none;
+}
+
+/* At least 44x44 (the Accessibility Floor's touch-target minimum), even
+ * though the glyph itself is small -- the field's own 4px padding plus
+ * this button's own size keeps the row from looking oversized while still
+ * giving the clear action a full touch target. */
+.search-box__clear {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-faint);
+  font-size: var(--text-18);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.search-box__suggestions {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--color-card);
+  border: 1.5px solid var(--color-ink);
+  border-radius: var(--radius-md);
+  box-shadow: 4px 4px 0 var(--color-ink);
+  z-index: 20;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: var(--space-2) 0;
+}
+
+.search-box__suggestions-empty {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-faint);
+  font-size: var(--text-14);
+}
+
+.search-box__group {
+  padding: var(--space-1) 0;
+}
+
+.search-box__group-label {
+  margin: 0;
+  padding: 6px var(--space-4);
+  font-family: var(--font-label);
+  font-size: var(--text-12);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.search-box__suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 44px;
+  padding: 8px var(--space-4);
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--text-14);
+  color: var(--color-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-box__suggestion--active,
+.search-box__suggestion:hover {
+  background: var(--color-you-soft);
+}
+
+.search-box__suggestion-count {
+  flex: none;
+  color: var(--color-faint);
+  font-size: var(--text-12);
+}
+
+/* ---------------------------------------------------------------------
+ * Filter rail / sheet -- DESIGN.md's four Discover v2 filter sections
+ * (When / Session type / Service price / Deposit).
+ * --------------------------------------------------------------------- */
+
+.filter-rail {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .filter-rail {
+    display: block;
+    border-top: 1.5px solid var(--color-line);
+    padding-top: var(--space-4);
+  }
+}
+
+.filter-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.filter-field__heading {
+  font-family: var(--font-label);
+  font-size: var(--text-12);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+  margin: 0 0 var(--space-2);
+}
+
+.filter-field__radio-group,
+.filter-field__checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.filter-field__radio {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1.5px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-card);
+  color: var(--color-ink);
+  font-size: var(--text-14);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.filter-field__radio--selected {
+  background: var(--color-ink);
+  color: var(--color-escrow-text);
+  border-color: var(--color-ink);
+}
+
+.filter-field__checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 4px 0;
+  font-size: var(--text-14);
+  cursor: pointer;
+}
+
+.filter-field__checkbox input {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.filter-field__price-range {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.filter-field__price-input,
+.filter-field__deposit-input {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-12);
+  color: var(--color-faint);
+  flex: 1;
+}
+
+.filter-field__price-input input,
+.filter-field__deposit-input input {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--color-ink);
+  border-radius: var(--radius-md);
+  font-size: var(--text-14);
+  font-family: inherit;
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------
+ * Filter sheet -- the mobile (<1024px) bottom sheet. DESIGN.md: a modal
+ * backdrop is {colors.ink} at 55% opacity, nothing blurred.
+ * --------------------------------------------------------------------- */
+
+.filter-sheet__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 17, 17, 0.55);
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+}
+
+@media (min-width: 1024px) {
+  .filter-sheet__backdrop {
+    display: none;
+  }
+}
+
+.filter-sheet {
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--color-paper);
+  border-top: 1.5px solid var(--color-ink);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  padding: var(--space-4) var(--space-gutter-mobile) calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+}
+
+.filter-sheet__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.filter-sheet__heading {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: var(--text-32);
+  line-height: 0.85;
+  margin: 0;
+}
+
+/* ---------------------------------------------------------------------
+ * Empty results -- AC5: never a blank area, at least three suggestions.
+ * --------------------------------------------------------------------- */
+
+.empty-results__heading {
+  font-weight: 600;
+  color: var(--color-ink);
+  margin: 0 0 var(--space-2);
+}
+
+.empty-results__try {
+  margin: 0 0 var(--space-2);
+}
+
+.empty-results__list {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 /* ---------------------------------------------------------------------

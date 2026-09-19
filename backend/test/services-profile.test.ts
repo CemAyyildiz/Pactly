@@ -26,6 +26,7 @@ import {
   listMarketplaceProfiles,
   NotAProviderError,
   ProviderNotFoundError,
+  suggestDiscoverQueries,
   updateProviderAvailability,
   updateProviderRules,
   validateAvailabilitySlots,
@@ -371,7 +372,7 @@ test("listDiscoverProviders returns only approved providers, as card objects wit
     await replaceFutureSlots(result.db, approvedId, [now + 900, now + 1800, now + 2700, now + 3600], now);
     await seedProviderProfile(result, { isApproved: false });
 
-    const cards = await listDiscoverProviders(result.db, undefined, now);
+    const cards = await listDiscoverProviders(result.db, undefined, {}, now);
     assert.equal(cards.length, 1);
     const card = cards[0]!;
     assert.equal(card.id, approvedId);
@@ -425,7 +426,7 @@ test("listDiscoverProviders sorts by soonest open slot ascending, slotless provi
     await replaceFutureSlots(result.db, soonest, [now + 900], now);
     await replaceFutureSlots(result.db, later, [now + 3600], now);
 
-    const cards = await listDiscoverProviders(result.db, undefined, now);
+    const cards = await listDiscoverProviders(result.db, undefined, {}, now);
     assert.deepEqual(
       cards.map((card) => card.id),
       [soonest, later, slotlessA, slotlessB],
@@ -444,7 +445,7 @@ test("listDiscoverProviders breaks a tie between two providers with the same ear
     await replaceFutureSlots(result.db, zeta, [now + 900], now);
     await replaceFutureSlots(result.db, alpha, [now + 900], now);
 
-    const cards = await listDiscoverProviders(result.db, undefined, now);
+    const cards = await listDiscoverProviders(result.db, undefined, {}, now);
     assert.deepEqual(
       cards.map((card) => card.id),
       [alpha, zeta],
@@ -466,7 +467,7 @@ test("listDiscoverProviders lists a provider whose slots are all in the past wit
     // to seed a genuinely past-relative-to-now row.
     await replaceFutureSlots(result.db, allPast, [now - 3600], now - 7200);
 
-    const cards = await listDiscoverProviders(result.db, undefined, now);
+    const cards = await listDiscoverProviders(result.db, undefined, {}, now);
     const allPastCard = cards.find((card) => card.id === allPast);
     assert.deepEqual(allPastCard?.earliestSlots, []);
     assert.deepEqual(
@@ -492,6 +493,259 @@ test("listCategoriesWithProviderCounts counts only approved providers per catego
     const empty = categories.find((category) => category.id === emptyCategoryId);
     assert.equal(populated?.providerCount, 2);
     assert.equal(empty?.providerCount, 0);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Story 3.3: search and filters -- one test per I/O matrix row that is
+// reachable below the HTTP layer. `test/app-providers.test.ts` covers the
+// same matrix again at the HTTP boundary (query-string parsing, envelope
+// shape).
+// ---------------------------------------------------------------------------
+
+test("listDiscoverProviders: text search matches name, title, bio and category name, case-insensitively (AC1)", async () => {
+  const result = openTestDatabase();
+  try {
+    const categoryId = await seedCategory(result, undefined, "Fitness and beauty");
+    const byName = await seedProviderProfile(result, { categoryId, isApproved: true, displayName: "Marmara Hair Clinic" });
+    const byTitle = await seedProviderProfile(result, { categoryId, isApproved: true, title: "Hair transplant · FUE consult" });
+    const byBio = await seedProviderProfile(result, { categoryId, isApproved: true, bio: "We specialise in HAIR restoration." });
+    // Matches only through its category's own name -- neither the
+    // provider's name, title nor bio mentions "hair".
+    const hairCategoryId = await seedCategory(result, undefined, "Hair transplant clinics");
+    const byCategory = await seedProviderProfile(result, { categoryId: hairCategoryId, isApproved: true, displayName: "Zeynep" });
+    const noMatch = await seedProviderProfile(result, { categoryId, isApproved: true, displayName: "Northside Barber" });
+
+    const cards = await listDiscoverProviders(result.db, undefined, { query: "hair" });
+    const ids = cards.map((card) => card.id).sort();
+    assert.deepEqual(ids, [byBio, byCategory, byName, byTitle].sort());
+    assert.ok(!ids.includes(noMatch));
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("listDiscoverProviders: only approved providers are ever matched by search (AC1)", async () => {
+  const result = openTestDatabase();
+  try {
+    await seedProviderProfile(result, { isApproved: false, displayName: "Hair Clinic Unapproved" });
+    const cards = await listDiscoverProviders(result.db, undefined, { query: "hair" });
+    assert.deepEqual(cards, []);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("listDiscoverProviders: combined query + category + filters is their intersection", async () => {
+  const result = openTestDatabase();
+  try {
+    const categoryId = await seedCategory(result, undefined, "Fitness and beauty");
+    const otherCategoryId = await seedCategory(result, undefined, "Consulting");
+    const match = await seedProviderProfile(result, {
+      categoryId,
+      isApproved: true,
+      displayName: "Hair Studio",
+      sessionFormat: "in_person",
+    });
+    // Same query and format, wrong category.
+    await seedProviderProfile(result, {
+      categoryId: otherCategoryId,
+      isApproved: true,
+      displayName: "Hair Consulting",
+      sessionFormat: "in_person",
+    });
+    // Same query and category, wrong format.
+    await seedProviderProfile(result, {
+      categoryId,
+      isApproved: true,
+      displayName: "Hair Studio Video",
+      sessionFormat: "video",
+    });
+
+    const cards = await listDiscoverProviders(result.db, `consulting-${categoryId}`, {
+      query: "hair",
+      formats: ["in_person"],
+    });
+    assert.deepEqual(cards.map((card) => card.id), [match]);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("listDiscoverProviders: price range is compared as BigInt, min <= price <= max", async () => {
+  const result = openTestDatabase();
+  try {
+    const cheap = await seedProviderProfile(result, { isApproved: true, priceAmount: "5000000" });
+    const mid = await seedProviderProfile(result, { isApproved: true, priceAmount: "50000000" });
+    // A price with more digits than the bound -- would sort before a
+    // shorter numeric string under plain text comparison, proving this is
+    // really BigInt, not lexicographic.
+    const expensive = await seedProviderProfile(result, { isApproved: true, priceAmount: "500000000" });
+
+    const cards = await listDiscoverProviders(result.db, undefined, {
+      minPriceAmount: "10000000",
+      maxPriceAmount: "100000000",
+    });
+    assert.deepEqual(cards.map((card) => card.id), [mid]);
+    void cheap;
+    void expensive;
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("listDiscoverProviders: deposit cap keeps depositRateBps <= maxDepositRateBps", async () => {
+  const result = openTestDatabase();
+  try {
+    const low = await seedProviderProfile(result, { isApproved: true, depositRateBps: 2000 });
+    const high = await seedProviderProfile(result, { isApproved: true, depositRateBps: 5000 });
+
+    const cards = await listDiscoverProviders(result.db, undefined, { maxDepositRateBps: 3000 });
+    assert.deepEqual(cards.map((card) => card.id), [low]);
+    void high;
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("listDiscoverProviders: availability 24h keeps only a provider with a future slot within 24h", async () => {
+  const result = openTestDatabase();
+  try {
+    const now = 1_000_000;
+    const soon = await seedProviderProfile(result, { isApproved: true, displayName: "Soon" });
+    const later = await seedProviderProfile(result, { isApproved: true, displayName: "Later" });
+    const none = await seedProviderProfile(result, { isApproved: true, displayName: "None" });
+    await replaceFutureSlots(result.db, soon, [now + 3600], now);
+    await replaceFutureSlots(result.db, later, [now + 8 * 24 * 60 * 60], now);
+
+    const cards = await listDiscoverProviders(result.db, undefined, { availability: "24h" }, now);
+    assert.deepEqual(cards.map((card) => card.id), [soon]);
+    void later;
+    void none;
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("listDiscoverProviders: availability week keeps a slot within 7 days but excludes one further out", async () => {
+  const result = openTestDatabase();
+  try {
+    const now = 1_000_000;
+    const withinWeek = await seedProviderProfile(result, { isApproved: true, displayName: "Within Week" });
+    const beyondWeek = await seedProviderProfile(result, { isApproved: true, displayName: "Beyond Week" });
+    await replaceFutureSlots(result.db, withinWeek, [now + 3 * 24 * 60 * 60], now);
+    await replaceFutureSlots(result.db, beyondWeek, [now + 10 * 24 * 60 * 60], now);
+
+    const cards = await listDiscoverProviders(result.db, undefined, { availability: "week" }, now);
+    assert.deepEqual(cards.map((card) => card.id), [withinWeek]);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("listDiscoverProviders: format filter matches any of several formats (multi-select OR)", async () => {
+  const result = openTestDatabase();
+  try {
+    const inPerson = await seedProviderProfile(result, { isApproved: true, sessionFormat: "in_person" });
+    const video = await seedProviderProfile(result, { isApproved: true, sessionFormat: "video" });
+    const other = await seedProviderProfile(result, { isApproved: true, sessionFormat: "phone" });
+
+    const cards = await listDiscoverProviders(result.db, undefined, { formats: ["in_person", "video"] });
+    assert.deepEqual(cards.map((card) => card.id).sort(), [inPerson, video].sort());
+    void other;
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("listDiscoverProviders: an unknown format value matches nothing for that value", async () => {
+  const result = openTestDatabase();
+  try {
+    await seedProviderProfile(result, { isApproved: true, sessionFormat: "in_person" });
+    const cards = await listDiscoverProviders(result.db, undefined, { formats: ["carrier-pigeon"] });
+    assert.deepEqual(cards, []);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("listDiscoverProviders: a query containing % or _ is matched literally, not as a SQL wildcard", async () => {
+  const result = openTestDatabase();
+  try {
+    const literal = await seedProviderProfile(result, { isApproved: true, displayName: "100% Hair_Clinic" });
+    // If `%`/`_` acted as SQL wildcards, this would also match `literal`
+    // (and everything else) since `%` alone means "anything".
+    const decoy = await seedProviderProfile(result, { isApproved: true, displayName: "Totally Different Name" });
+
+    const cards = await listDiscoverProviders(result.db, undefined, { query: "100% hair_clinic" });
+    assert.deepEqual(cards.map((card) => card.id), [literal]);
+    void decoy;
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("suggestDiscoverQueries: q shorter than two characters is an empty list", async () => {
+  const result = openTestDatabase();
+  try {
+    await seedProviderProfile(result, { isApproved: true, displayName: "Hair Clinic" });
+    assert.deepEqual(await suggestDiscoverQueries(result.db, "h"), []);
+    assert.deepEqual(await suggestDiscoverQueries(result.db, ""), []);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("suggestDiscoverQueries: groups into category/service/provider, each with its approved-provider count", async () => {
+  const result = openTestDatabase();
+  try {
+    const categoryId = await seedCategory(result, undefined, "Hair transplant clinics");
+    await seedProviderProfile(result, {
+      categoryId,
+      isApproved: true,
+      displayName: "Marmara Hair Clinic",
+      title: "Hair transplant · FUE consult",
+    });
+    await seedProviderProfile(result, {
+      categoryId,
+      isApproved: true,
+      displayName: "Second Hair Clinic",
+      title: "Hair transplant · FUE consult",
+    });
+    // Unapproved -- must never contribute to any suggestion's count.
+    await seedProviderProfile(result, {
+      categoryId,
+      isApproved: false,
+      displayName: "Hair Clinic Pending",
+      title: "Hair transplant · FUE consult",
+    });
+
+    const suggestions = await suggestDiscoverQueries(result.db, "hair");
+    const category = suggestions.find((s) => s.kind === "category");
+    const service = suggestions.find((s) => s.kind === "service");
+    const providers = suggestions.filter((s) => s.kind === "provider");
+
+    assert.equal(category?.label, "Hair transplant clinics");
+    assert.equal(category?.count, 2);
+    assert.equal(service?.label, "Hair transplant · FUE consult");
+    assert.equal(service?.count, 2);
+    assert.equal(providers.length, 2);
+    assert.ok(providers.every((p) => p.count === 1));
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("suggestDiscoverQueries: caps at 8 suggestions total", async () => {
+  const result = openTestDatabase();
+  try {
+    for (let i = 0; i < 10; i += 1) {
+      await seedProviderProfile(result, { isApproved: true, displayName: `Hair Clinic ${i}` });
+    }
+    const suggestions = await suggestDiscoverQueries(result.db, "hair");
+    assert.ok(suggestions.length <= 8);
   } finally {
     closeDatabase(result);
   }

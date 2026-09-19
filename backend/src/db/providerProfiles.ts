@@ -1,7 +1,7 @@
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, inArray, or, sql } from "drizzle-orm";
 
 import type { Db } from "./client.js";
-import { providerProfiles } from "./schema.js";
+import { categories, providerProfiles } from "./schema.js";
 
 export type ProviderProfileRow = typeof providerProfiles.$inferSelect;
 
@@ -83,6 +83,97 @@ export async function countApprovedProvidersByCategory(db: Db): Promise<Map<stri
     .where(eq(providerProfiles.isApproved, true))
     .groupBy(providerProfiles.categoryId);
   return new Map(rows.map((row) => [row.categoryId, row.providerCount]));
+}
+
+export interface DiscoverProfileFilters {
+  categoryId?: string;
+  /** Trimmed, non-empty search text -- matched case-insensitively against
+   * display name, title, bio and the provider's own category name, all in
+   * one query (Story 3.3 AC1). `%`/`_`/`\` in this text are escaped by
+   * {@link likeNeedle} before it ever reaches SQL, so a client's own
+   * `%`/`_` is always treated literally (the I/O matrix's "LIKE safety"
+   * row), never as a SQL wildcard. */
+  query?: string;
+  /** Raw `sessionFormat` values straight from the query string -- an
+   * unknown value simply matches no row (the I/O matrix's own "Format"
+   * row); nothing here validates them against a known list. */
+  formats?: string[];
+}
+
+/** Escapes `%`, `_` and the escape character itself, then wraps the result
+ * in `%...%` -- paired with `ESCAPE '\'` on every LIKE clause built from
+ * this, so a search term containing `%` or `_` is always matched literally
+ * (the I/O matrix's "LIKE safety" row) rather than acting as a SQL
+ * wildcard. */
+function likeNeedle(query: string): string {
+  const escaped = query.toLowerCase().replace(/[\\%_]/g, (char) => `\\${char}`);
+  return `%${escaped}%`;
+}
+
+/** Story 3.3: the Discover list's filtered read, approved profiles only
+ * (AC1, same rule Story 3.2 enforced). Text search, category and session
+ * format are pushed into one SQL query -- a LIKE-based match is enough at
+ * this demo's scale, so no full-text index or search dependency is added
+ * (the spec's own "Never" list). Price range and deposit-rate-cap
+ * filtering are deliberately *not* done here: `services/profile.ts`
+ * applies those on `BigInt`/plain-number comparisons over this function's
+ * result, because a native SQL comparison over `price_amount`'s `TEXT`
+ * column (an arbitrary-precision integer string, AD-7) cannot be trusted
+ * not to misorder two amounts of different digit lengths, and a `CAST` to
+ * SQLite's 64-bit `INTEGER` could silently misrepresent an i128-sized
+ * value -- the same precision discipline `computeDepositAmount` already
+ * follows. */
+export async function listApprovedProviderProfilesForDiscover(
+  db: Db,
+  filters: DiscoverProfileFilters = {},
+): Promise<ProviderProfileRow[]> {
+  const conditions = [eq(providerProfiles.isApproved, true)];
+  if (filters.categoryId) {
+    conditions.push(eq(providerProfiles.categoryId, filters.categoryId));
+  }
+  if (filters.formats && filters.formats.length > 0) {
+    conditions.push(inArray(providerProfiles.sessionFormat, filters.formats));
+  }
+  if (filters.query) {
+    const needle = likeNeedle(filters.query);
+    const textMatch = or(
+      sql`lower(${providerProfiles.displayName}) LIKE ${needle} ESCAPE '\\'`,
+      sql`lower(${providerProfiles.title}) LIKE ${needle} ESCAPE '\\'`,
+      sql`lower(${providerProfiles.bio}) LIKE ${needle} ESCAPE '\\'`,
+      sql`lower(${categories.name}) LIKE ${needle} ESCAPE '\\'`,
+    );
+    if (textMatch) {
+      conditions.push(textMatch);
+    }
+  }
+
+  // Explicit columns, not `select()`'s default -- a joined select's default
+  // shape nests rows by table, and this function's contract is a flat
+  // `ProviderProfileRow[]` identical to `listApprovedProviderProfiles`'s.
+  const rows = await db
+    .select({
+      id: providerProfiles.id,
+      walletAddress: providerProfiles.walletAddress,
+      categoryId: providerProfiles.categoryId,
+      displayName: providerProfiles.displayName,
+      title: providerProfiles.title,
+      location: providerProfiles.location,
+      bio: providerProfiles.bio,
+      languages: providerProfiles.languages,
+      sessionFormat: providerProfiles.sessionFormat,
+      sessionLengthMinutes: providerProfiles.sessionLengthMinutes,
+      priceAmount: providerProfiles.priceAmount,
+      depositRateBps: providerProfiles.depositRateBps,
+      cancellationWindowHours: providerProfiles.cancellationWindowHours,
+      isApproved: providerProfiles.isApproved,
+      verifiedSessionCount: providerProfiles.verifiedSessionCount,
+      providerCancellationCount: providerProfiles.providerCancellationCount,
+      createdAt: providerProfiles.createdAt,
+    })
+    .from(providerProfiles)
+    .leftJoin(categories, eq(providerProfiles.categoryId, categories.id))
+    .where(and(...conditions));
+  return rows;
 }
 
 export interface ProviderRulesValues {

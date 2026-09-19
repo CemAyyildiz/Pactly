@@ -3,7 +3,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPut } from "./client";
-import type { CategoriesResponse, ProviderProfile, ProvidersResponse } from "./types";
+import type {
+  CategoriesResponse,
+  DiscoverFiltersParams,
+  ProviderProfile,
+  ProvidersResponse,
+  SuggestResponse,
+} from "./types";
 import type { Session } from "../wallet";
 
 export function useCategories() {
@@ -21,16 +27,50 @@ export interface UseDiscoverProvidersOptions {
   enabled?: boolean;
 }
 
-/** `GET /providers[?category=<slug>]` -- the Discover list, no auth, no
- * retry (an unknown slug will not become known by retrying; a genuine
- * network failure is handled by the page's own error state, not a silent
- * background retry that would delay it). */
-export function useDiscoverProviders(categorySlug: string | undefined, options: UseDiscoverProvidersOptions = {}) {
+/** Builds `GET /providers`'s query string from every Story 3.2/3.3 filter
+ * -- the one place a `DiscoverFiltersParams` becomes a URL, so
+ * `useDiscoverProviders`'s query key and its actual request can never
+ * drift apart. `format` is repeated (`?format=a&format=b`), matching the
+ * backend's own `c.req.queries("format")` read. */
+function buildProvidersPath(filters: DiscoverFiltersParams): string {
+  const params = new URLSearchParams();
+  if (filters.category) params.set("category", filters.category);
+  if (filters.q) params.set("q", filters.q);
+  for (const format of filters.formats ?? []) {
+    params.append("format", format);
+  }
+  if (filters.minPrice !== undefined) params.set("minPrice", filters.minPrice);
+  if (filters.maxPrice !== undefined) params.set("maxPrice", filters.maxPrice);
+  if (filters.maxDepositBps !== undefined) params.set("maxDepositBps", String(filters.maxDepositBps));
+  if (filters.when) params.set("when", filters.when);
+  const query = params.toString();
+  return query ? `/providers?${query}` : "/providers";
+}
+
+/** `GET /providers[?category=&q=&format=&minPrice=&maxPrice=&maxDepositBps=&when=]`
+ * -- the Discover list, no auth, no retry (an unknown category will not
+ * become known by retrying; a genuine network failure is handled by the
+ * page's own error state, not a silent background retry that would delay
+ * it). */
+export function useDiscoverProviders(filters: DiscoverFiltersParams, options: UseDiscoverProvidersOptions = {}) {
   return useQuery({
-    queryKey: ["providers", categorySlug ?? null],
-    queryFn: () =>
-      apiGet<ProvidersResponse>(categorySlug ? `/providers?category=${encodeURIComponent(categorySlug)}` : "/providers"),
+    queryKey: ["providers", filters],
+    queryFn: () => apiGet<ProvidersResponse>(buildProvidersPath(filters)),
     enabled: options.enabled ?? true,
+    retry: false,
+  });
+}
+
+/** `GET /providers/suggest?q=` -- Story 3.3's autocomplete. No auth, no
+ * retry; disabled below the backend's own two-character minimum so a
+ * one-character query never fires a request that would only come back
+ * empty anyway. */
+export function useProviderSuggestions(query: string) {
+  const trimmed = query.trim();
+  return useQuery({
+    queryKey: ["providers", "suggest", trimmed],
+    queryFn: () => apiGet<SuggestResponse>(`/providers/suggest?q=${encodeURIComponent(trimmed)}`),
+    enabled: trimmed.length >= 2,
     retry: false,
   });
 }
