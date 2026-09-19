@@ -74,6 +74,8 @@ deferred: []
 | Hold expires | 10 minutes pass with `escrow_state` null | The slot becomes holdable again; the row is kept | No error expected |
 | Funded after expiry | Reconciler sets `locked` on an expired hold whose slot was re-held | Both rows kept; anomaly logged | No silent overwrite |
 | Wallet rejects | The user declines a signature | Neutral message, hold countdown continues; Lock can be retried | No error state |
+| Retry after a rejected deploy | `POST /bookings/:id/lock` again, within the hold, with a `contractId` already persisted | Returns the same stored unsigned deploy XDR and the same `contractId` (no new escrow) | No error expected |
+| Stored deploy XDR no longer valid | Submit of the stored deploy XDR fails (for example, expired or bad sequence) and `listEscrows` confirms the persisted contract is not on chain | `lock` may clear the persisted `contractId` (conditional on it being unchanged and `escrow_state` null) and build a fresh deploy | If the contract is on chain: no rebuild; continue to fund |
 | Runner resilience | A reconciler tick throws | Logged; the next tick runs | Process keeps running |
 
 </intent-contract>
@@ -95,7 +97,7 @@ deferred: []
 - `backend/src/db/*` -- the booking slot and hold columns, the one-active-booking-per-slot guarantee, and the availability-save preservation rule.
 - `backend/src/anchor/usdc.ts` -- resolve and cache the USDC asset and its contract id.
 - `backend/src/escrow/interface.ts`, `trustless-work/client.ts` -- `submit`.
-- `backend/src/services/booking.ts` -- `holdSlot` (atomic, returns the same-day alternatives on conflict), the owner check, hold-expiry checks in lock and fund, `submitSignedTransaction`, `expireHolds`, `getBookingForClient`.
+- `backend/src/services/booking.ts` -- `holdSlot` (atomic, returns the same-day alternatives on conflict), deploy-XDR storage and the chain-checked rebuild for lock retries, the owner check, hold-expiry checks in lock and fund, `submitSignedTransaction`, `expireHolds`, `getBookingForClient`.
 - `backend/src/runner.ts` + `index.ts` -- the reconciler and hold-expiry intervals with per-tick error isolation. The hold-expiry tick logs the double-sale anomaly.
 - routes -- the five booking routes in the matrix.
 - `backend/test/` -- a test for every matrix row, including a real concurrent-hold race against one in-memory DB and the runner's tick isolation (with the runner's interval injected).
@@ -121,6 +123,7 @@ deferred: []
 
 - **Why the fund step waits for the deploy to be visible.** Story 2.6 split deploy and fund because building a fund transaction against a contract not yet on chain is unverified. The client flow submits the deploy, then polls `GET /bookings/:id` until the reconciler has seen the contract (or a short retry of `fund` succeeds), before it asks for the second signature.
 - **Why expired holds keep their row.** The row is the only link from a possibly funded contract back to Pactly. Freeing the slot while keeping the row trades a rare double-sale (logged loudly) for never losing track of money.
+- **Why retry reuses the stored deploy XDR.** Story 2.6 made `lockDeposit` write-once, so a landed deploy can never be orphaned. A declined signature must still be retryable within the hold, so the unsigned deploy XDR is stored with the booking and returned again. A rebuild happens only after chain evidence (via `listEscrows`) shows the old contract does not exist. This is the abandoned-deploy recovery that 2.6 left to Epic 3.
 - **Local currency deferred.** PRD 3.4 AC4 and AC6 depend on Story 2.4 (SEP-6 deposit), which is in backlog behind the hackathon's frontend-first order. The UI states it plainly rather than hiding the option.
 
 ## Verification
