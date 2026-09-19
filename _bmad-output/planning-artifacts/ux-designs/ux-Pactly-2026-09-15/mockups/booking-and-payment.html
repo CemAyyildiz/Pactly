@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pact C — İki Taraf · Pactly</title>
+<title>Booking & payment — Pactly (Two Sides system)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Darker+Grotesque:wght@500;700;900&family=Familjen+Grotesk:wght@400;500;600;700&family=Martian+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -130,87 +130,87 @@ nav{display:flex;align-items:center;gap:26px;padding:14px 28px;border-bottom:1.5
 <body>
 <header class="intro">
   <div>
-    <div class="tag">Pact / yön C</div>
-    <h1>İki Taraf</h1>
+    <div class="tag">Chosen system · Two Sides</div>
+    <h1>Booking & payment</h1>
   </div>
-  <p>Söz, iki tarafın ortada buluşmasıdır. Ekran üç şeride ayrılır: hardal renkli senin tarafın, petrol yeşili uzmanın tarafı ve ortada siyah emanet şeridi. Her taraf neyi verip neyi aldığını kendi renginde görür. Kapora kilitlendiğinde iki yarım ortada birleşir. Logo da bu fikrin kendisi: iki yarım ve ortada bir çizgi.</p>
+  <p>A promise is two sides meeting in the middle. The screen splits into three lanes: your side in mustard, the provider’s side in teal, and the black escrow lane between them. Each side sees what it gives and gets in its own colour. When the deposit locks, the two halves meet. The logo is that same idea: two halves and a line between them.</p>
 </header>
 
 <div class="stage">
   <div class="browser">
-    <div class="chrome"><i></i><i></i><i></i><span>pactly.app/uzman/elif-aydin</span></div>
+    <div class="chrome"><i></i><i></i><i></i><span>pactly.app/provider/elif-aydin</span></div>
     <nav>
       <div class="brand"><span class="mark"><i></i><i></i><i></i></span>pactly</div>
       <div class="search">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-        Terapi, özel ders, hukuk danışmanlığı…
+        Therapy, tutoring, legal advice…
       </div>
-      <div class="nl"><span>Keşfet</span><span>Randevularım</span><span>Uzman ol</span></div>
+      <div class="nl"><span>Discover</span><span>My bookings</span><span>Become a provider</span></div>
     </nav>
     <div class="split">
       <div class="side youSide">
-        <h3><i></i>SENİN TARAFIN</h3>
-        <div class="big">Ne zaman<br>geliyorsun?</div>
+        <h3><i></i>YOUR SIDE</h3>
+        <div class="big">When are<br>you coming?</div>
         <div class="days">
-          <div class="day"><small>ÇAR</small><b>16</b></div><div class="day"><small>PER</small><b>17</b></div><div class="day on"><small>CUM</small><b>18</b></div><div class="day"><small>CMT</small><b>19</b></div><div class="day"><small>PZT</small><b>21</b></div>
+          <div class="day"><small>WED</small><b>16</b></div><div class="day"><small>THU</small><b>17</b></div><div class="day on"><small>FRI</small><b>18</b></div><div class="day"><small>SAT</small><b>19</b></div><div class="day"><small>MON</small><b>21</b></div>
         </div>
         <div class="slots"><div class="slot">10:00</div><div class="slot x">11:30</div><div class="slot on">14:00</div><div class="slot">15:30</div><div class="slot x">17:00</div><div class="slot">18:30</div></div>
         <div class="pay">
-          <div class="opt"><span>Türk Lirası · havale</span><span class="rad"></span></div>
-          <div class="opt on"><span>Cüzdan · USDC <small>≈ 14,35</small></span><span class="rad"></span></div>
+          <div class="opt"><span>Local currency · bank transfer</span><span class="rad"></span></div>
+          <div class="opt on"><span>Wallet · USDC <small>≈ 14,35</small></span><span class="rad"></span></div>
         </div>
-        <div class="youGets"><b>SENİN GÜVENCEN</b>17 Eylül 14:00'e kadar vazgeçersen 600 TL'nin tamamı sana döner.</div>
+        <div class="youGets"><b>YOUR PROTECTION</b>Cancel before Sep 17, 2:00 PM and all 600 TRY comes back to you.</div>
       </div>
 
       <div class="mid">
-        <div class="tl">EMANET<br>ŞERİDİ</div>
+        <div class="tl">ESCROW<br>LANE</div>
         <div class="lockCol">
           <div class="lk"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#F2F1EC" stroke-width="1.8"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
-          <div class="amt">600<small>TL · KAPORA %30</small></div>
+          <div class="amt">600<small>TRY · 30% DEPOSIT</small></div>
         </div>
-        <div class="contract">STELLAR SÖZLEŞMESİ<br><b>CDLZ…7KQ4 ↗</b><br>kimse tek başına<br>dokunamaz</div>
+        <div class="contract">STELLAR CONTRACT<br><b>CDLZ…7KQ4 ↗</b><br>no one can touch it<br>alone</div>
       </div>
 
       <div class="side proSide">
-        <h3><i></i>UZMANIN TARAFI</h3>
+        <h3><i></i>THE PROVIDER’S SIDE</h3>
         <div class="pro">
-          <div class="ph">FOTO</div>
-          <div><b>Dr. Elif<br>Aydın</b><small>Klinik Psikolog</small></div>
+          <div class="ph">PHOTO</div>
+          <div><b>Dr. Elif<br>Aydın</b><small>Clinical Psychologist</small></div>
         </div>
-        <div class="badges"><span>ONAYLI UZMAN</span><span>38 DOĞRULANMIŞ SEANS</span><span>4,9</span></div>
+        <div class="badges"><span>APPROVED PROVIDER</span><span>38 VERIFIED SESSIONS</span><span>4.9</span></div>
         <div class="pterms">
-          <div class="pt"><span>Görüşme</span><b>Online · 50 dk</b></div>
-          <div class="pt"><span>Ücret</span><b>2.000 TL</b></div>
-          <div class="pt"><span>Kapora</span><b>%30 · 600 TL</b></div>
-          <div class="pt"><span>Kalan, görüşme öncesi</span><b>1.400 TL</b></div>
+          <div class="pt"><span>Session</span><b>Online · 50 min</b></div>
+          <div class="pt"><span>Price</span><b>2,000 TRY</b></div>
+          <div class="pt"><span>Deposit</span><b>30% · 600 TRY</b></div>
+          <div class="pt"><span>Balance, before the session</span><b>1,400 TRY</b></div>
         </div>
-        <div class="proGets"><b>UZMANIN GÜVENCESİ</b>Geç iptal ya da gelmeme durumunda ayırdığı saatin karşılığı olarak kapora Dr. Aydın'a geçer.</div>
+        <div class="proGets"><b>PROVIDER’S PROTECTION</b>On a late cancellation or a no-show, the deposit goes to Dr. Aydın as payment for the hour she held.</div>
       </div>
     </div>
     <div class="bottom">
-      <p>İki taraf da kuralları gördü. Cüzdanında tek bir onayla söz başlar.</p>
-      <button class="cta"><span class="mark"><i></i><i></i><i></i></span>Ortada buluş</button>
+      <p>Both sides have seen the rules. One approval in your wallet starts the promise.</p>
+      <button class="cta"><span class="mark"><i></i><i></i><i></i></span>Meet in the middle</button>
     </div>
   </div>
 
   <div class="phonewrap">
-    <h4>DURUM · ANLAŞILDI, MOBİL</h4>
+    <h4>STATE · AGREED, MOBILE</h4>
     <div class="phone"><div class="screen">
       <div class="notch"></div>
       <div class="halves">
-        <div class="h y"><small>SEN</small><b>600 TL<br>verdin</b></div>
-        <div class="h p"><small>DR. AYDIN</small><b>Saatini<br>ayırdı</b></div>
+        <div class="h y"><small>YOU</small><b>You put in<br>600 TRY</b></div>
+        <div class="h p"><small>DR. AYDIN</small><b>She held<br>your hour</b></div>
         <div class="knot"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#F2F1EC" stroke-width="1.8"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
       </div>
       <div class="pbody">
-        <h2>Anlaştınız.</h2>
-        <p class="s">Kapora ortada, emanet şeridinde bekliyor.</p>
+        <h2>You’re set.</h2>
+        <p class="s">The deposit waits in the middle, in the escrow lane.</p>
         <div class="rows">
-          <div class="r"><span>GÖRÜŞME</span><b>Cuma 18 Eyl · 14:00</b></div>
-          <div class="r"><span>ÜCRETSİZ İPTAL</span><b>17 Eyl 14:00'e kadar</b></div>
-          <div class="r"><span>İŞLEM</span><b>a3f9…c21e ↗</b></div>
+          <div class="r"><span>SESSION</span><b>Fri, Sep 18 · 2:00 PM</b></div>
+          <div class="r"><span>FREE CANCELLATION</span><b>Until Sep 17, 2:00 PM</b></div>
+          <div class="r"><span>TRANSACTION</span><b>a3f9…c21e ↗</b></div>
         </div>
-        <div class="btns" style="margin-top:22px"><div>Takvime ekle</div><div>Randevularım</div></div>
+        <div class="btns" style="margin-top:22px"><div>Add to calendar</div><div>My bookings</div></div>
       </div>
     </div></div>
   </div>

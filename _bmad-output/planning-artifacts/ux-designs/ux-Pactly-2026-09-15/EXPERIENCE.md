@@ -1,186 +1,191 @@
 ---
 name: Pactly
-description: Randevulu hizmetler için emanetli kapora marketplace'i — deneyim omurgası
+description: A trust-backed booking marketplace for appointment-based services — experience spine
 status: final
-updated: 2026-09-16
+updated: 2026-09-17
 sources:
-  - "{planning_artifacts}/prd.md"
+  - "../../prd.md"
   - "./DESIGN.md"
 ---
 
-# Pactly — Deneyim Omurgası
+# Pactly — Experience Spine
 
-> Görsel kimlik `DESIGN.md` dosyasındadır; token'lara `{colors.you}` biçiminde atıf yapılır. Çakışmada bu iki doküman kazanır, mockup'lar değil.
+> The visual identity lives in `DESIGN.md`; tokens are referenced as `{colors.you}`. Where a mockup disagrees with these two documents, the documents win.
 
-## Temel
+## Foundation
 
-Tek yüzey: **duyarlı web uygulaması** (React + TypeScript + Vite, PRD §3). Native mobil uygulama kapsam dışıdır, vizyon maddesidir.
+One surface: a **responsive web app** (React + TypeScript + Vite, PRD §3). A native mobile app is out of scope and stays a vision item.
 
-Bir hazır bileşen kütüphanesi kullanılmaz; bileşenler `DESIGN.md` üzerinden kurulur. Hareket için Framer Motion kullanılır.
+No component library is adopted; components are built from `DESIGN.md`. Motion uses Framer Motion.
 
-İki kullanıcı rolü ve bir yönetim rolü vardır:
+There are two user roles and one operator role:
 
-- **Danışan** — hizmeti satın alan taraf. Öncelik mobildir; akış tek elle tamamlanabilmelidir.
-- **Uzman** — hizmeti veren, küratörlü kabul edilmiş taraf. Öncelik masaüstüdür; panel yoğun veri gösterir.
-- **Yönetim** — başvuruları onaylayan Pactly ekibi. Sade bir liste ekranı yeterlidir.
+- **Client** — the side buying the service. Mobile-first; the flow must be completable one-handed.
+- **Provider** — the side delivering the service, admitted through curation. Desktop-first; the panel carries dense data.
+- **Admin** — the Pactly operator approving applications. A plain list screen is enough.
 
-Kimlik doğrulama cüzdan imzasıyla yapılır (SEP-10). **Cüzdan yalnızca ödeme anında istenir.** Keşif, arama, profil görüntüleme ve fiyat karşılaştırma giriş gerektirmez.
+Authentication is a wallet signature (SEP-10). **The wallet is requested only at payment.** Discovery, search, profile viewing and price comparison need no sign-in.
 
-Ürün dikey bağımsızdır: dil hiçbir yerde tek bir mesleğe göre yazılmaz. "Seans" yerine "görüşme", "danışan" yerine ikinci tekil şahıs kullanılır. Terapi yalnızca demo senaryosudur.
+The product is vertical-agnostic: copy is never written for a single profession. The interface says "session" and addresses the reader as "you". Therapy is only the demo scenario.
 
-## Bilgi Mimarisi
+The product is built for a global audience: all copy is English, amounts carry their currency code, and no screen assumes a single country. The demo runs on the TRY rail the hackathon anchor provides, but no component hard-codes it.
 
-| Yüzey | Nereden gelinir | Amaç | Öncelik |
+## Information Architecture
+
+| Surface | Reached from | Purpose | Priority |
 |---|---|---|---|
-| Keşfet | Ana sayfa, logo | Kategori, arama ve filtrelerle uzman bulma | MVP |
-| Arama sonuçları | Keşfet arama kutusu | Sorguya göre filtrelenmiş uzman listesi | MVP |
-| Uzman profili | Sonuç kartı, paylaşılan link | Uzmanı tanıma, saat seçme, kaporayı görme | MVP |
-| Rezervasyon ve ödeme | Profilde saat seçimi | Sözü kurma: saat, kapora, ödeme yolu, kilitleme | MVP |
-| Kilitlendi onayı | Ödeme sonrası | Sözün mühürlenmesi, kanıt ve sonraki adımlar | MVP |
-| Randevularım (danışan) | Üst menü | Tüm uzmanlardaki randevular, kapora durumları, iptal ve onay | MVP |
-| Uzman paneli | Üst menü (uzman rolü) | Gelen randevular, kapora durumları, kazanç | MVP |
-| Müsaitlik ve kurallar | Uzman paneli | Çalışma saatleri, ücret, kapora oranı, iptal süresi | MVP |
-| TL'ye çekme | Uzman paneli | Serbest kalan kaporayı SEP-6 ile TL olarak çekme | MVP |
-| Uzman ol (başvuru) | Üst menü | Başvuru formu ve başvuru durumu | MVP |
-| Yönetim onay listesi | Doğrudan bağlantı | Başvuruları onaylama veya reddetme | MVP (sade) |
-| Değerlendirme yazma | Tamamlanan randevu | Yalnızca serbest bırakılmış kapora sonrası | MVP sonrası |
-| Uzman profili düzenleme | Uzman paneli | Tanıtım, fotoğraf, diller | MVP sonrası |
+| Discover | Home, logo | Find providers by category, search and filters | MVP |
+| Search results | Search box | Providers filtered by query | MVP |
+| Provider profile | Result card, shared link | Learn about a provider, pick a slot, see the deposit | MVP |
+| Booking & payment | Slot selection | Form the promise: slot, deposit, payment method, lock | MVP |
+| Locked confirmation | After payment | Seal the promise, show the proof and the next steps | MVP |
+| My bookings (client) | Top nav | Bookings across all providers, deposit states, cancel and confirm | MVP |
+| Provider panel | Top nav (provider role) | Incoming bookings, deposit states, earnings | MVP |
+| Availability & rules | Provider panel | Working hours, price, deposit rate, cancellation window | MVP |
+| Cash out | Provider panel | Withdraw released deposits in local currency via SEP-6 | MVP |
+| Become a provider | Top nav | Application form and application status | MVP |
+| Admin approval queue | Direct link | Approve or reject applications | MVP (plain) |
+| Write a review | Completed booking | Only after a released deposit | Post-MVP |
+| Edit provider profile | Provider panel | Bio, photo, languages | Post-MVP |
 
-Bir danışan aynı anda birden fazla uzmandan randevu alabilir; "Randevularım" bunları tek listede, tarihe göre gösterir.
+A client can hold bookings with several providers at once; "My bookings" shows them in one list, ordered by date.
 
-→ Kompozisyon referansı: `mockups/kesfet.html`, `mockups/rezervasyon-ve-odeme.html`. Çakışmada bu omurga kazanır.
+→ Composition reference: `mockups/discover.html`, `mockups/booking-and-payment.html`. This spine wins on conflict.
 
-## Ses ve Ton
+## Voice and Tone
 
-Metin kısa, doğrudan ve ikinci tekil şahıstır. Teknik terim kullanıcıya gösterilmez; teknik kimlikler (işlem, sözleşme) gösterilir çünkü kanıttır.
+Copy is short, direct and in the second person. Implementation vocabulary is never shown; technical identifiers (transaction, contract) are shown, because they are the proof.
 
-| Böyle | Böyle değil |
+| Do | Don't |
 |---|---|
-| "Kaporan emanette." | "Ödemeniz başarıyla escrow'a aktarılmıştır." |
-| "17 Eylül 14:00'e kadar vazgeçersen tamamı sana döner." | "İptal politikası: 24 saat." |
-| "Bu saatten sonra iptal edersen kapora Dr. Aydın'a geçer." | "Geç iptallerde iade yapılmaz." |
-| "Anlaştınız." | "İşlem başarılı! 🎉" |
-| "Cüzdanında bir onay bekliyor." | "Lütfen imza talebini onaylayınız." |
-| "Bu saatte müsait uzman yok. Şunları deneyebilirsin:" | "Sonuç bulunamadı." |
-| "Bağlantı koptu, kaporan yerinde duruyor." | "Bir hata oluştu." |
+| "Your deposit is in escrow." | "Your payment has been successfully transferred to escrow." |
+| "Cancel before Sep 17, 2:00 PM and you get all of it back." | "Cancellation policy: 24 hours." |
+| "Cancel after this and the deposit goes to Dr. Aydın." | "No refunds on late cancellations." |
+| "You're set." | "Transaction successful! 🎉" |
+| "Approve it in your wallet." | "Please confirm the signature request." |
+| "No providers open at that hour. Try:" | "No results found." |
+| "Connection dropped. Your deposit is untouched." | "An error occurred." |
 
-**Kripto sözcükleri:** "Stellar", "USDC", "cüzdan", "işlem" ve "sözleşme" kullanılır, çünkü güven bunlara dayanır. "Escrow", "smart contract", "Soroban", "trustline", "SEP-6", "ledger" ve "hash" kullanıcıya gösterilmez. Karşılıkları: emanet, sözleşme, kapora hesabı, işlem kaydı.
+**Crypto words:** "Stellar", "USDC", "wallet", "transaction" and "contract" are used, because trust rests on them. "Smart contract", "Soroban", "trustline", "SEP-6", "ledger" and "hash" are never shown to the user. Say: escrow, contract, deposit account, transaction record.
 
-**Kaporadan bahseden her cümlede iki bilgi birlikte bulunur:** tutar ve ücretsiz iptal süresi.
+**Every sentence about the deposit carries two facts:** the amount and the free-cancellation window.
 
-## Bileşen Davranışları
+**Currency:** amounts always appear with their code (`600.00 TRY`, `14.35 USDC`). No screen writes a currency symbol into a string.
 
-Görsel özellikler `DESIGN.md.Bileşenler` bölümündedir.
+## Component Patterns
 
-| Bileşen | Kullanıldığı yer | Davranış |
+Visual specs live in `DESIGN.md.Components`.
+
+| Component | Used on | Behaviour |
 |---|---|---|
-| Arama kutusu | Keşfet, üst menü | 250 ms gecikmeli otomatik tamamlama. Öneriler: hizmet, kategori, uzman adı; her önerinin yanında sonuç sayısı. Enter beklenmez. |
-| Kategori sekmeleri | Keşfet | Tek seçim. Seçim URL'ye yazılır, geri tuşu çalışır. |
-| Filtre rayı | Keşfet (≥1024px) | Her değişiklik sonucu anında günceller, sayfa yenilenmez. Aktif filtre sayısı mobilde butonda görünür. |
-| Uzman kartı | Keşfet, arama | Kartın tamamı tıklanabilir. Saat çipine tıklamak profili o saat seçili açar. |
-| Saat çipi | Kart, profil, rezervasyon | Dolu saat tıklanamaz ve odak almaz. Seçim tek tıkla değişir, onay istemez. |
-| Kapora hapı | Kart, profil, rezervasyon, randevular | Bilgi taşır, tıklanmaz. Tutar ve ücretsiz iptal süresi birlikte. |
-| Kalan tutar satırı | Rezervasyon, randevu detayı | "Kalan 1.400 TL · görüşme öncesi" — ödeme durumu üç değerden biri: ödenmedi, Pactly üzerinden ödendi, elden ödendi. Uzman elden ödemeyi işaretleyebilir. |
-| Emanet şeridi | Rezervasyon | Sayfa boyunca görünür kalır. Mobilde alta sabitlenir ve kapora tutarını taşır. |
-| Kilitleme butonu | Rezervasyon | Tek tıkla cüzdan imzası ister. Basıldıktan sonra devre dışı kalır ve "Cüzdanında bir onay bekliyor" durumuna geçer. |
-| Geri sayım | Randevularım, kilitlendi onayı | Ücretsiz iptal süresine kalan zaman. 6 saatin altında `{colors.alert}` rengine döner. |
-| Kanıt satırı | Kilitlendi, randevu detayı | İşlem kimliğinin kısaltılmış hali ve explorer bağlantısı. Yeni sekmede açılır. |
-| Durum etiketi | Randevularım, uzman paneli | Dört durum: Kilitli · Serbest bırakıldı · İade edildi · Devredildi. Metin her zaman renge eşlik eder. |
+| Search box | Discover, top nav | Autocomplete after a 250 ms debounce. Suggestions cover services, categories and provider names, each with its result count. Enter is never required. |
+| Category tabs | Discover | Single select. The selection is written to the URL; the back button works. |
+| Filter rail | Discover (≥1024px) | Every change updates results without a reload. On mobile the active filter count shows on the button. |
+| Provider card | Discover, search | The whole card is clickable. Tapping a slot chip opens the profile with that slot selected. |
+| Slot chip | Card, profile, booking | A taken slot is not clickable and takes no focus. Selection changes on a single tap, with no confirmation. |
+| Deposit pill | Card, profile, booking, my bookings | Informational, never clickable. Amount and free-cancellation window together. |
+| Balance row | Booking, booking detail | "Balance 1,400.00 TRY · due before the session" — payment state is one of three: unpaid, paid through Pactly, paid in person. The provider can mark a cash payment. |
+| Escrow lane | Booking | Stays visible through the page. On mobile it pins to the bottom carrying the deposit amount. |
+| Lock button | Booking | One tap asks for the wallet signature. After it is pressed the button disables and moves to "Approve it in your wallet". |
+| Countdown | My bookings, locked confirmation | Time left in the free-cancellation window. Turns `{colors.alert}` under 6 hours. |
+| Proof row | Locked confirmation, booking detail | The shortened transaction id and an explorer link. Opens in a new tab. |
+| State label | My bookings, provider panel | Four states: Locked · Released · Refunded · Transferred. Text always accompanies the colour. |
 
-## Durum Desenleri
+## State Patterns
 
-| Durum | Yüzey | Davranış |
+| State | Surface | Treatment |
 |---|---|---|
-| İlk yükleme | Keşfet | Kart iskeletleri (6 adet), gerçek düzenle aynı ölçüde. |
-| Sonuç yok | Arama | Boş ekran yasak. Sorgu tekrarlanır, ardından üç somut öneri: filtreyi gevşet, farklı zaman, tüm kategori. |
-| Boş liste | Randevularım | "Henüz randevun yok." + Keşfet'e giden birincil aksiyon. |
-| Cüzdan bekliyor | Rezervasyon | Buton devre dışı, metin "Cüzdanında bir onay bekliyor". 60 saniye sonra "Cüzdanı tekrar aç" seçeneği görünür. |
-| Cüzdan reddedildi | Rezervasyon | Uyarı değil bilgi: "İmzalamadın, saat hâlâ senin için ayrılı. 10 dakika geçerli." |
-| Trustline eksik | Rezervasyon | Kullanıcı bu terimi görmez. Akış otomatik olarak hazırlanır; ilerleme metni "Cüzdanın ödeme için hazırlanıyor" olur. Ek onay gerekirse tek cümleyle istenir. |
-| TL ile ödeme bekleniyor | Rezervasyon | Havale bilgileri ve referans numarası gösterilir, kopyalanabilir. Durum otomatik güncellenir; kullanıcı sayfayı yenilemek zorunda kalmaz. |
-| Zincir onayı bekleniyor | Kilitlenme | Mühür henüz basılmaz. "Kilitleniyor" durumu ve işlem kimliği gösterilir; onaylanınca mühür animasyonu çalışır. |
-| Limit dışı tutar | Rezervasyon | Kapora 50 TL altında veya 3.000 TL üstündeyse ödeme adımından **önce** uyarılır ve alternatif ödeme yolu önerilir. |
-| Saat kapıldı | Rezervasyon | Seçilen saat başkası tarafından kilitlendiyse: "Bu saat az önce doldu." + aynı günün diğer saatleri. |
-| Bağlantı koptu | Her yüzey | "Bağlantı koptu, kaporan yerinde duruyor." Yeniden dene aksiyonu. |
-| Süre doldu | Randevularım | Ücretsiz iptal süresi geçtiğinde kart `{colors.alert}` kenarlığa döner ve iptalin sonucu metne yazılır. |
-| Onay bekliyor (uzman) | Uzman paneli | Başvuru onaylanana kadar panel salt okunur; üstte durum şeridi ve tahmini süre. |
+| First load | Discover | Six card skeletons matching the real layout. |
+| No results | Search | A blank screen is forbidden. Echo the query, then three concrete suggestions: loosen a filter, try another time, browse the whole category. |
+| Empty list | My bookings | "No bookings yet." plus a primary action into Discover. |
+| Waiting on wallet | Booking | Button disabled, copy reads "Approve it in your wallet". After 60 seconds an "Open wallet again" option appears. |
+| Wallet rejected | Booking | Information, not a warning: "You didn't sign. The slot is still yours for 10 minutes." |
+| Missing trustline | Booking | The user never sees the term. The flow prepares the account automatically under the copy "Getting your wallet ready". If an extra approval is needed it is asked for in one sentence. |
+| Waiting on a local-currency payment | Booking | Bank details and a reference are shown and can be copied. The state updates by itself; the user never has to refresh. |
+| Waiting on chain confirmation | Locking | The seal is not stamped yet. A "Locking" state and the transaction id are shown; the seal animates once the event confirms. |
+| Amount outside limits | Booking | If the deposit is below 50 TRY or above 3,000 TRY the user is warned **before** the payment step and offered the other payment method. |
+| Slot taken | Booking | If the chosen slot was locked by someone else: "That slot just went." plus the other slots that day. |
+| Connection dropped | Any surface | "Connection dropped. Your deposit is untouched." with a retry action. |
+| Window closed | My bookings | When the free-cancellation window passes, the card takes an `{colors.alert}` border and the consequence of cancelling is written into the copy. |
+| Pending approval (provider) | Provider panel | Until the application is approved the panel is read-only, with a status banner and an expected timeframe on top. |
 
-## Etkileşim İlkeleri
+## Interaction Primitives
 
-**Hareket.** Framer Motion ile üç hareket vardır ve hepsi anlam taşır:
+**Motion.** Framer Motion carries three movements, each with a meaning:
 
-1. **Birleşme** — kapora kilitlendiğinde iki taraf rengi ortadaki emanet şeridine doğru kayar ve birleşir (300 ms).
-2. **Mühür** — birleşmenin ardından dairesel mühür basılır (ölçek 1.6 → 1, yay eğrisi, 400 ms). Sadece bu anda.
-3. **Geçiş** — sayfalar arası yumuşak opaklık ve 8px kayma (150 ms).
+1. **Meeting** — when the deposit locks, the two side colours slide toward the escrow lane and join (300 ms).
+2. **Seal** — the circular seal stamps down after the meeting (scale 1.6 → 1, spring curve, 400 ms). Only here.
+3. **Transition** — page changes fade and shift by 8px (150 ms).
 
-`prefers-reduced-motion` açıkken üç hareket de kapanır; mühür doğrudan son halinde görünür.
+With `prefers-reduced-motion` all three are off; the seal appears in its final state.
 
-**Geri alma.** Kapora kilitlendikten sonra geri alma yoktur, kural sözleşmededir. Bu yüzden geri alınamaz tek eylemden önce özet gösterilir: kime, ne zaman, ne kadar, hangi tarihe kadar iade.
+**No undo.** Once a deposit is locked there is no undo; the rule lives in the contract. So the one irreversible action is preceded by a summary: who, when, how much, and the date until which a refund is full.
 
-**İptal.** Her iptal, sonucu söyledikten sonra onaylanır: "Şimdi iptal edersen 600 TL'nin tamamı sana döner" ya da "Şimdi iptal edersen kapora Dr. Aydın'a geçer."
+**Cancelling.** Every cancellation states the outcome before it asks for confirmation: "Cancel now and you get all 600.00 TRY back" or "Cancel now and the deposit goes to Dr. Aydın."
 
-**Tek imza.** Kullanıcı bir randevu için cüzdanında yalnızca bir kez imza atar.
+**One signature.** A client signs once per booking in their wallet.
 
-## Erişilebilirlik Tabanı
+## Accessibility Floor
 
-- Klavyeyle tam gezinme; odak sırası görsel sırayla aynı. Odak halkası `{colors.focus}` ve her zaman görünür.
-- Dokunma hedefleri en az 44×44px. Saat çipleri mobilde bu ölçüye büyür.
-- Durum asla yalnızca renkle anlatılmaz; her durum etiketi metin taşır.
-- Geri sayım ve durum değişimleri ekran okuyucuya `aria-live="polite"` ile bildirilir.
-- Rakam ve para birimleri ekran okuyucuda doğru okunacak biçimde işaretlenir.
-- Dolu saatler `aria-disabled` ile işaretlenir, odak almaz.
-- Sayfa dili `tr`; tarih, saat ve para biçimleri Türkçe yereldir.
+- Full keyboard navigation; focus order matches visual order. The focus ring is `{colors.focus}` and always visible.
+- Touch targets are at least 44×44px. Slot chips grow to that size on mobile.
+- State is never conveyed by colour alone; every state label carries text.
+- Countdowns and state changes are announced through `aria-live="polite"`.
+- Numbers and currencies are marked up so screen readers read them correctly.
+- Taken slots carry `aria-disabled` and take no focus.
+- Page language is `en`. Dates, times and amounts are formatted for an international reader: `Sep 18, 2026 · 2:00 PM`, `2,000.00 TRY`.
 
-## Temel Akışlar
+## Key Flows
 
-### 1. Ayşe ilk kez kapora bırakıyor (danışan, mobil)
+### 1. Aisha locks her first deposit (client, mobile)
 
-Ayşe 34 yaşında, daha önce hiç kripto kullanmadı. Telefonundan bir psikolog arıyor.
+Aisha is 34 and has never used crypto. She is looking for a therapist on her phone.
 
-1. Keşfet'i açar, arama kutusuna "psikolog" yazar. Öneriler açılır, ilkini seçer.
-2. Kartlarda ücretin hemen altında kapora ve iptal süresini görür: `600 TL kapora · 24 saat öncesine kadar tam iade`. Karşılaştırmayı bu satıra bakarak yapar.
-3. Dr. Elif Aydın'ın kartındaki "Cum 14:00" çipine dokunur; profil o saat seçili açılır.
-4. Rezervasyon ekranında üç şeridi görür: kendi seçimleri, ortada kapora, altında uzmanın taahhüdü.
-5. Ödeme yolu olarak "Türk Lirası" seçer, çünkü cüzdanı yoktur. Havale bilgileri ve referans numarası gelir.
-6. Ödemeyi yapar. Ekran kendiliğinden ilerler; Ayşe sayfayı yenilemez.
-7. **Doruk an:** İki renk ortada birleşir, mühür basılır: "Söz verildi." Ekranda 600 TL'nin emanette olduğu, 17 Eylül 14:00'e kadar iptal ederse tamamının geri döneceği ve işlemin zincirdeki kaydı yazar.
-8. "Takvime ekle" der ve çıkar. Pactly'ye hesap açmamıştır.
+1. She opens Discover and types "psychologist". Suggestions appear; she picks the first.
+2. On the cards, right under the price, she sees the deposit and the cancellation window: `600.00 TRY deposit · full refund up to 24h before`. She compares on that line.
+3. On Dr. Elif Aydın's card she taps the "Fri 2:00 PM" chip; the profile opens with that slot selected.
+4. The booking screen shows three lanes: her choices, the deposit in the middle, the provider's commitment on the other side.
+5. She picks "Local currency" because she has no wallet. Bank details and a reference appear.
+6. She pays. The screen advances on its own; Aisha never refreshes.
+7. **The climax:** the two colours meet in the middle and the seal stamps down: "You're set." The screen states that 600.00 TRY is in escrow, that cancelling before Sep 17 at 2:00 PM returns all of it, and shows the transaction's record on chain.
+8. She taps "Add to calendar" and leaves. She never created an account.
 
-### 2. Cem randevusunu iptal ediyor (danışan, süre dolmadan)
+### 2. Cem cancels in time (client, before the window closes)
 
-1. "Randevularım"ı açar. Kartta geri sayım görünür: `Ücretsiz iptal · 2 gün 19 saat`.
-2. "İptal et" der. Ekran sonucu söyler: "Şimdi iptal edersen 600 TL'nin tamamı sana döner."
-3. Onaylar, cüzdanında tek bir imza atar.
-4. Durum "İade edildi" olur, kartta iade işleminin kaydı görünür.
+1. He opens "My bookings". The card shows a countdown: `Free cancellation · 2d 19h`.
+2. He taps "Cancel". The screen states the outcome: "Cancel now and you get all 600.00 TRY back."
+3. He confirms and signs once in his wallet.
+4. The state becomes "Refunded" and the refund's record appears on the card.
 
-### 3. Dr. Elif kazancını TL'ye çeviriyor (uzman, masaüstü)
+### 3. Dr. Elif cashes out (provider, desktop)
 
-1. Görüşmeden sonra danışan "gerçekleşti" onayını verir, kapora serbest kalır.
-2. Dr. Elif panelinde "Serbest bırakıldı" durumunu ve toplam çekilebilir tutarı görür.
-3. "TL olarak çek" der. Kimlik doğrulama adımı bir kez istenir, sonraki çekimlerde tekrarlanmaz.
-4. Tutar banka hesabına gönderilir; durum "Yolda" ve ardından "Hesabına geçti" olur.
-5. Dr. Elif hiçbir adımda kripto terimi görmez. Panelinin dili baştan sona Türk Lirasıdır.
+1. After the session the client confirms it happened and the deposit is released.
+2. In her panel Dr. Elif sees the "Released" state and her withdrawable total.
+3. She taps "Cash out". Identity verification is asked once and never repeated.
+4. The amount is sent to her bank account; the state moves to "On its way" and then "Landed".
+5. She sees no crypto vocabulary at any step. Her panel speaks in her local currency throughout.
 
-### 4. Bir uzman platforma başvuruyor (küratörlü kabul)
+### 4. A provider applies (curated onboarding)
 
-1. "Uzman ol" formunu doldurur: ad, unvan, hizmet, belge, ücret, kapora oranı, iptal süresi.
-2. Başvuru durumu sayfası bekleme durumunu gösterir; panel salt okunur açılır.
-3. Yönetim onaylar, profil marketplace'te görünür ve "Onaylı uzman" rozeti aktifleşir.
-4. İlk görüşmesi tamamlanınca "doğrulanmış seans" sayacı 1 olur.
+1. They fill in "Become a provider": name, title, service, credentials, price, deposit rate, cancellation window.
+2. An application-status page shows the pending state; the panel opens read-only.
+3. An admin approves; the profile appears on the marketplace and the "Approved provider" badge activates.
+4. Once their first session completes, the verified-session counter reads 1.
 
-## Zaman ve Öncelik
+## Time and Priority
 
-İki günlük geliştirme bütçesi var. Tüm yüzeyler aynı anda bitmeyebilir; sıra şudur:
+The development budget is about two days. Not every surface will land at once; the order is:
 
-1. **Vazgeçilmez:** Keşfet listesi (arama olmadan da olur), uzman profili, rezervasyon ve ödeme, kilitlendi onayı, Randevularım, uzman paneli, TL'ye çekme.
-2. **Sonra:** Arama ve otomatik tamamlama, filtre rayı, başvuru formu ve yönetim onayı (demo için uzmanlar hazır onaylı eklenebilir).
-3. **Vizyon:** Değerlendirme yazma, uzman profili düzenleme, native mobil uygulama, gelişmiş filtreler.
+1. **Non-negotiable:** the Discover list (it can ship without search), provider profile, booking and payment, locked confirmation, My bookings, provider panel, cash out.
+2. **Next:** search and autocomplete, the filter rail, the application form and admin approval (for the demo, providers can be seeded pre-approved).
+3. **Vision:** writing reviews, editing the provider profile, a native mobile app, advanced filters.
 
-Kapora hapı, emanet şeridi ve mühür anı hiçbir koşulda kapsamdan çıkarılmaz; ürünün farkı bunlardır.
+The deposit pill, the escrow lane and the seal moment never leave scope; they are what makes the product different.
 
-## Açık Sorular
+## Open Questions
 
-- ~~Kategoriler~~ — **onaylandı (2026-09-16):** terapi ve iyi oluş, eğitim ve dersler, danışmanlık, spor ve güzellik.
-- **Duyarlı öncelik** varsayım olarak alındı: danışan akışı mobil öncelikli, uzman paneli masaüstü öncelikli.
-- ~~Kalan tutarın nasıl ödendiği~~ — **karara bağlandı (2026-09-16):** kalan tutar görüşmeden önce ödenir; danışan elden ya da Pactly üzerinden ödeyebilir. Randevu, kalan tutarın ödeme durumunu taşır (PRD FR22, Story 3.7).
-- **Yönetim paneli** küratörlü kabul kararından doğdu, PRD'de yok. PRD güncellemesinde eklenmeli.
+- ~~Categories~~ — **approved (2026-09-16):** therapy and wellbeing, education and lessons, consulting, fitness and beauty.
+- **Responsive priority** is an assumption: the client flow is mobile-first, the provider panel desktop-first.
+- ~~How the balance is paid~~ — **decided (2026-09-16):** the balance is due before the session; the client can pay in person or through Pactly. The booking carries the payment state (PRD FR22, Story 3.7).
+- ~~The admin panel~~ — **recorded (2026-09-16):** added to the PRD as Epic 4 (Stories 4.1–4.2).
+- **Multi-currency presentation** is deferred: the demo shows the anchor's TRY rail, but no component may hard-code it (PRD NFR12). How a second anchor's currency gets chosen is an open product question.

@@ -12,5 +12,5 @@ project_knowledge: "{project-root}/docs"
 user_name: Cem
 project_name: Pactly
 communication_language: Turkish
-document_output_language: Turkish
+document_output_language: English
 output_folder: _bmad-output

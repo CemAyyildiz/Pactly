@@ -1,10 +1,10 @@
 ---
 name: Pactly
-description: Randevulu hizmetler için emanetli kapora marketplace'i — "İki Taraf" görsel sistemi
+description: A trust-backed booking marketplace for appointment-based services — the "Two Sides" visual system
 status: final
-updated: 2026-09-16
+updated: 2026-09-17
 sources:
-  - "{planning_artifacts}/prd.md"
+  - "../../prd.md"
 colors:
   stone: '#DCDAD3'
   paper: '#F2F1EC'
@@ -50,9 +50,9 @@ typography:
   numeric:
     fontFamily: "'Darker Grotesque', system-ui, sans-serif"
     fontWeight: 900
-    note: 'font-variant-numeric: tabular-nums — para ve saat her yerde'
+    note: 'font-variant-numeric: tabular-nums — every money and time value'
   scale:
-    note: '12 · 14 · 16 · 18 · 24 · 32 · 48 — ara değer yok'
+    note: '12 · 14 · 16 · 18 · 24 · 32 · 48 — no values in between'
 rounded:
   sm: '6px'
   DEFAULT: '10px'
@@ -86,13 +86,13 @@ components:
     color: '{colors.escrow-text}'
     radius: '{rounded.md}'
     padding: '16px 24px'
-    note: 'Yalnızca kaporayı kilitleyen tek buton'
+    note: 'The only button that locks a deposit'
   button-ghost:
     background: 'transparent'
     color: '{colors.ink}'
     border: '1.5px solid {colors.ink}'
     radius: '{rounded.md}'
-  card-expert:
+  card-provider:
     background: '{colors.card}'
     border: '1.5px solid {colors.ink}'
     radius: '{rounded.lg}'
@@ -113,139 +113,140 @@ components:
     background: 'transparent'
     color: '{colors.faint}'
     border: '1.5px dashed {colors.line}'
-  pill-escrow:
+  pill-deposit:
     background: '{colors.escrow}'
     color: '{colors.escrow-text}'
     radius: '{rounded.full}'
     fontSize: '12.5px'
-    note: 'Kapora tutarı + ücretsiz iptal süresi. Hardal nokta ile başlar.'
+    note: 'Deposit amount + free-cancellation window. Opens with a mustard dot.'
   band-escrow:
     background: '{colors.escrow}'
     color: '{colors.escrow-text}'
-    note: 'Rezervasyon ekranındaki orta şerit — emanet alanı'
+    note: 'The middle column of the booking screen — the escrow lane'
   seal-locked:
     color: '{colors.escrow}'
-    note: 'Kilitlenme onayında basılan dairesel mühür. Tek kullanım yeri.'
+    note: 'The circular seal stamped on confirmation. Used nowhere else.'
 ---
 
-# Pactly — Görsel Sistem (İki Taraf)
+# Pactly — Visual System (Two Sides)
 
-> Kaynak: `{planning_artifacts}/prd.md`. Davranış ve akışlar `EXPERIENCE.md` dosyasında. Çakışmada bu iki doküman kazanır, mockup'lar değil.
+> Source: `../../prd.md`. Behaviour and flows live in `EXPERIENCE.md`. Where a mockup disagrees with these two documents, the documents win.
 
-## Marka ve Üslup
+## Brand & Style
 
-Pactly bir **söz** ürünüdür. Randevu, iki tarafın birbirine verdiği bir sözdür; kapora da o sözün karşılığıdır. Görsel sistemin tamamı bu fikirden türer ve sistemin adı budur: **İki Taraf**.
+Pactly is a product about a **promise**. A booking is a promise two people make to each other, and the deposit is what that promise is worth. The whole visual system grows out of that idea, and it takes its name from it: **Two Sides**.
 
-Sistemin çekirdeği bir renk kuralıdır. Ekranda üç alan vardır ve kullanıcı hangi alanda olduğunu renkten anlar:
+At the core of the system is a colour rule. Every screen has three zones, and the viewer knows which one they are in by its colour:
 
-- **Hardal** danışanın tarafıdır. Seçtiği, tıkladığı, karar verdiği her şey.
-- **Petrol yeşili** uzmanın tarafıdır. Kimliği, onayı, güvencesi.
-- **Siyah** emanettir. Kimseye ait değildir. Kapora, sözleşme ve zincir kayıtları burada yaşar.
+- **Mustard** is the client's side. Everything they choose, tap and decide.
+- **Deep teal** is the provider's side. Their identity, their approval, their commitment.
+- **Black** is the escrow. It belongs to no one. The deposit, the contract and the chain records live here.
 
-Bu bir dekorasyon değil, okunabilir bir kuraldır. Bir öğenin rengi, o öğenin kime ait olduğunu söyler.
+This is a legible rule, not decoration. The colour of an element tells you whose it is.
 
-Üslup açık sözlü ve sakin özgüvenlidir. Ağır gölge, cam efekti, degrade ve dekoratif illüstrasyon kullanılmaz. Derinlik renk alanlarıyla ve 1,5px'lik net kenarlarla kurulur. Ürün ciddi bir para işini anlatır ama dili resmi değildir: "Anlaştınız." der, "İşleminiz başarıyla tamamlanmıştır." demez.
+The tone is plainspoken and quietly confident. No heavy shadows, no glass, no gradients, no decorative illustration. Depth comes from colour fields and crisp 1.5px edges. The product handles serious money but does not sound like a bank: it says "You're set." rather than "Your transaction has been completed successfully."
 
-**Kaçınılan:** Genel amaçlı SaaS görünümü (mavi vurgu + yumuşak gri kart + yuvarlak köşe + hafif gölge), kripto estetiği (neon, koyu degrade, parlama), stok illüstrasyon, ikon yerine emoji.
+**Deliberately avoided:** generic SaaS looks (blue accent + soft grey card + rounded corner + faint shadow), crypto aesthetics (neon, dark gradients, glow), stock illustration, emoji used as icons.
 
-## Renkler
+## Colors
 
-| Token | Değer | Rolü |
+| Token | Value | Role |
 |---|---|---|
-| `{colors.stone}` | #DCDAD3 | Uygulama dışı zemin, boşluk |
-| `{colors.paper}` | #F2F1EC | Sayfa zemini |
-| `{colors.card}` | #FFFFFF | Kart ve panel yüzeyi |
-| `{colors.ink}` | #111111 | Metin, kenarlar, emanet alanı |
-| `{colors.faint}` | #6B6960 | İkincil metin |
-| `{colors.line}` | #CFCDC5 | Kart içi ayraç (kenarlıklar `ink` kullanır) |
-| `{colors.you}` | #E8B93A | Danışanın tarafı: seçim, birincil aksiyon, müsait saat |
-| `{colors.you-ink}` | #3A2A00 | Hardal üzerindeki metin |
-| `{colors.pro}` | #164E4A | Uzmanın tarafı: kimlik, onay, uzman paneli |
-| `{colors.pro-soft}` | #DCEAE7 | Doğrulanmış seans rozeti zemini |
-| `{colors.alert}` | #B4462A | Geri alınamaz sonuç uyarısı |
-| `{colors.focus}` | #1F3BE0 | Klavye odak halkası — başka hiçbir yerde kullanılmaz |
+| `{colors.stone}` | #DCDAD3 | Ground outside the app, breathing room |
+| `{colors.paper}` | #F2F1EC | Page background |
+| `{colors.card}` | #FFFFFF | Card and panel surface |
+| `{colors.ink}` | #111111 | Text, borders, escrow zone |
+| `{colors.faint}` | #6B6960 | Secondary text |
+| `{colors.line}` | #CFCDC5 | Divider inside a card (borders use `ink`) |
+| `{colors.you}` | #E8B93A | The client's side: selection, primary action, open slot |
+| `{colors.you-ink}` | #3A2A00 | Text on mustard |
+| `{colors.pro}` | #164E4A | The provider's side: identity, approval, provider panel |
+| `{colors.pro-soft}` | #DCEAE7 | Verified-session badge ground |
+| `{colors.alert}` | #B4462A | Warning about an irreversible outcome |
+| `{colors.focus}` | #1F3BE0 | Keyboard focus ring — used nowhere else |
 
-**Hardal yalnızca danışanın eyleme geçtiği yerde kullanılır.** Dolu bir saat hardal olamaz, başarı mesajı hardal olamaz. Danışan tıklayabiliyorsa hardaldır.
+**Mustard appears only where the client acts.** A taken slot cannot be mustard; a success message cannot be mustard. If the client can tap it, it is mustard.
 
-**Petrol yeşili tıklanabilir değildir.** Uzmanın kim olduğunu ve neyi taahhüt ettiğini anlatır. Uzman kendi panelindeyken bu renk onun tarafının zeminidir; orada da aksiyon rengi hardal olmaya devam eder.
+**Deep teal is never interactive.** It says who the provider is and what they commit to. When the provider is in their own panel, teal is the ground of their side — the action colour there is still mustard.
 
-**Siyah hem metin hem emanet rengidir.** Bir yüzey siyaha boyandıysa orada para ya da sözleşme vardır: kapora şeridi, kapora hapı, kilitleme butonu, işlem kayıtları.
+**Black is both the text colour and the escrow colour.** A surface painted black holds money or contract truth: the escrow lane, the deposit pill, the lock button, transaction records.
 
-**Kiremit kırmızısı nadirdir.** Sadece geri alınamaz bir sonuç anlatılırken kullanılır: ücretsiz iptal süresinin bitişi, kaporanın uzmana devri, geçmiş randevu. Hata mesajı için kullanılmaz; hata mesajları `{colors.ink}` üzerine `{colors.alert}` kenarlıkla kurulur.
+**Terracotta is rare.** It marks an irreversible outcome only: the end of the free-cancellation window, the transfer of a deposit to the provider, a past appointment. It is not the error colour; errors are built on `{colors.ink}` with an `{colors.alert}` border.
 
-**Kontrast:** `you` üzerine `you-ink` ve `pro` üzerine `pro-text` kombinasyonları 4,5:1 eşiğini geçer. Hardal üzerine beyaz metin **hiçbir koşulda** kullanılmaz.
+**Contrast:** `you-ink` on `you` and `pro-text` on `pro` both clear 4.5:1. White text on mustard is **never** used.
 
-## Tipografi
+## Typography
 
-Üç aile, üç net görev:
+Three families, three clear jobs:
 
-- **Darker Grotesque 900** (`{typography.display}`) — büyük ifadeler ve rakamlar. Sıkı, geniş ve yüksek; ürünün karakteri buradan gelir. Sadece 24px ve üzerinde kullanılır.
-- **Familjen Grotesk** (`{typography.body}`) — tüm okuma metni, düğmeler, kart içeriği.
-- **Martian Mono 12px** (`{typography.label}`) — etiketler, adım numaraları, zincir verisi, sözleşme ve işlem kimlikleri. Büyük harf yazılır. Makinenin konuştuğu yerdir; cümle kurmaz.
+- **Darker Grotesque 900** (`{typography.display}`) — large statements and numerals. Tight, wide and tall; the product's character comes from here. Used at 24px and above only.
+- **Familjen Grotesk** (`{typography.body}`) — all reading text, buttons, card content.
+- **Martian Mono 12px** (`{typography.label}`) — labels, step numbers, chain data, contract and transaction ids. Set in uppercase. This is where the machine speaks; it does not form sentences.
 
-Ölçek sabittir: **12 · 14 · 16 · 18 · 24 · 32 · 48**. Ara değer üretilmez.
+The scale is fixed: **12 · 14 · 16 · 18 · 24 · 32 · 48**. No values are invented in between.
 
-Para tutarları ve saatler her yerde `tabular-nums` ile dizilir; listede alt alta gelen rakamlar hizalanmalıdır. Tutarlar Türkçe biçimde yazılır: binlik ayracı nokta, kuruş ayracı virgül (`2.000,00 TL`). Kripto tutarları da aynı kurala uyar (`14,35 USDC`).
+Money and times are always set with `tabular-nums`; digits stacked in a list must align. Amounts carry their currency code and use a period as the decimal separator with comma grouping (`2,000.00 TRY`, `14.35 USDC`), so the same format holds for any currency the anchor supports. Currency symbols are never hard-coded into components.
 
-## Yerleşim ve Boşluk
+## Layout & Spacing
 
-Boşluk ölçeği 4px katlarıdır. Sayfa kenar boşluğu masaüstünde `{spacing.gutter}`, mobilde `{spacing.gutter-mobile}`.
+The spacing scale is multiples of 4px. Page margin is `{spacing.gutter}` on desktop, `{spacing.gutter-mobile}` on mobile.
 
-Kırılma noktaları: **375 · 768 · 1024 · 1440**.
+Breakpoints: **375 · 768 · 1024 · 1440**.
 
-- **Keşif sayfası:** 1024px üzerinde sol filtre rayı (232px) + sonuç ızgarası (2 sütun). 1024 altında filtreler alttan açılan panele iner, sonuçlar tek sütun olur.
-- **Rezervasyon sayfası:** 1024px üzerinde üç şerit (danışan · emanet · uzman). 1024 altında şeritler dikey sıralanır ve **sıra değişir**: uzman kimliği üstte, danışanın seçimleri ortada, emanet altta sabit çubuk olarak kalır. Emanet şeridi hiçbir kırılma noktasında gizlenmez.
-- **Uzman paneli:** masaüstü öncelikli, tablo düzeni. Mobilde tablo kart listesine dönüşür.
+- **Discovery:** above 1024px, a left filter rail (232px) plus a two-column result grid. Below 1024px the filters move into a bottom sheet and results become a single column.
+- **Booking:** above 1024px, three lanes (client · escrow · provider). Below 1024px the lanes stack vertically and **reorder**: provider identity on top, the client's choices in the middle, the escrow pinned to the bottom as a bar. The escrow lane is never hidden at any breakpoint.
+- **Provider panel:** desktop-first, table layout. On mobile the table becomes a card list.
 
-## Yükseklik ve Derinlik
+## Elevation & Depth
 
-Gölge yoktur. Ayrım üç araçla kurulur:
+There are no shadows. Separation is built three ways:
 
-1. **1,5px `{colors.ink}` kenarlık** — kartlar, girdiler, butonlar.
-2. **Renk alanı** — taraf rengiyle boyanmış bölge kendi katmanıdır.
-3. **Kaydırılmış tam renk blok** (`4px 4px 0`) — yalnızca üstte duran geçici katmanlarda: arama önerileri, açılan menüler, modal.
+1. **A 1.5px `{colors.ink}` border** — cards, inputs, buttons.
+2. **A colour field** — a region painted in a side's colour is its own layer.
+3. **An offset solid block** (`4px 4px 0`) — only for transient layers that sit above: search suggestions, dropdowns, modals.
 
-Modal arka planı `{colors.ink}` üzerine %55 opaklıktır; bulanıklaştırma yapılmaz.
+A modal backdrop is `{colors.ink}` at 55% opacity; nothing is blurred.
 
-## Formlar
+## Shapes
 
-Köşe yarıçapı iki değerde toplanır: kontroller ve kartlar `{rounded.md}`–`{rounded.lg}`, hap biçimli öğeler `{rounded.full}`. Arası kullanılmaz.
+Radii collapse to two values: controls and cards use `{rounded.md}`–`{rounded.lg}`, pill-shaped elements use `{rounded.full}`. Nothing in between.
 
-Tam yuvarlak biçim üç şeye ayrılmıştır: kategori sekmeleri, rozetler ve kapora hapı. Bunlar bilgi taşır, tıklanabilir yüzey değildir (kategori sekmeleri hariç).
+The pill shape is reserved for three things: category tabs, badges and the deposit pill. These carry information rather than being tappable surfaces — category tabs excepted.
 
-Logo bu sistemin özetidir: bir hardal yarım, bir petrol yeşili yarım ve ortada onları ayıran/birleştiren siyah bir çizgi.
+The logo is the system in miniature: one mustard half, one teal half, and a black line between them that both separates and joins.
 
-## Bileşenler
+## Components
 
-**Uzman kartı** (`{components.card-expert}`) — Sol sütunda 76×96px fotoğraf, sol üstünde petrol yeşili "ONAYLI" rozeti. Sağ sütunda sırasıyla: ad (`{typography.display}` 28px), unvan ve süre, rozet satırı, seans ücreti (`{typography.display}` 30px), **kapora hapı**, en erken üç müsait saat. Kapora hapı kartın vazgeçilmez parçasıdır: rakip ürünlerde iptal politikası ödeme adımına kadar gizlidir, Pactly'de listede görünür.
+**Provider card** (`{components.card-provider}`) — A 76×96px photo in the left column with a teal "APPROVED" badge at its top left. The right column carries, in order: name (`{typography.display}` 28px), title and session length, the badge row, the session price (`{typography.display}` 30px), the **deposit pill**, and the three earliest open slots. The deposit pill is non-negotiable: competing products hide the cancellation policy until checkout; Pactly shows it in the list.
 
-**Kapora hapı** (`{components.pill-escrow}`) — Siyah zemin, hardal nokta, tek satır: `600 TL kapora · 24 saat öncesine kadar tam iade`. Kaporanın geçtiği her yüzeyde aynı biçimde tekrarlanır.
+**Deposit pill** (`{components.pill-deposit}`) — Black ground, mustard dot, one line: `600.00 TRY deposit · full refund up to 24h before`. It repeats in the same form on every surface where the deposit appears.
 
-**Saat çipi** (`{components.chip-slot}`) — Müsait saat hardaldır. Dolu saat `{components.chip-slot-taken}` ile kesik çizgili ve soluk olur; üzeri çizilmez, tıklanamaz.
+**Slot chip** (`{components.chip-slot}`) — An open slot is mustard. A taken slot uses `{components.chip-slot-taken}`: dashed and faded, never struck through, never focusable.
 
-**Emanet şeridi** (`{components.band-escrow}`) — Rezervasyon ekranının ortasındaki siyah sütun. İçinde kilit ikonu, kapora tutarı ve sözleşme kimliği bulunur. İki tarafa uzanan ince çizgiler soldan hardal, sağdan petrol yeşilidir: para iki taraftan gelip ortada durur.
+**Escrow lane** (`{components.band-escrow}`) — The black column down the middle of the booking screen. It holds the lock icon, the deposit amount and the contract id. The thin lines reaching out to either side are mustard on the left and teal on the right: the money comes from both sides and stops in the middle.
 
-**Kilitleme butonu** (`{components.button-escrow}`) — Uygulamadaki tek siyah butondur. Sadece kaporayı emanete alan eylemde kullanılır. Başka hiçbir buton siyah olamaz; aksi halde "bu buton parayı bağlar" sinyali değersizleşir.
+**Lock button** (`{components.button-escrow}`) — The only black button in the product. It is used solely for the action that puts the deposit into escrow. No other button may be black; otherwise the signal "this button commits money" loses its worth.
 
-**Mühür** (`{components.seal-locked}`) — Kilitlenme onayında basılan dairesel işaret. Çevresinde Martian Mono ile taraflar, tarih ve söz numarası döner. Yalnızca bu anda kullanılır; başka ekranda tekrarlanmaz.
+**Seal** (`{components.seal-locked}`) — The circular mark stamped on confirmation. Martian Mono text rotates around it carrying the two parties, the date and the promise number. Used at that moment only, never repeated elsewhere.
 
-**Rozetler** — "Onaylı uzman" (küratörlü kabul) ve "38 doğrulanmış seans" (kaporası serbest bırakılmış tamamlanan seans sayısı) petrol yeşili ailesindedir. Bu iki rozet uydurulamaz; ikisi de arkasında zincirde ya da yönetimde bir kayıt olduğu için vardır.
+**Badges** — "Approved provider" (curated acceptance) and "38 verified sessions" (sessions whose deposit was released) belong to the teal family. Neither can be invented: each exists because something recorded it, on chain or in the admin queue.
 
-## Yapılacaklar ve Yapılmayacaklar
+## Do's and Don'ts
 
-**Yapılacak**
-- Taraf rengini kuralına göre kullan: hardal danışanın eylemi, petrol uzmanın kimliği, siyah emanet.
-- Kapora tutarını ve ücretsiz iptal süresini her zaman birlikte göster.
-- Para ve saat için `tabular-nums` kullan; Türkçe sayı biçimini koru.
-- İkonlar için çizgi tabanlı SVG kullan (Lucide veya eşdeğeri), 1,5–2px kalınlık.
-- Hareketi 150–300 ms arasında tut; `prefers-reduced-motion` ayarına uy.
-- Klavye odağını her zaman `{colors.focus}` halkasıyla görünür kıl.
+**Do**
+- Apply the side colours by their rule: mustard for the client's action, teal for the provider's identity, black for escrow.
+- Always show the deposit amount and the free-cancellation window together.
+- Use `tabular-nums` for money and time; keep the currency code beside the amount.
+- Use line-based SVG icons (Lucide or equivalent) at 1.5–2px stroke.
+- Keep motion between 150–300 ms and honour `prefers-reduced-motion`.
+- Keep keyboard focus visible at all times with the `{colors.focus}` ring.
 
-**Yapılmayacak**
-- Siyah butonu kaporayı kilitlemek dışında kullanma.
-- Hardalı bilgi ya da başarı rengi olarak kullanma; o bir aksiyon rengidir.
-- Kiremit kırmızısını dekoratif amaçla kullanma.
-- Gölge, cam efekti, degrade zemin ve parlama ekleme.
-- İkon yerine emoji koyma.
-- Beş renkten fazlasını aynı ekranda toplama; taş ve kağıt zemin renkleri bu sayıya dahil değildir.
-- Ölçek dışı font boyutu üretme.
+**Don't**
+- Use the black button for anything but locking a deposit.
+- Use mustard as an information or success colour; it is an action colour.
+- Use terracotta decoratively.
+- Add shadows, glass, gradient grounds or glow.
+- Use emoji in place of icons.
+- Put more than five colours on one screen; stone and paper grounds do not count.
+- Invent a font size outside the scale.
+- Hard-code a currency symbol or assume a single locale.

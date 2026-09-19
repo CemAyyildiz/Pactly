@@ -3,12 +3,12 @@ name: Pactly
 type: architecture-spine
 purpose: build-substrate
 altitude: feature
-paradigm: 'Zincir-otoriteli hizmet katmanı (chain-authoritative layered services)'
-scope: 'Pactly ürününün tamamı — Soroban escrow contract, Node.js backend, React frontend'
+paradigm: 'Chain-authoritative layered services'
+scope: 'The whole Pactly product — Soroban escrow contract, Node.js backend, React frontend'
 status: final
 created: '2026-09-16'
-updated: '2026-09-16'
-binds: [FR1-FR22, NFR1-NFR10, Epic1, Epic2, Epic3, Epic4]
+updated: '2026-09-17'
+binds: [FR1-FR22, NFR1-NFR12, Epic1, Epic2, Epic3, Epic4]
 sources:
   - '../../prd.md'
   - '../../ux-designs/ux-Pactly-2026-09-15/DESIGN.md'
@@ -18,113 +18,113 @@ companions: []
 
 # Architecture Spine — Pactly
 
-## Tasarım Paradigması
+## Design Paradigm
 
-**Zincir-otoriteli katmanlı hizmet.** Para durumunun tek otoritesi Soroban contract'ıdır; backend bir aynadır ve zincirden okuduğunu yansıtır; frontend sunum ve imza katmanıdır.
+**Chain-authoritative layered services.** The Soroban contract is the sole authority on money state; the backend is a mirror that reflects what it reads from chain; the frontend is presentation and signing.
 
-| Katman | Dizin | Sorumluluk |
+| Layer | Directory | Responsibility |
 |---|---|---|
-| Otorite | `contracts/escrow/` | Kaporanın kilitlenmesi, serbest bırakılması, iadesi ve bu geçişlerin event'leri |
-| Ayna + orkestrasyon | `backend/` | Marketplace verisi, SEP akışları, zincir event'lerinin izlenmesi, randevu yaşam döngüsü |
-| Sunum + imza | `frontend/` | Ekranlar, cüzdan imzası, durum gösterimi |
-| Araçlar | `scripts/` | Testnet fonlama, trustline, deploy, örnek veri |
+| Authority | `contracts/escrow/` | Locking, releasing and refunding the deposit, and emitting those transitions |
+| Mirror + orchestration | `backend/` | Marketplace data, SEP flows, chain event ingestion, booking lifecycle |
+| Presentation + signing | `frontend/` | Screens, wallet signatures, state display |
+| Tooling | `scripts/` | Testnet funding, trustlines, deployment, seed data |
 
-Katmanlar tek yönlü bağımlıdır: frontend → backend → contract. Frontend zincire yalnızca imza ve okuma için dokunur, contract'ın iş mantığını tekrar etmez.
+Dependencies run one way: frontend → backend → contract. The frontend touches the chain only to sign and to read; it never restates the contract's business logic.
 
 ```mermaid
 graph TD
   FE[frontend · React] -->|REST + JWT| BE[backend · Node]
-  FE -->|imzalı işlem| CH[(Soroban escrow contract)]
+  FE -->|signed transaction| CH[(Soroban escrow contract)]
   BE -->|read + event poll| CH
-  BE -->|SEP-10/6/12/38| AN[Anchor · tr-mock-anchor.fly.dev]
+  BE -->|SEP-10/6/12/38| AN[anchor · tr-mock-anchor.fly.dev]
   BE --> DB[(SQLite · Drizzle)]
 ```
 
-## Değişmezler ve Kurallar
+## Invariants & Rules
 
-### AD-1 — Para durumunun otoritesi zincirdir
+### AD-1 — The chain is the authority on money state
 
-- **Binds:** tüm birimler, FR3, FR6, FR7, FR9, FR11
-- **Prevents:** Backend ile contract'ın kapora durumu konusunda sessizce ayrışması; iki birimin farklı "gerçek" taşıması.
-- **Rule:** Bir randevunun para durumu (`Locked` / `Released` / `Refunded`) yalnızca contract event'i işlendikten sonra veritabanına yazılır. Hiçbir kod yolu bu durumu event olmadan değiştiremez. Çakışmada zincir kazanır; DB düzeltilir.
+- **Binds:** all units, FR3, FR6, FR7, FR9, FR11
+- **Prevents:** The backend and the contract silently diverging on deposit state; two units carrying different truths.
+- **Rule:** A booking's money state (`Locked` / `Released` / `Refunded`) is written to the database only after the corresponding contract event is processed. No code path may set that state without an event. On conflict the chain wins and the database is corrected.
 
-### AD-2 — Zincir yetkileri: release imzalı, resolve_cancel izinsiz
+### AD-2 — On-chain authority: release is signed, resolve_cancel is permissionless
 
 - **Binds:** contract, Story 1.4, 1.5, 3.6
-- **Prevents:** Backend'in kullanıcı adına para hareketi başlatması; no-show durumunda uzmanın kilitli kalması.
-- **Rule:** `release(booking_id)` danışanın `require_auth`'unu ister. `resolve_cancel(booking_id)` izin gerektirmez; sonucu yalnızca `ledger.timestamp` ile `cancel_deadline` karşılaştırması belirler. Backend'in imza anahtarı hiçbir kapora fonksiyonunu çağıramaz.
+- **Prevents:** The backend moving money on a user's behalf; the provider being stuck when a client no-shows.
+- **Rule:** `release(booking_id)` requires the client's `require_auth`. `resolve_cancel(booking_id)` requires no authorization; its outcome is decided solely by comparing `ledger.timestamp` with `cancel_deadline`. The backend's signing key may not call any deposit function.
 
-### AD-3 — Randevu durumu iki eksenlidir
+### AD-3 — A booking carries two independent states
 
 - **Binds:** backend, frontend, FR22, Story 3.5, 3.7
-- **Prevents:** Kapora durumu ile kalan tutar durumunun tek alana sıkıştırılıp birbirini ezmesi.
-- **Rule:** Randevu iki ayrı durum alanı taşır: `escrow_state` (zincirden gelir, AD-1) ve `balance_state` (`unpaid` / `paid_platform` / `paid_cash`, backend'den gelir). Hiçbir ekran ve API bunları tek alanda birleştirmez.
+- **Prevents:** Deposit state and balance state being squeezed into one field where each overwrites the other.
+- **Rule:** A booking carries two separate state fields: `escrow_state` (comes from chain, AD-1) and `balance_state` (`unpaid` / `paid_platform` / `paid_cash`, comes from the backend). No screen and no API response merges them into one field.
 
-### AD-4 — Marketplace verisinin otoritesi backend'dir
+### AD-4 — The backend is the authority on marketplace data
 
 - **Binds:** backend, frontend, FR12-FR21
-- **Prevents:** Zincire ait olmayan verinin (kategori, profil, başvuru, değerlendirme) zincire yazılmaya çalışılması ve iki ayrı kayıt yerinin doğması.
-- **Rule:** Kategori, uzman profili, başvuru, müsaitlik ve değerlendirme yalnızca veritabanında tutulur. Zincirde yalnızca kapora kaydı vardır. `verified_sessions` sayacı bu kuralın istisnası değildir: DB'de tutulur ama yalnızca `released` event'i ile artar (AD-1), elle yazılamaz.
+- **Prevents:** Non-money data (categories, profiles, applications, reviews) being pushed on chain and creating a second record of truth.
+- **Rule:** Categories, provider profiles, applications, availability and reviews live only in the database. The chain holds only the deposit record. The `verified_sessions` counter is no exception: it is stored in the database but only ever incremented by a `released` event (AD-1) and never written by hand.
 
-### AD-5 — İki ayrı kimlik: Pactly oturumu ve anchor oturumu
+### AD-5 — Two separate identities: the Pactly session and the anchor session
 
 - **Binds:** backend, frontend, FR10, FR15, Story 2.1
-- **Prevents:** Bir birimin anchor JWT'sini Pactly oturumu sanması; anchor değişince girişin kırılması.
-- **Rule:** Pactly kendi challenge'ını üretir ve kendi JWT'sini verir; yetkilendirme yalnızca bu token ile yapılır. Anchor JWT'si ayrı bir kimliktir, yalnızca SEP-6/12/38 çağrılarında kullanılır, backend'de saklanır ve frontend'e hiç verilmez.
+- **Prevents:** A unit mistaking the anchor JWT for the Pactly session; sign-in breaking when the anchor changes.
+- **Rule:** Pactly issues its own challenge and its own JWT; authorization is done with that token only. The anchor JWT is a separate identity used only for SEP-6/12/38 calls, stored on the backend, and never handed to the frontend.
 
-### AD-6 — Cüzdan yalnızca ödeme anında; TL yolu yönetilen hesapla çalışır
+### AD-6 — The wallet appears only at payment; the local-currency path uses a managed account
 
 - **Binds:** backend, frontend, FR4, FR15, Story 2.4, 3.4
-- **Prevents:** Keşif ve profil ekranlarına giriş duvarı konması; TL ile ödeyen kullanıcının cüzdan kurmak zorunda kalması.
-- **Rule:** Keşif, arama, profil ve fiyat görüntüleme kimlik doğrulaması gerektirmez. Kullanıcı cüzdanla öderse kapora kendi hesabından kilitlenir. TL ile öderse backend danışan adına yönetilen bir Stellar hesabı açar; SEP-6 deposit oraya düşer ve kapora oradan kilitlenir. Yönetilen hesabın anahtarı yalnızca kapora kilitlenene kadar kullanılır; serbest bırakma ve iade yine AD-2'ye tabidir.
+- **Prevents:** A sign-in wall in front of discovery and profiles; forcing a wallet on a client who pays in local currency.
+- **Rule:** Discovery, search, profiles and prices require no authentication. When the client pays from a wallet, the deposit is locked from their own account. When they pay in local currency, the backend opens a managed Stellar account on their behalf; the SEP-6 deposit lands there and the escrow is locked from it. The managed account's key is used only until the deposit is locked; release and refund remain bound by AD-2.
 
-### AD-7 — Tutarlar tamsayı olarak taşınır
+### AD-7 — Amounts travel as integers
 
-- **Binds:** tüm birimler, NFR5
-- **Prevents:** Kuruş kayması ve iki birimin farklı ondalık varsayımı.
-- **Rule:** Zincirde ve API'de tutarlar en küçük birimde tamsayıdır (USDC için 7 ondalık, `i128`). JSON'da string olarak taşınır. Ondalık dönüşüm ve TL biçimlendirme yalnızca sunum katmanında yapılır. TRY karşılığı hiçbir yerde saklanmaz; SEP-38'den anlık alınır ve gösterildiği an damgalanır.
+- **Binds:** all units, NFR5
+- **Prevents:** Rounding drift and two units assuming different decimal precision.
+- **Rule:** On chain and in the API, amounts are integers in the asset's smallest unit (7 decimals for USDC, `i128`). JSON carries them as strings. Decimal conversion and currency formatting happen only in the presentation layer. No fiat equivalent is ever persisted; it is fetched from SEP-38 and stamped with the moment it was quoted.
 
-### AD-8 — Contract çağrıları tek bir sarmalayıcıdan geçer
+### AD-8 — Every contract call goes through one wrapper
 
 - **Binds:** backend, Story 2.5
-- **Prevents:** Farklı modüllerin kendi RPC istemcisini, kendi hata çevirisini ve kendi yeniden deneme mantığını kurması.
-- **Rule:** Zincire tüm erişim `backend/src/chain/` altındaki tek istemci üzerinden yapılır. Contract hataları burada uygulama hatasına çevrilir. Başka hiçbir modül doğrudan RPC çağırmaz.
+- **Prevents:** Each module building its own RPC client, its own error translation and its own retry logic.
+- **Rule:** All chain access goes through the single client under `backend/src/chain/`. Contract errors are translated to application errors there. No other module calls RPC directly.
 
-### AD-9 — Event işleme imleçli ve tekrar edilebilirdir
+### AD-9 — Event processing is cursored and idempotent
 
 - **Binds:** backend, FR11
-- **Prevents:** Event'in iki kez işlenip sayaçların şişmesi; yeniden başlatmada kayıp.
-- **Rule:** Event okuyucu son işlenen ledger imlecini veritabanında tutar. Her event `(booking_id, event_type)` ile tekilleştirilir; aynı event ikinci kez işlendiğinde durum değişmez (idempotent). Backend yeniden başladığında imleçten devam eder.
+- **Prevents:** An event being processed twice and inflating counters; losing events on restart.
+- **Rule:** The event reader keeps the last processed ledger cursor in the database. Every event is deduplicated by `(booking_id, event_type)`; processing the same event again changes nothing. On restart the backend resumes from the cursor.
 
-### AD-10 — Anchor uçları keşifle bulunur
+### AD-10 — Anchor endpoints are discovered, never hard-coded
 
-- **Binds:** backend, NFR2, Story 2.1
-- **Prevents:** Endpoint'lerin koda gömülmesi ve mainnet geçişinde dağınık düzenleme.
-- **Rule:** Tüm SEP uçları `stellar.toml` üzerinden okunur. Kodda yalnızca home domain ve network passphrase yapılandırılır.
+- **Binds:** backend, NFR2, NFR12, Story 2.1
+- **Prevents:** Endpoints scattered through the code and a messy mainnet migration; a second anchor requiring code changes.
+- **Rule:** All SEP endpoints are read from `stellar.toml`. Only the home domain and the network passphrase are configured in code. The fiat currency is a property of the resolved anchor, never a constant in a module.
 
-### AD-11 — Kullanıcıya teknik terim sızmaz
+### AD-11 — Implementation vocabulary never reaches the user
 
-- **Binds:** frontend, backend hata mesajları, NFR9
-- **Prevents:** Hata yollarının ham zincir/SEP metinlerini ekrana basması.
-- **Rule:** API hataları sabit bir zarf döner: `{ code, message, details? }`. `message` kullanıcıya gösterilebilir Türkçe metindir ve `EXPERIENCE.md`'deki dil kurallarına uyar. Ham zincir/anchor metinleri yalnızca `details` içinde ve yalnızca log'da kalır.
+- **Binds:** frontend, backend error paths, NFR9
+- **Prevents:** Error paths printing raw chain or SEP text onto the screen.
+- **Rule:** API errors return a fixed envelope: `{ code, message, details? }`. `message` is user-presentable English copy that follows the rules in `EXPERIENCE.md`. Raw chain and anchor text stays in `details` and in the logs.
 
-### AD-12 — Yetki kontrolü tek yerde
+### AD-12 — Authorization is enforced in one place
 
 - **Binds:** backend, FR18, FR19, FR21
-- **Prevents:** Her uç noktanın kendi rol kontrolünü uydurması.
-- **Rule:** Üç rol vardır: `client`, `professional`, `admin`. Rol, Pactly JWT'sinden çözülür; admin listesi `PACTLY_ADMIN_WALLETS` ortam değişkeninden okunur. Yetki kontrolü route tanımında middleware ile yapılır, işleyici gövdesinde değil.
+- **Prevents:** Every endpoint inventing its own role check.
+- **Rule:** There are three roles: `client`, `provider`, `admin`. The role is resolved from the Pactly JWT; the admin list is read from the `PACTLY_ADMIN_WALLETS` environment variable. Authorization is applied as middleware in the route definition, never inside a handler body.
 
-### AD-13 — Saat rezervasyonu zincirden önce backend'de tutulur
+### AD-13 — The slot is held by the backend before the chain call
 
-- **Binds:** backend, frontend, contract çağrısı, FR5, Story 3.4
-- **Prevents:** İmza ile event arasındaki boşlukta aynı saatin iki kez satılması; iki birimin `booking_id`'yi farklı yerde üretmesi.
-- **Rule:** Danışan ödemeye geçtiğinde backend bir *tutma kaydı* açar: `booking_id` (ULID) üretir, saati 10 dakika bloke eder ve randevuyu `pending_lock` durumunda yazar. Bu durum `escrow_state` değildir; AD-1 ihlal edilmez. Zincire yalnızca backend'in verdiği `booking_id` ile gidilir. `locked` event'i gelirse randevu `Locked` olur; süre dolarsa tutma kaydı düşer ve saat yeniden satışa açılır.
+- **Binds:** backend, frontend, contract call, FR5, Story 3.4
+- **Prevents:** The same slot being sold twice in the gap between signature and event; two units generating `booking_id` in different places.
+- **Rule:** When the client moves to payment the backend opens a *hold*: it generates the `booking_id` (ULID), blocks the slot for 10 minutes and writes the booking in the `pending_lock` state. That state is not an `escrow_state`, so AD-1 still holds. The chain is only ever called with the backend's `booking_id`. On a `locked` event the booking becomes `Locked`; if the hold expires, it is dropped and the slot returns to sale.
 
-### AD-14 — Yönetilen hesaba düşen iade sahipsiz bırakılmaz
+### AD-14 — A refund into a managed account is never left stranded
 
 - **Binds:** backend, FR4, FR7, AD-6
-- **Prevents:** TL ile ödeyip iade hakkı kazanan kullanıcının parasının, erişemediği bir hesapta kalması.
-- **Rule:** Kapora yönetilen hesaptan kilitlendiyse iade de o hesaba döner. Backend `refunded` event'ini gördüğünde bu kullanıcı için SEP-6 withdraw akışını başlatır ve tutar kullanıcının bildirdiği banka hesabına gider. Yönetilen hesabın anahtarı yalnızca iki iş için kullanılır: kaporayı kilitlemek ve iadeyi TL olarak çıkarmak. Kullanıcı isterse iade yerine bakiyeyi kendi cüzdanına taşıyabilir.
+- **Prevents:** A client who paid in local currency being refunded into an account they cannot reach.
+- **Rule:** If the deposit was locked from a managed account, the refund returns there. On the `refunded` event the backend starts a SEP-6 withdraw for that user and the money goes to the bank account they provided. The managed account's key is used for exactly two jobs: locking the deposit and paying a refund out. A user may instead move the balance to their own wallet.
 
 ```mermaid
 graph LR
@@ -144,28 +144,29 @@ graph LR
   X --> CT[(escrow contract)]
 ```
 
-Bağımlılık yönü tek yönlüdür. `services` katmanı `routes`'u, `db` katmanı `services`'i çağıramaz.
+Dependencies are one-way. `services` may not call `routes`; `db` may not call `services`.
 
-## Tutarlılık Sözleşmeleri
+## Consistency Conventions
 
-| Konu | Sözleşme |
+| Concern | Convention |
 |---|---|
-| Adlandırma | Contract fonksiyonları ve event'ler `snake_case` (`create_booking`, `released`). TypeScript `camelCase`, tipler `PascalCase`. Dosya adları `kebab-case`. Veritabanı tabloları çoğul `snake_case` (`bookings`, `expert_applications`). |
-| Kimlikler | `booking_id` zincir ile DB arasında ortak anahtardır, backend üretir (`ULID`), zincire `BytesN<16>` olarak yazılır. Diğer kayıtlar tamsayı birincil anahtar kullanır. |
-| Tarih ve saat | Depolamada UTC epoch saniye (zincir ile aynı birim). API'de ISO 8601. Sunumda `Europe/Istanbul` ve Türkçe biçim. |
-| Para | AD-7. API'de `{ amount: "6000000000", asset: "USDC" }` biçimi; TRY karşılığı ayrı alan ve `quotedAt` damgası ile. |
-| Hata zarfı | AD-11. HTTP durum kodu + `{ code, message, details? }`. `code` sabit, makine tarafından okunur (`SLOT_TAKEN`, `AMOUNT_OUT_OF_RANGE`, `WALLET_REJECTED`). |
-| Durum değişimi | Para durumu yalnızca event worker tarafından yazılır (AD-1). Diğer tüm yazmalar servis katmanından geçer; route'lar doğrudan DB'ye yazmaz. |
-| Yapılandırma | Tüm ortam değişkenleri `backend/src/config.ts` içinde bir kez okunur ve doğrulanır; süreç başlarken eksik değişken varsa uygulama açılmaz. |
-| Log | Sunucu tarafında yapısal JSON log; her istek `booking_id` ve `request_id` taşır. Zincir işlemlerinde hash her zaman loglanır. |
-| Test | Contract: `cargo test` ile birim testleri (Story 1.6 zorunlu). Backend: SEP akışları ve event worker için entegrasyon testi. Frontend: test yerine demo akışının elle doğrulanması yeterli. |
+| Language | All identifiers, comments, commit messages, documentation and user-facing copy are English (NFR11). |
+| Naming | Contract functions and events are `snake_case` (`create_booking`, `released`). TypeScript uses `camelCase`, types `PascalCase`. File names are `kebab-case`. Database tables are plural `snake_case` (`bookings`, `provider_applications`). |
+| Identifiers | `booking_id` is the shared key between chain and database; the backend generates it (ULID) and writes it on chain as `BytesN<16>`. Other records use integer primary keys. |
+| Dates and times | Stored as UTC epoch seconds (the chain's unit). ISO 8601 in the API. Rendered in the viewer's timezone with English formatting. |
+| Money | AD-7. API shape `{ amount: "6000000000", asset: "USDC" }`; any fiat equivalent is a separate field carrying a `quotedAt` stamp and a currency code. |
+| Error envelope | AD-11. HTTP status plus `{ code, message, details? }`. `code` is a stable machine-readable constant (`SLOT_TAKEN`, `AMOUNT_OUT_OF_RANGE`, `WALLET_REJECTED`). |
+| State mutation | Money state is written only by the event worker (AD-1). Every other write goes through the service layer; routes never write to the database directly. |
+| Configuration | All environment variables are read and validated once in `backend/src/config.ts`; the process refuses to start when one is missing. |
+| Logging | Structured JSON on the server; every request carries `booking_id` and `request_id`. Chain transactions always log their hash. |
+| Testing | Contract: unit tests via `cargo test` (Story 1.6, mandatory). Backend: integration tests for the SEP flows and the event worker. Frontend: manual verification of the demo flow instead of a test suite. |
 
 ## Stack
 
-| Ad | Sürüm |
+| Name | Version |
 |---|---|
 | Rust · soroban-sdk | 27.0.6 |
-| Stellar CLI | geliştirme ortamındaki güncel sürüm |
+| Stellar CLI | current release in the dev environment |
 | Node.js | 22 LTS |
 | TypeScript | 5.x |
 | Hono (backend HTTP) | 4.13.8 |
@@ -178,65 +179,66 @@ Bağımlılık yönü tek yönlüdür. `services` katmanı `routes`'u, `db` katm
 | @tanstack/react-query | 5.103.0 |
 | motion (Framer Motion) | 13.3.0 |
 
-Ağ: Stellar testnet (`Test SDF Network ; September 2015`). Anchor: `tr-mock-anchor.fly.dev`, varlık USDC.
+Network: Stellar testnet (`Test SDF Network ; September 2015`). Anchor: `tr-mock-anchor.fly.dev`, asset USDC.
 
-## Yapısal Tohum
+## Structural Seed
 
 ```text
 pactly/
   contracts/escrow/      # Soroban contract: Booking, BookingState, create/release/resolve_cancel
   backend/
     src/
-      config.ts          # ortam değişkenleri, tek okuma noktası
-      routes/            # HTTP uçları + yetki middleware'i (AD-12)
-      services/          # randevu, profil, başvuru, değerlendirme iş mantığı
-      chain/             # tek contract istemcisi (AD-8) + event worker (AD-9)
-      anchor/            # SEP-1/10/6/12/38 istemcisi (AD-10)
-      db/                # drizzle şema ve migration
+      config.ts          # environment variables, read in one place
+      routes/            # HTTP endpoints + authorization middleware (AD-12)
+      services/          # booking, profile, application and review logic
+      chain/             # the single contract client (AD-8) + event worker (AD-9)
+      anchor/            # SEP-1/10/6/12/38 client (AD-10)
+      db/                # drizzle schema and migrations
   frontend/
     src/
-      pages/             # kesfet, uzman, rezervasyon, randevularim, panel, admin
-      components/        # DESIGN.md bileşenleri
-      api/               # backend istemcisi
-      wallet/            # Stellar Wallets Kit sarmalayıcısı
-  scripts/               # fonlama, trustline, deploy, örnek uzman verisi
+      pages/             # discover, provider, booking, my-bookings, panel, admin
+      components/        # the components defined in DESIGN.md
+      api/               # backend client
+      wallet/            # Stellar Wallets Kit wrapper
+  scripts/               # funding, trustlines, deployment, seed providers
 ```
 
 ```mermaid
 erDiagram
-  CATEGORY ||--o{ EXPERT_PROFILE : içerir
-  EXPERT_APPLICATION ||--|| EXPERT_PROFILE : onaylanınca
-  EXPERT_PROFILE ||--o{ AVAILABILITY_SLOT : tanımlar
-  EXPERT_PROFILE ||--o{ BOOKING : alır
-  USER ||--o{ BOOKING : oluşturur
-  BOOKING ||--o| REVIEW : izin verir
-  BOOKING ||--o{ CHAIN_EVENT : yansıtır
+  CATEGORY ||--o{ PROVIDER_PROFILE : contains
+  PROVIDER_APPLICATION ||--|| PROVIDER_PROFILE : becomes on approval
+  PROVIDER_PROFILE ||--o{ AVAILABILITY_SLOT : defines
+  PROVIDER_PROFILE ||--o{ BOOKING : receives
+  USER ||--o{ BOOKING : creates
+  BOOKING ||--o| REVIEW : permits
+  BOOKING ||--o{ CHAIN_EVENT : mirrors
 ```
 
-`BOOKING` hem zincirdeki kaydın aynasıdır hem de zincirde olmayan alanları taşır: `balance_state` (AD-3), anchor işlem referansları, iptal ve onay zaman damgaları.
+`BOOKING` mirrors the on-chain record and also carries what the chain does not: `balance_state` (AD-3), anchor transaction references, and cancellation and confirmation timestamps.
 
-**Çalıştırma ortamı:** yalnızca local (`npm run dev`), contract testnet'te canlı. Dağıtım yapılmaz; demo canlı sunulur, yedek olarak video kaydı alınır. Gizli anahtarlar `.env` dosyasında kalır ve repoya girmez.
+**Runtime environment:** local only (`npm run dev`), with the contract live on testnet. Nothing is deployed; the demo is presented live with a recorded video as backup. Secrets stay in `.env` and never enter the repository.
 
-## Yetenek → Mimari Eşlemesi
+## Capability → Architecture Map
 
-| Alan | Nerede yaşar | Neye tabi |
+| Area | Lives in | Governed by |
 |---|---|---|
-| Kapora kilitleme, serbest bırakma, iade (FR3, FR6, FR7) | `contracts/escrow/` | AD-1, AD-2, AD-7, AD-14 |
-| Randevu yaşam döngüsü, saat tutma, kalan tutar (FR5, FR22) | `backend/services/` | AD-1, AD-3, AD-13 |
-| Keşif, arama, filtre, profil (FR12-FR16) | `backend/services/` + `frontend/pages/` | AD-4, AD-6 |
-| Başvuru ve yönetim onayı (FR18, FR19) | `backend/routes/` + `services/` | AD-4, AD-12 |
-| Doğrulanmış seans, değerlendirme (FR20, FR21) | `backend/services/` + event worker | AD-1, AD-4, AD-9 |
-| TL yatırma ve çekme, kur (FR4, FR8, Story 2.2-2.4) | `backend/anchor/` | AD-5, AD-6, AD-10 |
-| Kimlik ve oturum (FR10, FR15) | `backend/routes/auth` + `frontend/wallet/` | AD-5, AD-6, AD-12 |
-| Ekranlar, durumlar, metinler (NFR8, NFR9, NFR10) | `frontend/` | AD-11, `DESIGN.md`, `EXPERIENCE.md` |
+| Locking, releasing and refunding the deposit (FR3, FR6, FR7) | `contracts/escrow/` | AD-1, AD-2, AD-7, AD-14 |
+| Booking lifecycle, slot holds, balance (FR5, FR22) | `backend/services/` | AD-1, AD-3, AD-13 |
+| Discovery, search, filters, profiles (FR12-FR16) | `backend/services/` + `frontend/pages/` | AD-4, AD-6 |
+| Applications and admin approval (FR18, FR19) | `backend/routes/` + `services/` | AD-4, AD-12 |
+| Verified sessions, reviews (FR20, FR21) | `backend/services/` + event worker | AD-1, AD-4, AD-9 |
+| Local-currency deposit, withdrawal, quotes (FR4, FR8, Story 2.2-2.4) | `backend/anchor/` | AD-5, AD-6, AD-10 |
+| Identity and session (FR10, FR15) | `backend/routes/auth` + `frontend/wallet/` | AD-5, AD-6, AD-12 |
+| Screens, states, copy (NFR8, NFR9, NFR10, NFR11) | `frontend/` | AD-11, `DESIGN.md`, `EXPERIENCE.md` |
 
-## Ertelenenler
+## Deferred
 
-- **Komisyon ve platform geliri.** PRD'de yok; contract'a dokunmayı gerektireceği için ürün kararı verilmeden açılmaz.
-- **Uyuşmazlık çözümü (dispute).** İki taraf da haklı olduğunu iddia ederse ne olacağı tanımsız. Şu an kural tek: deadline. Hakemlik gerekirse contract'a yeni durum eklenmesi gerekir.
-- **Mainnet geçişi.** AD-10 sayesinde home domain ve passphrase değişimiyle sınırlı kalmalı; gerçek geçiş hackathon sonrası.
-- **USDT0 rayı.** PRD'de vizyon katmanı. Mimari varlık seçimini tek yerde tuttuğu için sonradan eklenebilir.
-- **Dağıtım ve ölçekleme.** Local çalıştırma kararı verildi; deploy, kalıcı disk, yedekleme ve izleme bu spine'ın kapsamı dışında.
-- **Bildirimler.** E-posta ya da anlık bildirim yok; kullanıcı durumu panelden görür.
-- **Çoklu dil.** Arayüz yalnızca Türkçe. Metinler bileşenlerde gömülü olabilir.
-- **Frontend test altyapısı.** İki günlük bütçede elle doğrulama tercih edildi.
+- **Commission and platform revenue.** Not in the PRD; it would touch the contract, so it stays closed until there is a product decision.
+- **Dispute resolution.** What happens when both sides claim to be right is undefined. Today the only rule is the deadline. Arbitration would require a new contract state.
+- **Mainnet migration.** AD-10 should keep it to a home domain and passphrase change; the real migration comes after the hackathon.
+- **The USDT0 rail.** A vision layer in the PRD. The architecture keeps asset selection in one place so it can be added later.
+- **Additional anchors and currencies.** NFR12 forbids hard-coding TRY, but how a user's anchor gets selected is an open product question.
+- **Deployment and scaling.** Local-only was decided; deployment, persistent disks, backups and monitoring are outside this spine.
+- **Notifications.** No email or push; users read state from the panel.
+- **Localization beyond English.** The interface ships in English only; copy may live inline in components.
+- **Frontend test infrastructure.** Manual verification was chosen for the two-day budget.

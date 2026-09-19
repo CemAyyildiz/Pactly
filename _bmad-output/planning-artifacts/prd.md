@@ -2,448 +2,451 @@
 title: Pactly — Product Requirements Document
 status: final
 created: 2026-09-15
-updated: 2026-09-16
+updated: 2026-09-17
 ---
 
 # Pactly — Product Requirements Document
 
-**Ürün:** Randevulu hizmetler için güvenceli randevu marketplace'i — kapora emanette tutulur
-**Etkinlik:** Rise In × Stellar Pro Hackathon 2026 — Genesis Track
-**Demo senaryosu:** Online terapi seansı
-**Durum:** v1.1
+**Product:** A trust-backed booking marketplace for appointment-based services — the deposit is held in escrow
+**Event:** Rise In × Stellar Pro Hackathon 2026 — Genesis Track
+**Demo scenario:** An online therapy session
+**Status:** v1.2
 
 ---
 
-## 1. Hedefler ve Arka Plan
+## 1. Goals and Background
 
-### Hedefler
+### Goals
 
-- Randevuyla çalışan tüm hizmetleri tek bir platformda listelemek ve danışanın buradan uzman bulmasını sağlamak
-- Randevuyla çalışan profesyonellerin no-show kaynaklı gelir kaybını emanetli kapora ile güvenceye almak
-- Danışanın ön ödeme yaparken üstlendiği "param boşa gider mi" riskini ortadan kaldırmak
-- Sınır ötesi küçük tutarlı kapora tahsilatını mümkün kılmak (kart reddi, havale gecikmesi, yüksek komisyon olmadan)
-- Profesyonelin hiç kripto bilmeden, tahsilatı doğrudan Türk Lirası olarak almasını sağlamak
-- Stellar testnet üzerinde uçtan uca çalışan bir kanıt (PoC) teslim etmek
+- List every appointment-based service on one platform and let clients find providers there
+- Protect appointment-based professionals from revenue lost to no-shows, using a deposit held in escrow
+- Remove the risk a client takes when paying up front — "will my money just disappear?"
+- Make small cross-border deposits collectable without declined cards, delayed transfers or heavy fees
+- Let the professional collect in their local currency without knowing anything about crypto
+- Ship a proof of concept that runs end to end on Stellar testnet
 
-### Arka Plan
+### Background
 
-Randevuyla çalışan her meslekte ürün zamandır. Bir terapistin 14:00 seansı, bir eğitmenin kort saati, bir danışmanın ayırdığı bir saat — müşteri gelmediğinde bu zaman geri satılamaz. Sektör bu kaybı iptal politikalarıyla karşılamaya çalışır ("24 saat önce haber vermezseniz ücret tahsil edilir"), ancak politika bir tahsilat mekanizması değildir.
+In every appointment-based profession, the product is time. A therapist's 14:00 session, a coach's court hour, a consultant's reserved hour — when the client does not show up, that time cannot be resold. The industry tries to cover the loss with cancellation policies ("cancel less than 24 hours ahead and you will be charged"), but a policy is not a collection mechanism.
 
-Profesyonel önden ödeme isterse bu kez risk danışana geçer. Tanımadığı birine, özellikle başka bir ülkedeki birine önden ödeme yapmak güven gerektirir. Online çalışma yaygınlaştıkça taraflar farklı ülkelerde olabiliyor ve küçük tutarlı bir kaporayı tahsil etmek orantısız şekilde zorlaşıyor.
+When the professional asks for prepayment, the risk moves to the client. Paying a stranger up front takes trust, especially a stranger in another country. As remote work spreads, the two sides are increasingly in different places, and collecting a small deposit becomes disproportionately hard.
 
-Pactly, kaporayı tarafsız bir emanette kilitler; randevu gerçekleşince profesyonele serbest bırakır, gerçekleşmezse iptal politikasına göre çözer. Ödeyen kripto ya da TL kullanabilir; profesyonel her zaman TL alır.
+Pactly locks the deposit in neutral escrow: it releases to the professional when the appointment happens and resolves according to the cancellation policy when it does not. The payer can use crypto or local currency; the professional is always paid in local currency.
 
-Ürün bunu tek bir profesyonel için değil, tüm randevulu hizmetlerin listelendiği bir marketplace olarak yapar. Danışan platformda uzman arar, karşılaştırır ve randevu alır; bir danışan farklı uzmanlardan aldığı randevuları tek panelden takip eder. Platformda yalnızca başvurusu onaylanmış uzmanlar listelenir; kalite sinyali de uydurulamaz iki veriye dayanır: onaylı uzman rozeti ve kaporası serbest bırakılmış, yani gerçekten gerçekleşmiş seans sayısı.
+The product does this as a marketplace rather than for one professional at a time. Clients search, compare and book on the platform; a client tracks bookings across different providers in a single panel. Only approved providers are listed, and the quality signals cannot be fabricated: an approved-provider badge, and a count of sessions that actually happened — that is, sessions whose deposit was released.
 
-### Değişiklik Günlüğü
+### Change Log
 
-| Tarih | Sürüm | Açıklama |
+| Date | Version | Description |
 |---|---|---|
-| 2026-09-15 | v1.0 | İlk taslak |
-| 2026-09-16 | v1.1 | Marketplace kararı: keşif, arama ve filtreler; küratörlü uzman kabulü ve yönetim onayı; doğrulanmış seansa dayalı değerlendirme; cüzdan yalnızca ödeme anında; kalan tutarın görüşme öncesi ödenmesi. Kaynak: UX turu (`ux-designs/ux-Pactly-2026-09-15/`) |
+| 2026-09-15 | v1.0 | First draft |
+| 2026-09-16 | v1.1 | Marketplace decision: discovery, search and filters; curated provider onboarding with admin approval; reviews tied to verified sessions; wallet requested only at payment; the balance paid before the session. Source: UX round (`ux-designs/ux-Pactly-2026-09-15/`) |
+| 2026-09-17 | v1.2 | Product goes global: all content, interface copy and documentation in English. The TRY rail stays for the demo; the architecture stays open to additional anchors and currencies. Acceptance criteria traced from the architecture spine (AD-2, AD-6, AD-13, AD-14) |
 
 ---
 
-## 2. Gereksinimler
+## 2. Requirements
 
-### Fonksiyonel Gereksinimler
+### Functional Requirements
 
-- **FR1:** Profesyonel; müsaitlik takvimi, seans ücreti, kapora oranı ve iptal politikası (deadline) tanımlayabilmeli.
-- **FR2:** Danışan müsait bir saat seçip randevu talebi oluşturabilmeli; kapora tutarını ve iptal politikasını ödeme öncesinde görmeli.
-- **FR3:** Sistem, kaporayı Soroban contract'ında kilitlemeli; kilitlenen tutar ne platforma ne de karşı tarafa geçmemeli.
-- **FR4:** Danışan kaporayı iki yoldan ödeyebilmeli: (a) cüzdanından stablecoin ile, (b) SEP-6 deposit ile doğrudan TRY.
-- **FR5:** Kapora kilitlendiğinde randevu saati kapanmalı (başka danışan aynı saati alamamalı).
-- **FR6:** Seans gerçekleşip onaylandığında kilitli tutar profesyonele serbest kalmalı.
-- **FR7:** Randevu gerçekleşmezse contract, iptal deadline'ına göre otomatik karar vermeli: zamanında iptalde danışana iade, geç iptal/no-show'da profesyonele aktarım.
-- **FR8:** Profesyonel serbest kalan tutarı SEP-6 withdraw ile Türk Lirası olarak çekebilmeli.
-- **FR9:** Her iki taraf da randevu ve kapora durumunu (kilitli / serbest / iade) tek panelden görebilmeli.
-- **FR10:** Kimlik doğrulama SEP-10 ile cüzdan imzası üzerinden yapılmalı; şifre veya kayıt olmamalı.
-- **FR11:** Contract her durum geçişinde event yayınlamalı (locked, released, refunded).
+- **FR1:** A professional can define an availability calendar, a session price, a deposit rate and a cancellation policy (deadline).
+- **FR2:** A client can pick an available slot and create a booking request; the deposit amount and the cancellation policy are visible before payment.
+- **FR3:** The system locks the deposit in a Soroban contract; the locked amount reaches neither the platform nor the other party.
+- **FR4:** A client can pay the deposit two ways: (a) with stablecoin from their wallet, (b) with local currency through SEP-6 deposit.
+- **FR5:** Once the deposit is locked the slot closes — no other client can take it.
+- **FR6:** When the session happens and is confirmed, the locked amount is released to the professional.
+- **FR7:** If the appointment does not happen, the contract decides by the cancellation deadline: refund to the client before it, transfer to the professional after it (late cancellation or no-show).
+- **FR8:** A professional can withdraw the released amount in local currency through SEP-6 withdraw.
+- **FR9:** Both parties can see the booking and deposit state (locked / released / refunded) from a single panel.
+- **FR10:** Authentication happens through a wallet signature (SEP-10); there are no passwords and no sign-up forms.
+- **FR11:** The contract emits an event on every state transition (locked, released, refunded).
 
 **Marketplace (v1.1)**
 
-- **FR12:** Danışan, onaylı uzmanları kategori bazlı bir keşif sayfasında listeleyebilmeli; kartta ücret, kapora tutarı, ücretsiz iptal süresi ve en erken müsait saatler görünmeli.
-- **FR13:** Danışan uzman, hizmet ya da kategori adıyla arama yapabilmeli; arama otomatik tamamlama önermeli ve sonuçsuz sorguda alternatif öneriler göstermeli.
-- **FR14:** Sonuçlar görüşme biçimi, ücret aralığı, kapora oranı ve müsaitlik ile filtrelenebilmeli.
-- **FR15:** Keşif, arama, profil görüntüleme ve fiyat karşılaştırma giriş gerektirmemeli; cüzdan yalnızca kapora ödenirken istenmeli.
-- **FR16:** Her uzmanın paylaşılabilir bir profil adresi olmalı; keşiften gelen danışan ile linkle gelen danışan aynı sayfaya ulaşmalı.
-- **FR17:** Bir danışan farklı uzmanlardan aldığı tüm randevuları ve kapora durumlarını tek panelden görebilmeli.
-- **FR18:** Profesyonel platforma başvuru yapabilmeli; başvuru yönetim tarafından onaylanana kadar profili marketplace'te listelenmemeli.
-- **FR19:** Yönetim, bekleyen başvuruları listeleyip onaylayabilmeli veya reddedebilmeli; karar başvurana bildirilmeli.
-- **FR20:** Uzman profilinde "doğrulanmış seans" sayısı gösterilmeli; bu sayı yalnızca kaporası serbest bırakılmış randevulardan artmalı.
-- **FR21:** Değerlendirme yalnızca kaporası serbest bırakılmış bir randevunun danışanı tarafından yazılabilmeli.
-- **FR22:** Seans ücretinin kapora dışında kalan kısmı görüşmeden önce ödenmeli; danışan bunu platform dışında (elden) ya da Pactly üzerinden ödeyebilmeli. Randevu, kalan tutarın ödenip ödenmediğini durum olarak taşımalı.
+- **FR12:** A client can browse approved providers on a category-based discovery page; each card shows the price, the deposit amount, the free-cancellation window and the earliest available slots.
+- **FR13:** A client can search by provider, service or category; search offers autocomplete and, when a query returns nothing, suggests alternatives.
+- **FR14:** Results can be filtered by session format, price range, deposit rate and availability.
+- **FR15:** Discovery, search, profile viewing and price comparison require no sign-in; the wallet is requested only when the deposit is paid.
+- **FR16:** Every provider has a shareable profile address; a client arriving from discovery and a client arriving from a shared link reach the same page.
+- **FR17:** A client can see every booking they hold across different providers, with deposit states, in a single panel.
+- **FR18:** A professional can apply to the platform; their profile is not listed on the marketplace until an administrator approves the application.
+- **FR19:** An administrator can list pending applications and approve or reject them; the decision is communicated to the applicant.
+- **FR20:** A provider profile shows a "verified sessions" count; the count increases only for bookings whose deposit was released.
+- **FR21:** A review can only be written by the client of a booking whose deposit was released.
+- **FR22:** The part of the session price beyond the deposit — the balance — is paid before the session; the client can pay it off-platform (in person) or through Pactly. The booking carries the balance payment state.
 
-### Fonksiyonel Olmayan Gereksinimler
+### Non-Functional Requirements
 
-- **NFR1:** Tüm akış Stellar testnet üzerinde çalışmalı (mainnet bonus).
-- **NFR2:** Anchor entegrasyonu SEP standartlarıyla yapılmalı; mainnet'e geçişte yalnızca home domain ve network passphrase değişmeli.
-- **NFR3:** Kapora tutarları anchor limitleri içinde kalmalı (min 50 TRY, max 3000 TRY/işlem).
-- **NFR4:** Ürün yalnızca randevu ve ödeme katmanıdır; seans içeriği, notu, video görüşmesi ve sağlık verisi kapsam dışıdır.
-- **NFR5:** Contract'ta tamsayı taşması kontrolleri açık olmalı; tutarlar i128 olarak tutulmalı.
-- **NFR6:** Demo ≤5 dakikada uçtan uca gösterilebilmeli.
-- **NFR7:** Ürün dikey bağımsız olmalı; arayüz dili tek bir mesleğe göre yazılmamalı. Terapi yalnızca demo senaryosudur.
-- **NFR8:** Arayüz, `ux-designs/ux-Pactly-2026-09-15/DESIGN.md` ve `EXPERIENCE.md` dokümanlarına uymalı. Çakışmada bu dokümanlar mockup'lara üstün gelir.
-- **NFR9:** Kullanıcıya teknik terim gösterilmemeli (escrow, Soroban, trustline, SEP-6, hash). Güven kanıtı olarak "Stellar", "cüzdan", "işlem" ve "sözleşme" gösterilebilir.
-- **NFR10:** Arayüz duyarlı olmalı: danışan akışı mobil öncelikli (375px'ten itibaren), uzman paneli masaüstü öncelikli. Kırılma noktaları 375 · 768 · 1024 · 1440.
+- **NFR1:** The whole flow runs on Stellar testnet (mainnet is a bonus).
+- **NFR2:** Anchor integration follows the SEP standards; moving to mainnet changes only the home domain and the network passphrase.
+- **NFR3:** Deposit amounts stay inside anchor limits (min 50 TRY, max 3000 TRY per transaction).
+- **NFR4:** The product is only the booking and payment layer; session content, notes, video calls and health data are out of scope.
+- **NFR5:** The contract has explicit integer-overflow checks; amounts are held as `i128`.
+- **NFR6:** The demo can be shown end to end in five minutes or less.
+- **NFR7:** The product is vertical-agnostic; interface copy is never written for a single profession. Therapy is only the demo scenario.
+- **NFR8:** The interface follows `ux-designs/ux-Pactly-2026-09-15/DESIGN.md` and `EXPERIENCE.md`. Where they disagree with a mockup, the documents win.
+- **NFR9:** Users are never shown implementation vocabulary (escrow internals, Soroban, trustline, SEP-6, hash). As proof of trust the interface may name Stellar, the wallet, the transaction and the contract.
+- **NFR10:** The interface is responsive: the client flow is mobile-first (from 375px up), the provider panel is desktop-first. Breakpoints 375 · 768 · 1024 · 1440.
+- **NFR11:** All product content, interface copy, documentation, code identifiers and commit messages are in English. The product is built for a global audience from the start.
+- **NFR12:** Currency is not hard-coded. The demo runs on the TRY rail the hackathon anchor provides, but no module assumes TRY; the local-currency leg is a property of the configured anchor.
 
 ---
 
-## 3. Teknik Varsayımlar
+## 3. Technical Assumptions
 
-### Depo Yapısı
+### Repository Layout
 Monorepo:
 ```
 contracts/escrow/   → Soroban (Rust) escrow contract
-backend/            → Node.js + TypeScript, SEP entegrasyonları
+backend/            → Node.js + TypeScript, SEP integrations
 frontend/           → React + TypeScript + Vite
-scripts/            → testnet hesap fonlama, trustline kurulumu
+scripts/            → testnet account funding, trustline setup
 ```
 
-### Servis Mimarisi
-Escrow mantığı zincirde (Soroban contract). Backend; SEP-10 auth, SEP-6 deposit/withdraw, SEP-38 quote akışlarını yürütür ve contract çağrılarını sarar. Frontend yalnızca sunum ve cüzdan imzalama katmanıdır.
+### Service Architecture
+The escrow logic lives on chain (Soroban contract). The backend runs the SEP-10 auth, SEP-6 deposit/withdraw and SEP-38 quote flows and wraps the contract calls. The frontend is only presentation and wallet signing.
 
-### Anchor Konfigürasyonu (hackathonda sağlanıyor)
+### Anchor Configuration (provided by the hackathon)
 
-| Alan | Değer |
+| Field | Value |
 |---|---|
 | Home domain | `tr-mock-anchor.fly.dev` |
 | Asset | USDC |
 | Network | Stellar testnet (Test SDF Network ; September 2015) |
-| SEP yüzeyi | SEP-1, SEP-10, SEP-6, SEP-12, SEP-38 — **SEP-24 yok** |
-| Limit / ücret | min 50 TRY · max 3000 TRY/işlem · %0.5 spread |
-| Kimlik | SEP-10 cüzdan imzası (API key yok, kayıt yok) |
-| Keşif | Endpoint'ler `stellar.toml`'dan okunmalı |
+| SEP surface | SEP-1, SEP-10, SEP-6, SEP-12, SEP-38 — **no SEP-24** |
+| Limits / fee | min 50 TRY · max 3000 TRY per transaction · 0.5% spread |
+| Identity | SEP-10 wallet signature (no API key, no registration) |
+| Discovery | Endpoints are read from `stellar.toml` |
 
-### Varlık Kararı: USDC vs USDT0
+### Asset Decision: USDC vs USDT0
 
-MVP, testnet'te çalışan **USDC + SEP-6** rayı üzerine kurulur. USDT0 mainnet'te canlıdır (LayerZero OFT) ancak hackathonun eligible integration partner listesinde değildir ve testnet kaydı bulunmamaktadır — bu nedenle **vizyon/roadmap katmanı** olarak konumlandırılır, zorunlu entegrasyon olarak değil.
+The MVP is built on the **USDC + SEP-6** rail that works on testnet. USDT0 is live on mainnet (LayerZero OFT) but is not on the hackathon's list of eligible integration partners and has no testnet registration — so it is positioned as a **vision/roadmap layer**, not a required integration.
 
-### Test Gereksinimleri
-Contract için birim testleri zorunlu: lock+release, zamanında iptal (iade), no-show (profesyonele aktarım). Backend için SEP akışlarının entegrasyon testi.
+### Test Requirements
+Unit tests are mandatory for the contract: lock+release, on-time cancellation (refund), no-show (transfer to the professional). Integration tests for the backend's SEP flows.
 
-### Ek Teknik Notlar
-- Soroban SDK'nın güncel sürümü kullanılmalı; `register_contract` gibi deprecated API'lerden kaçınılmalı.
-- Cüzdanda XLM bakiyesi ve USDC trustline akışın ilk adımında otomatik kurulmalı; aksi halde anchor `pending_trust` durumunda bekler.
-- Submission şartı: kullanılan skill dosyaları README'de path ile belirtilmeli.
+### Additional Technical Notes
+- Use a current Soroban SDK release; avoid deprecated APIs such as `register_contract`.
+- The wallet's XLM balance and USDC trustline must be set up in the first step of the flow; otherwise the anchor waits in `pending_trust`.
+- Submission requirement: the skill files used must be listed with their paths in the README.
 
-### Veri Modeli Eklemeleri (v1.1)
+### Data Model Additions (v1.1)
 
-Marketplace kararı backend'e dört yeni kavram getirir:
+The marketplace decision brings four new concepts to the backend:
 
-| Kavram | İçerik |
+| Concept | Contents |
 |---|---|
-| Kategori | Ad, slug, üst kategori. Başlangıç seti: terapi ve iyi oluş, eğitim ve dersler, danışmanlık, spor ve güzellik |
-| Uzman başvurusu | Başvuru bilgileri, durum (bekliyor / onaylı / reddedildi), karar tarihi ve karar veren |
-| Uzman profili | Kategori, tanıtım, dil, görüşme biçimi, ücret, kapora oranı, iptal süresi, doğrulanmış seans sayacı |
-| Değerlendirme | Randevuya bağlı puan ve yorum; yalnızca `Released` durumundaki randevu için oluşturulabilir |
+| Category | Name, slug, parent category. Initial set: therapy and wellbeing, education and lessons, consulting, fitness and beauty |
+| Provider application | Application details, state (pending / approved / rejected), decision date and decision maker |
+| Provider profile | Category, bio, languages, session format, price, deposit rate, cancellation window, verified-session counter |
+| Review | Rating and comment bound to a booking; can only exist for a booking in the `Released` state |
 
-Doğrulanmış seans sayacı contract'ın `released` event'i dinlenerek artırılır; elle güncellenemez.
+The verified-session counter increases by listening to the contract's `released` event; it cannot be written by hand.
 
-### UX Kaynakları
+### UX Sources
 
-Arayüz kararları UX turunda alındı ve şu dokümanlarda tanımlıdır:
+Interface decisions were made during the UX round and live in:
 
-- `ux-designs/ux-Pactly-2026-09-15/DESIGN.md` — görsel sistem, renk kuralı, tipografi, bileşenler
-- `ux-designs/ux-Pactly-2026-09-15/EXPERIENCE.md` — bilgi mimarisi, durumlar, metin kuralları, akışlar
-- `ux-designs/ux-Pactly-2026-09-15/mockups/` — keşif ve rezervasyon ekranı referansları
-
----
-
-## 4. Epic Listesi
-
-- **Epic 1 — Temel Altyapı ve Escrow Contract:** Monorepo iskeleti, Soroban escrow contract'ı ve testleri, testnet kurulum scriptleri.
-- **Epic 2 — Anchor Entegrasyonu ve Ödeme Rayı:** SEP-10 auth, SEP-6 deposit/withdraw, SEP-38 quote; backend servis katmanı.
-- **Epic 3 — Marketplace ve Randevu Akışı:** Uzman profili, keşif sayfası, arama ve filtreler, danışan rezervasyonu, ödeme ve iki taraflı panel.
-- **Epic 4 — Uzman Kabulü ve Güven:** Uzman başvurusu, yönetim onayı, doğrulanmış seans sayacı ve değerlendirmeler.
+- `ux-designs/ux-Pactly-2026-09-15/DESIGN.md` — visual system, colour rule, typography, components
+- `ux-designs/ux-Pactly-2026-09-15/EXPERIENCE.md` — information architecture, states, copy rules, flows
+- `ux-designs/ux-Pactly-2026-09-15/mockups/` — discovery and booking screen references
 
 ---
 
-## Epic 1 — Temel Altyapı ve Escrow Contract
+## 4. Epic List
 
-**Amaç:** Projenin iskeletini kurmak ve emanet mantığını zincirde çalışır hale getirmek. Bu epic sonunda, kapora kilitleme ve çözme mantığı testlerle doğrulanmış olmalı.
-
-### Story 1.1 — Monorepo iskeleti ve geliştirme ortamı
-
-Bir geliştirici olarak, projeyi tek komutla kurup çalıştırabilmek istiyorum, böylece ekip hızlıca geliştirmeye başlayabilir.
-
-**Kabul Kriterleri**
-1. `contracts/`, `backend/`, `frontend/`, `scripts/` klasörleri oluşturulmuş olmalı.
-2. Kök dizinde README; kurulum, derleme ve çalıştırma adımlarını içermeli.
-3. Rust toolchain ve Node sürüm gereksinimleri belgelenmiş olmalı.
-4. `.gitignore` her üç alt proje için uygun şekilde yapılandırılmış olmalı.
-
-### Story 1.2 — Escrow contract veri modeli ve initialize
-
-Bir geliştirici olarak, randevu verisini zincirde tutan bir contract iskeletine ihtiyacım var, böylece emanet mantığı bunun üzerine kurulabilir.
-
-**Kabul Kriterleri**
-1. `Booking` yapısı şu alanları içermeli: professional, client, token, amount, cancel_deadline, state.
-2. `BookingState` enum'u Locked / Released / Refunded değerlerini içermeli.
-3. `initialize(admin)` yalnızca bir kez çağrılabilmeli; tekrar çağrıldığında `AlreadyInitialized` hatası dönmeli.
-4. Hata tipleri contracterror olarak tanımlanmış olmalı.
-
-### Story 1.3 — Kapora kilitleme (create_booking)
-
-Bir danışan olarak, randevu alırken kaporamın tarafsız bir yerde kilitlenmesini istiyorum, böylece param profesyonele doğrudan geçmeden güvende olsun.
-
-**Kabul Kriterleri**
-1. `create_booking(booking_id, professional, client, token, amount, cancel_deadline)` danışan yetkisi (`require_auth`) gerektirmeli.
-2. Tutar, token contract'ı üzerinden danışandan alınıp contract adresine aktarılmalı.
-3. `amount <= 0` ise `InvalidAmount` hatası dönmeli.
-4. Aynı `booking_id` ile ikinci kez çağrıldığında `BookingExists` hatası dönmeli.
-5. Kayıt persistent storage'a `Locked` durumuyla yazılmalı.
-6. `locked` event'i booking_id ve tutar ile yayınlanmalı.
-
-### Story 1.4 — Serbest bırakma (release)
-
-Bir profesyonel olarak, seans gerçekleştiğinde kaporanın bana geçmesini istiyorum, böylece emeğimin karşılığını alabileyim.
-
-**Kabul Kriterleri**
-1. `release(booking_id)` yalnızca `Locked` durumundaki kayıtlarda çalışmalı; aksi halde `InvalidState` dönmeli.
-1a. `release` danışanın yetkisini (`require_auth`) istemeli; başka bir hesabın çağrısı reddedilmeli (AD-2).
-1b. `resolve_cancel` izin gerektirmemeli; sonucu yalnızca ledger timestamp ile `cancel_deadline` karşılaştırması belirlemeli (AD-2).
-2. Kilitli tutar contract adresinden profesyonelin adresine aktarılmalı.
-3. Kayıt `Released` durumuna geçmeli.
-4. `released` event'i yayınlanmalı.
-5. Var olmayan booking_id için `BookingNotFound` dönmeli.
-
-### Story 1.5 — İptal çözümü (resolve_cancel)
-
-Bir danışan olarak, zamanında iptal ettiğimde paramı geri almak; bir profesyonel olarak, danışan gelmediğinde kaporayı almak istiyorum.
-
-**Kabul Kriterleri**
-1. `resolve_cancel(booking_id)` ledger timestamp'ini `cancel_deadline` ile karşılaştırmalı.
-2. `now <= cancel_deadline` ise tutar danışana iade edilmeli ve durum `Refunded` olmalı.
-3. `now > cancel_deadline` ise tutar profesyonele aktarılmalı ve durum `Released` olmalı.
-4. Yalnızca `Locked` durumunda çalışmalı.
-5. İlgili event (`refunded` veya `released`) yayınlanmalı.
-
-### Story 1.6 — Contract birim testleri
-
-Bir geliştirici olarak, emanet mantığının doğru çalıştığını testlerle görmek istiyorum, böylece demo günü sürpriz yaşamayayım.
-
-**Kabul Kriterleri**
-1. Kilitle + serbest bırak senaryosu test edilmeli; profesyonelin bakiyesi artmalı.
-2. Zamanında iptal senaryosu test edilmeli; danışanın bakiyesi tam geri dönmeli.
-3. No-show senaryosu test edilmeli (deadline geçmiş); tutar profesyonele gitmeli.
-4. Hata durumları test edilmeli: çift booking, geçersiz tutar, yanlış durum geçişi.
-5. `cargo test` ile tüm testler geçmeli.
-
-### Story 1.7 — Testnet kurulum scriptleri
-
-Bir geliştirici olarak, testnet hesaplarını ve trustline'ları tek komutla hazırlamak istiyorum, böylece demo öncesi kurulum zaman kaybettirmesin.
-
-**Kabul Kriterleri**
-1. Script, test hesaplarını friendbot ile fonlamalı.
-2. USDC trustline'ı otomatik kurulmalı.
-3. Contract testnet'e deploy edilip contract ID çıktı olarak verilmeli.
-4. Script çıktısı `.env` dosyasına yazılabilir formatta olmalı.
+- **Epic 1 — Foundation and Escrow Contract:** Monorepo skeleton, the Soroban escrow contract and its tests, testnet setup scripts.
+- **Epic 2 — Anchor Integration and Payment Rail:** SEP-10 auth, SEP-6 deposit/withdraw, SEP-38 quotes; the backend service layer.
+- **Epic 3 — Marketplace and Booking Flow:** Provider profile, discovery page, search and filters, client booking, payment and the two-sided panel.
+- **Epic 4 — Provider Onboarding and Trust:** Provider application, admin approval, verified-session counter and reviews.
 
 ---
 
-## Epic 2 — Anchor Entegrasyonu ve Ödeme Rayı
+## Epic 1 — Foundation and Escrow Contract
 
-**Amaç:** TL bacağını kurmak. Bu epic sonunda profesyonel, kaporayı gerçek bir SEP-6 akışıyla Türk Lirası olarak çekebilmeli.
+**Goal:** Stand up the skeleton of the project and get the escrow logic working on chain. By the end of this epic, locking and resolving a deposit is verified by tests.
 
-### Story 2.1 — SEP-1 keşif ve SEP-10 kimlik doğrulama
+### Story 1.1 — Monorepo skeleton and development environment
 
-Bir kullanıcı olarak, cüzdanımla giriş yapmak istiyorum, böylece şifre veya kayıt olmadan sisteme erişebileyim.
+As a developer, I want to install and run the project with a single command, so the team can start building quickly.
 
-**Kabul Kriterleri**
-1. `stellar.toml` dosyası home domain'den okunmalı; endpoint'ler oradan keşfedilmeli (sabit kodlanmamalı).
-2. SEP-10 challenge alınmalı, cüzdanla imzalanmalı, JWT elde edilmeli.
-3. JWT backend tarafında saklanmalı ve sonraki SEP çağrılarında kullanılmalı.
-4. Geçersiz imza durumunda anlamlı hata mesajı dönmeli.
+**Acceptance Criteria**
+1. The `contracts/`, `backend/`, `frontend/` and `scripts/` directories exist.
+2. A root README documents installation, build and run steps.
+3. Rust toolchain and Node version requirements are documented.
+4. `.gitignore` is configured appropriately for all three sub-projects.
 
-### Story 2.2 — SEP-38 kur sorgusu
+### Story 1.2 — Escrow contract data model and initialize
 
-Bir kullanıcı olarak, ödeme yapmadan önce güncel TRY karşılığını görmek istiyorum, böylece ne kadar ödediğimi bileyim.
+As a developer, I need a contract skeleton that holds booking data on chain, so the escrow logic can be built on top of it.
 
-**Kabul Kriterleri**
-1. SEP-38 üzerinden USDC↔TRY fiyatı alınabilmeli.
-2. Alınan kur, kullanıcıya ödeme ekranında gösterilmeli.
-3. %0.5 spread hesaba katılmış tutar gösterilmeli.
+**Acceptance Criteria**
+1. The `Booking` struct carries: professional, client, token, amount, cancel_deadline, state.
+2. The `BookingState` enum carries Locked / Released / Refunded.
+3. `initialize(admin)` can be called only once; a second call returns `AlreadyInitialized`.
+4. Error types are defined as contracterror.
 
-### Story 2.3 — SEP-6 withdraw (profesyonelin TL çekmesi)
+### Story 1.3 — Locking the deposit (create_booking)
 
-Bir profesyonel olarak, serbest kalan kaporayı Türk Lirası olarak çekmek istiyorum, böylece kripto ile uğraşmayayım.
+As a client, I want my deposit locked somewhere neutral when I book, so my money is safe without going straight to the professional.
 
-**Kabul Kriterleri**
-1. SEP-12 KYC akışı tetiklenmeli (mock anchor'da simüle, otomatik onaylı).
-2. SEP-6 withdraw başlatılmalı; anchor'dan hedef adres ve memo alınmalı.
-3. USDC + memo anchor'a gönderilmeli.
-4. İşlem durumu (`pending_user_transfer_start` → `completed`) takip edilip kullanıcıya gösterilmeli.
-5. Limit dışı tutarlarda (>3000 TRY) anlamlı hata gösterilmeli.
+**Acceptance Criteria**
+1. `create_booking(booking_id, professional, client, token, amount, cancel_deadline)` requires the client's authorization (`require_auth`).
+2. The amount is pulled from the client through the token contract and transferred to the contract address.
+3. `amount <= 0` returns `InvalidAmount`.
+4. A second call with the same `booking_id` returns `BookingExists`.
+5. The record is written to persistent storage in the `Locked` state.
+6. A `locked` event is emitted with the booking_id and the amount.
 
-### Story 2.4 — SEP-6 deposit (danışanın TRY ile ödemesi)
+### Story 1.4 — Releasing the deposit (release)
 
-Bir danışan olarak, kripto kullanmadan doğrudan TL ile kapora ödemek istiyorum.
+As a professional, I want the deposit to reach me once the session has happened, so I am paid for my work.
 
-**Kabul Kriterleri**
-1. SEP-6 deposit başlatılmalı; anchor'dan banka bilgisi ve referans alınmalı.
-2. Mock ödeme tamamlandığında cüzdana USDC geçmeli.
-3. Gelen USDC ile contract'ta kapora kilitlenmeli.
-4. Trustline yoksa akış otomatik kurmalı; kullanıcıya teknik terim gösterilmemeli (AD-11).
-5. Danışanın cüzdanı yoksa backend onun adına yönetilen bir Stellar hesabı açmalı; deposit oraya düşmeli ve kapora oradan kilitlenmeli (AD-6).
-6. Yönetilen hesaptan kilitlenen bir kapora iade edildiğinde backend, `refunded` event'i üzerine kullanıcı için SEP-6 withdraw akışını başlatmalı; para yönetilen hesapta sahipsiz kalmamalı (AD-14).
-7. Yönetilen hesabın anahtarı yalnızca iki iş için kullanılmalı: kaporayı kilitlemek ve iadeyi TL olarak çıkarmak.
+**Acceptance Criteria**
+1. `release(booking_id)` works only on records in the `Locked` state; otherwise it returns `InvalidState`.
+1a. `release` requires the client's authorization (`require_auth`); a call from any other account is rejected (AD-2).
+1b. `resolve_cancel` requires no authorization; its outcome is determined solely by comparing the ledger timestamp with `cancel_deadline` (AD-2).
+2. The locked amount is transferred from the contract address to the professional's address.
+3. The record moves to the `Released` state.
+4. A `released` event is emitted.
+5. An unknown booking_id returns `BookingNotFound`.
 
-### Story 2.5 — Backend servis katmanı ve veri modeli
+### Story 1.5 — Resolving a cancellation (resolve_cancel)
 
-Bir geliştirici olarak, randevu ve kullanıcı verisini tutan bir backend'e ihtiyacım var, böylece frontend tek bir API ile çalışabilsin.
+As a client I want my money back when I cancel in time; as a professional I want the deposit when the client does not show up.
 
-**Kabul Kriterleri**
-1. Profesyonel profili (müsaitlik, ücret, kapora oranı, iptal politikası) saklanmalı.
-1a. Marketplace kavramları saklanmalı: kategori, uzman başvurusu ve durumu, doğrulanmış seans sayacı, değerlendirme (bkz. §3 Veri Modeli Eklemeleri).
-2. Randevu kaydı ve zincirdeki booking_id eşleştirilmeli.
-3. Contract çağrıları (create/release/resolve) servis katmanından yapılabilmeli.
-4. Contract event'leri dinlenip randevu durumu güncellenmeli.
+**Acceptance Criteria**
+1. `resolve_cancel(booking_id)` compares the ledger timestamp with `cancel_deadline`.
+2. If `now <= cancel_deadline` the amount is refunded to the client and the state becomes `Refunded`.
+3. If `now > cancel_deadline` the amount is transferred to the professional and the state becomes `Released`.
+4. It works only in the `Locked` state.
+5. The matching event (`refunded` or `released`) is emitted.
 
----
+### Story 1.6 — Contract unit tests
 
-## Epic 3 — Marketplace ve Randevu Akışı
+As a developer, I want the escrow logic proven by tests, so demo day holds no surprises.
 
-**Amaç:** Uçtan uca demo edilebilir bir kullanıcı deneyimi. Bu epic sonunda danışan, marketplace'ten uzman bulup terapi senaryosunu baştan sona tamamlayabilmeli.
+**Acceptance Criteria**
+1. The lock + release scenario is tested; the professional's balance increases.
+2. The on-time cancellation scenario is tested; the client's balance returns in full.
+3. The no-show scenario is tested (deadline passed); the amount goes to the professional.
+4. Error paths are tested: duplicate booking, invalid amount, illegal state transition.
+5. All tests pass with `cargo test`.
 
-### Story 3.1 — Uzman profili ve müsaitlik tanımlama
+### Story 1.7 — Testnet setup scripts
 
-Bir profesyonel olarak, çalışma saatlerimi ve kapora kurallarımı tanımlamak istiyorum, böylece danışanlar randevu alabilsin.
+As a developer, I want to prepare testnet accounts and trustlines with one command, so setup does not eat into demo time.
 
-**Kabul Kriterleri**
-1. Seans ücreti, kapora oranı (%) ve iptal deadline'ı (saat) girilebilmeli.
-2. Müsait saatler takvim üzerinde işaretlenebilmeli.
-3. Profil kaydedildiğinde danışan tarafında görünür olmalı.
-
-### Story 3.2 — Keşif sayfası ve kategoriler
-
-Bir danışan olarak, platformdaki uzmanları kategorilere göre listelemek istiyorum, böylece ihtiyacıma uygun kişiyi bulabileyim.
-
-**Kabul Kriterleri**
-1. Yalnızca onaylı uzmanlar listelenmeli.
-2. Kategori sekmeleri çalışmalı; seçim adres satırına yazılmalı ve geri tuşu doğru çalışmalı.
-3. Uzman kartı şunları göstermeli: ad, unvan, görüşme biçimi ve süresi, onaylı rozeti, doğrulanmış seans sayısı, seans ücreti, kapora tutarı, ücretsiz iptal süresi ve en erken üç müsait saat.
-4. Kartta bir saate tıklanınca uzman profili o saat seçili olarak açılmalı.
-5. İlk yüklemede kart iskeletleri gösterilmeli.
-6. Sayfa giriş yapılmadan görüntülenebilmeli.
-
-### Story 3.3 — Arama ve filtreler
-
-Bir danışan olarak, aradığım hizmeti yazarak ve sonuçları daraltarak bulmak istiyorum.
-
-**Kabul Kriterleri**
-1. Arama kutusu uzman adı, hizmet ve kategori üzerinde çalışmalı.
-2. Otomatik tamamlama 250 ms gecikmeyle önerileri göstermeli; her önerinin yanında sonuç sayısı olmalı.
-3. Filtreler uygulanabilmeli: görüşme biçimi, ücret aralığı, kapora oranı, müsaitlik.
-4. Filtre değişikliği sonucu sayfa yenilenmeden güncellemeli.
-5. Sonuç bulunamadığında boş ekran gösterilmemeli; sorgu tekrar edilip en az üç alternatif öneri sunulmalı.
-
-### Story 3.4 — Danışan rezervasyon akışı
-
-Bir danışan olarak, uygun bir saat seçip kaporayı ödeyerek randevumu kesinleştirmek istiyorum.
-
-**Kabul Kriterleri**
-1. Müsait saatler listelenmeli; dolu saatler seçilemez olmalı ve odak almamalı.
-2. Seçim sonrası kapora tutarı, toplam ücret ve iptal politikası açıkça gösterilmeli; kapora tutarı ile ücretsiz iptal süresi her zaman birlikte görünmeli.
-3. Cüzdan yalnızca ödeme adımında istenmeli (Stellar Wallets Kit); önceki adımlarda giriş sorulmamalı.
-4. Ödeme yolu seçilebilmeli: stablecoin veya TRY (SEP-6 deposit).
-5. Ödeme sonrası randevu onaylanmalı ve saat kapanmalı.
-6. Kapora tutarı anchor limitleri dışındaysa (50 TRY altı, 3.000 TRY üstü) kullanıcı ödeme adımından önce uyarılmalı.
-7. Seçilen saat bu sırada başkası tarafından alınırsa anlaşılır bir mesaj ve aynı günün diğer saatleri gösterilmeli.
-8. Ödemeye geçişte backend bir tutma kaydı açmalı: `booking_id` üretmeli, saati 10 dakika bloke etmeli ve randevuyu `pending_lock` durumunda yazmalı (AD-13).
-9. Zincire yalnızca backend'in ürettiği `booking_id` ile gidilmeli.
-10. Tutma süresi imzasız dolarsa kayıt düşmeli ve saat yeniden satışa açılmalı; kullanıcıya süre bilgisi gösterilmeli.
-
-### Story 3.5 — İki taraflı durum paneli
-
-Bir kullanıcı olarak, randevumun ve kaporamın durumunu görmek istiyorum, böylece ne olduğunu takip edebileyim.
-
-**Kabul Kriterleri**
-1. Profesyonel; gelen randevuları ve kapora durumlarını listeleyebilmeli.
-2. Danışan; farklı uzmanlardan aldığı tüm randevuları tek listede, tarihe göre görebilmeli.
-3. Durumlar açıkça gösterilmeli: kilitli / serbest bırakıldı / iade edildi / devredildi. Durum yalnızca renkle değil metinle de anlatılmalı.
-4. Zincir üzerindeki işlem bir explorer linkiyle doğrulanabilir olmalı.
-5. Ücretsiz iptal süresine kalan zaman geri sayım olarak gösterilmeli.
-
-### Story 3.6 — Seans onayı ve iptal akışı
-
-Bir kullanıcı olarak, seans gerçekleştiğinde onaylamak veya gerekirse iptal etmek istiyorum.
-
-**Kabul Kriterleri**
-1. Seans sonrası danışan "gerçekleşti" onayı verebilmeli; bu `release` çağırmalı.
-2. Danışan iptal edebilmeli; bu `resolve_cancel` çağırmalı.
-3. İptal öncesi, deadline'a göre sonucun ne olacağı kullanıcıya gösterilmeli.
-4. İşlem sonucu panele yansımalı.
-
-### Story 3.7 — Kalan tutarın görüşme öncesi ödenmesi
-
-Bir danışan olarak, seans ücretinin kapora dışında kalan kısmını görüşmeden önce ödemek istiyorum; bir profesyonel olarak bunun ödendiğini görmek istiyorum.
-
-**Kabul Kriterleri**
-1. Randevu kaydı kalan tutarı ve ödeme durumunu (ödenmedi / platform üzerinden ödendi / elden ödendi) taşımalı.
-2. Danışan kalan tutarı Pactly üzerinden ödeyebilmeli.
-3. Profesyonel, elden ödeme aldığında bunu işaretleyebilmeli.
-4. İki tarafın panelinde de kalan tutarın durumu görünmeli.
-5. Arayüz kalan tutarın görüşmeden önce ödendiğini açıkça belirtmeli.
-
-### Story 3.8 — Demo hazırlığı ve dokümantasyon
-
-Bir ekip olarak, jüriye 5 dakikada uçtan uca gösterebileceğimiz bir demo istiyoruz.
-
-**Kabul Kriterleri**
-1. README; ürün, kurulum, çalıştırma ve mimari özetini içermeli.
-2. Mermaid mimari diyagramı eklenmiş olmalı.
-3. Kullanılan skill dosyaları path ile belirtilmeli.
-4. Demo senaryosu adım adım yazılmış olmalı (terapi seansı).
-5. Testnet'te en az bir tam akış (kilitle → serbest bırak → TL çek) çalışır durumda olmalı.
-6. Marketplace demo için en az 6 onaylı örnek uzman, en az iki kategoride yüklenmiş olmalı.
+**Acceptance Criteria**
+1. The script funds test accounts through friendbot.
+2. The USDC trustline is established automatically.
+3. The contract is deployed to testnet and the contract ID is printed.
+4. The script output is in a form that can be written to a `.env` file.
 
 ---
 
-## Epic 4 — Uzman Kabulü ve Güven
+## Epic 2 — Anchor Integration and Payment Rail
 
-**Amaç:** Marketplace'in kalite katmanını kurmak. Bu epic sonunda platformda yalnızca onaylı uzmanlar listelenmeli ve güven sinyalleri uydurulamaz verilere dayanmalı.
+**Goal:** Build the local-currency leg. By the end of this epic the professional can withdraw the deposit as local currency through a real SEP-6 flow.
 
-**Öncelik notu:** Story 4.1–4.3 MVP kapsamındadır. Story 4.4 zaman kalırsa yapılır; demo bu story olmadan da eksiksiz çalışır.
+### Story 2.1 — SEP-1 discovery and SEP-10 authentication
 
-### Story 4.1 — Uzman başvuru akışı
+As a user, I want to sign in with my wallet, so I can use the platform without a password or a sign-up form.
 
-Bir profesyonel olarak, platforma başvurmak istiyorum, böylece hizmetimi burada satabileyim.
+**Acceptance Criteria**
+1. `stellar.toml` is read from the home domain and the endpoints are discovered from it (never hard-coded).
+2. A SEP-10 challenge is fetched, signed with the wallet and exchanged for a JWT.
+3. The JWT is stored on the backend and used in subsequent SEP calls.
+4. An invalid signature produces a meaningful error message.
 
-**Kabul Kriterleri**
-1. Başvuru formu şunları toplamalı: ad, unvan, kategori, hizmet tanımı, görüşme biçimi ve süresi, seans ücreti, kapora oranı, iptal süresi.
-2. Başvuru kaydedildiğinde durumu `bekliyor` olmalı.
-3. Başvuran, başvuru durumunu görebileceği bir sayfaya yönlendirilmeli.
-4. Onaylanmamış profil marketplace listelerinde ve aramada görünmemeli.
-5. Onay beklerken uzman paneli salt okunur açılmalı ve durumu belirten bir şerit göstermeli.
+### Story 2.2 — SEP-38 quote
 
-### Story 4.2 — Yönetim onay listesi
+As a user, I want to see the current local-currency equivalent before I pay, so I know what I am spending.
 
-Bir yönetici olarak, bekleyen başvuruları inceleyip karara bağlamak istiyorum.
+**Acceptance Criteria**
+1. The USDC ↔ TRY price can be fetched through SEP-38.
+2. The quote is shown to the user on the payment screen.
+3. The displayed amount accounts for the 0.5% spread.
 
-**Kabul Kriterleri**
-1. Bekleyen başvurular liste halinde görüntülenebilmeli.
-2. Başvuru onaylanabilmeli veya gerekçeyle reddedilebilmeli.
-3. Onaylanan profil marketplace'te anında görünür olmalı ve "onaylı uzman" rozeti aktifleşmeli.
-4. Karar başvurana bildirilmeli.
-5. Ekrana yalnızca yetkili hesap erişebilmeli.
+### Story 2.3 — SEP-6 withdraw (professional cashing out)
 
-### Story 4.3 — Doğrulanmış seans sayacı
+As a professional, I want to withdraw the released deposit as local currency, so I never have to handle crypto.
 
-Bir danışan olarak, uzmanın gerçekten kaç görüşme yaptığını görmek istiyorum, böylece uydurma referanslara güvenmek zorunda kalmayayım.
+**Acceptance Criteria**
+1. The SEP-12 KYC flow is triggered (simulated and auto-approved on the mock anchor).
+2. SEP-6 withdraw is started; the destination address and memo come from the anchor.
+3. USDC plus the memo is sent to the anchor.
+4. Transaction status (`pending_user_transfer_start` → `completed`) is tracked and shown to the user.
+5. Amounts outside the limits (>3000 TRY) produce a meaningful error.
 
-**Kabul Kriterleri**
-1. Sayaç yalnızca contract'ın `released` event'i ile artmalı.
-2. Sayaç elle güncellenememeli.
-3. Sayı uzman kartında ve profilinde "doğrulanmış seans" olarak gösterilmeli.
-4. İptal edilen ya da iade edilen randevular sayacı artırmamalı.
+### Story 2.4 — SEP-6 deposit (client paying in local currency)
 
-### Story 4.4 — Değerlendirmeler
+As a client, I want to pay the deposit in local currency without touching crypto.
 
-Bir danışan olarak, görüştüğüm uzmanı değerlendirmek istiyorum.
+**Acceptance Criteria**
+1. SEP-6 deposit is started; bank details and a reference come from the anchor.
+2. When the mock payment completes, USDC reaches the wallet.
+3. The incoming USDC locks the deposit in the contract.
+4. A missing trustline is established automatically; the user is never shown the term (AD-11).
+5. If the client has no wallet, the backend opens a managed Stellar account on their behalf; the deposit lands there and the escrow is locked from it (AD-6).
+6. When a deposit locked from a managed account is refunded, the backend starts a SEP-6 withdraw for that user on the `refunded` event; money is never left stranded in the managed account (AD-14).
+7. The managed account's key is used for exactly two jobs: locking the deposit and paying a refund out in local currency.
 
-**Kabul Kriterleri**
-1. Değerlendirme yalnızca kaporası serbest bırakılmış bir randevunun danışanı tarafından yazılabilmeli.
-2. Bir randevu için yalnızca bir değerlendirme yazılabilmeli.
-3. Puan ve yorum uzman profilinde gösterilmeli.
-4. Değerlendirmenin hangi randevuya bağlı olduğu doğrulanabilir olmalı.
+### Story 2.5 — Backend service layer and data model
+
+As a developer, I need a backend that holds booking and user data, so the frontend talks to a single API.
+
+**Acceptance Criteria**
+1. The provider profile (availability, price, deposit rate, cancellation policy) is stored.
+1a. Marketplace concepts are stored: category, provider application and its state, verified-session counter, review (see §3 Data Model Additions).
+2. Booking records are matched with the on-chain booking_id.
+3. Contract calls (create/release/resolve) can be made from the service layer.
+4. Contract events are consumed and the booking state is updated.
+
+---
+
+## Epic 3 — Marketplace and Booking Flow
+
+**Goal:** A user experience that can be demonstrated end to end. By the end of this epic a client can find a provider on the marketplace and complete the therapy scenario from start to finish.
+
+### Story 3.1 — Provider profile and availability
+
+As a professional, I want to define my working hours and deposit rules, so clients can book me.
+
+**Acceptance Criteria**
+1. Session price, deposit rate (%) and cancellation deadline (hours) can be entered.
+2. Available hours can be marked on a calendar.
+3. Once saved, the profile is visible on the client side.
+
+### Story 3.2 — Discovery page and categories
+
+As a client, I want to browse providers by category, so I can find someone who fits what I need.
+
+**Acceptance Criteria**
+1. Only approved providers are listed.
+2. Category tabs work; the selection is written to the URL and the back button behaves correctly.
+3. A provider card shows: name, title, session format and length, approved badge, verified-session count, session price, deposit amount, free-cancellation window and the three earliest available slots.
+4. Clicking a slot on a card opens the provider profile with that slot pre-selected.
+5. Card skeletons are shown on first load.
+6. The page can be viewed without signing in.
+
+### Story 3.3 — Search and filters
+
+As a client, I want to type what I am looking for and narrow the results.
+
+**Acceptance Criteria**
+1. Search covers provider name, service and category.
+2. Autocomplete shows suggestions after a 250 ms debounce, each with its result count.
+3. Filters can be applied: session format, price range, deposit rate, availability.
+4. A filter change updates results without a page reload.
+5. An empty result set never shows a blank screen; the query is echoed back with at least three alternative suggestions.
+
+### Story 3.4 — Client booking flow
+
+As a client, I want to pick a slot and confirm my booking by paying the deposit.
+
+**Acceptance Criteria**
+1. Available slots are listed; taken slots cannot be selected and do not take focus.
+2. After selection, the deposit amount, the total price and the cancellation policy are clearly shown; the deposit amount and the free-cancellation window always appear together.
+3. The wallet is requested only at the payment step (Stellar Wallets Kit); no sign-in is asked for earlier.
+4. The payment method can be chosen: stablecoin or local currency (SEP-6 deposit).
+5. After payment the booking is confirmed and the slot closes.
+6. If the deposit falls outside the anchor limits (below 50 TRY, above 3,000 TRY) the user is warned **before** the payment step.
+7. If the chosen slot is taken by someone else meanwhile, a clear message and the other slots of the same day are shown.
+8. At the payment step the backend opens a hold: it generates the `booking_id`, blocks the slot for 10 minutes and writes the booking in the `pending_lock` state (AD-13).
+9. The chain is only ever called with the `booking_id` the backend issued.
+10. If the hold expires unsigned, the record is dropped and the slot returns to sale; the remaining time is shown to the user.
+
+### Story 3.5 — Two-sided status panel
+
+As a user, I want to see the state of my booking and my deposit, so I can follow what is happening.
+
+**Acceptance Criteria**
+1. The professional can list incoming bookings and their deposit states.
+2. The client can see every booking they hold across providers in one list, ordered by date.
+3. States are shown clearly: locked / released / refunded / transferred. State is never conveyed by colour alone.
+4. The on-chain transaction can be verified through an explorer link.
+5. The time left in the free-cancellation window is shown as a countdown.
+
+### Story 3.6 — Session confirmation and cancellation
+
+As a user, I want to confirm a session that happened, or cancel when I need to.
+
+**Acceptance Criteria**
+1. After the session the client can confirm it happened; this calls `release`.
+2. The client can cancel; this calls `resolve_cancel`.
+3. Before cancelling, the outcome implied by the deadline is shown to the user.
+4. The result is reflected in the panel.
+
+### Story 3.7 — Paying the balance before the session
+
+As a client I want to pay the rest of the session price before the session; as a professional I want to see that it was paid.
+
+**Acceptance Criteria**
+1. The booking record carries the balance amount and its payment state (unpaid / paid through Pactly / paid in person).
+2. The client can pay the balance through Pactly.
+3. The professional can mark a balance received in person.
+4. Both panels show the balance state.
+5. The interface states clearly that the balance is paid before the session.
+
+### Story 3.8 — Demo preparation and documentation
+
+As a team, we want a demo we can show end to end in five minutes.
+
+**Acceptance Criteria**
+1. The README covers the product, installation, running and an architecture summary.
+2. A mermaid architecture diagram is included.
+3. The skill files used are listed with their paths.
+4. The demo scenario is written step by step (therapy session).
+5. At least one full flow (lock → release → cash out) works on testnet.
+6. At least six approved sample providers across at least two categories are seeded for the marketplace demo.
+
+---
+
+## Epic 4 — Provider Onboarding and Trust
+
+**Goal:** Build the marketplace's quality layer. By the end of this epic only approved providers are listed and the trust signals rest on data that cannot be fabricated.
+
+**Priority note:** Stories 4.1–4.3 are in the MVP. Story 4.4 is done if time remains; the demo is complete without it.
+
+### Story 4.1 — Provider application flow
+
+As a professional, I want to apply to the platform, so I can sell my service here.
+
+**Acceptance Criteria**
+1. The application form collects: name, title, category, service description, session format and length, session price, deposit rate, cancellation window.
+2. A saved application starts in the `pending` state.
+3. The applicant is taken to a page showing the application state.
+4. An unapproved profile appears in neither marketplace listings nor search.
+5. While approval is pending the provider panel opens read-only with a banner stating the state.
+
+### Story 4.2 — Admin approval queue
+
+As an administrator, I want to review pending applications and decide on them.
+
+**Acceptance Criteria**
+1. Pending applications can be listed.
+2. An application can be approved, or rejected with a reason.
+3. An approved profile becomes visible on the marketplace immediately and the "approved provider" badge activates.
+4. The decision is communicated to the applicant.
+5. Only an authorised account can reach the screen.
+
+### Story 4.3 — Verified-session counter
+
+As a client, I want to see how many sessions a provider has actually held, so I do not have to trust invented references.
+
+**Acceptance Criteria**
+1. The counter increases only on the contract's `released` event.
+2. The counter cannot be written by hand.
+3. The number is shown as "verified sessions" on the provider card and profile.
+4. Cancelled or refunded bookings do not increase the counter.
+
+### Story 4.4 — Reviews
+
+As a client, I want to review the provider I met with.
+
+**Acceptance Criteria**
+1. A review can only be written by the client of a booking whose deposit was released.
+2. At most one review per booking.
+3. The rating and comment are shown on the provider profile.
+4. The booking a review belongs to is verifiable.
