@@ -55,7 +55,7 @@ development_status:
   2-6-trustless-work-escrow-adapter-and-reconciliation: done
   epic-2-retrospective: optional
 
-  epic-3: in-progress
+  epic-3: done
   3-1-provider-profile-and-availability: done
   3-2-discovery-page-and-categories: done
   3-3-search-and-filters: done
@@ -64,7 +64,7 @@ development_status:
   3-6-session-confirmation-and-cancellation: done
   3-7-paying-the-balance-before-the-session: done
   3-8-demo-preparation-and-documentation: done
-  3-9-discover-v2-visual-realignment: in-progress
+  3-9-discover-v2-visual-realignment: done
   epic-3-retrospective: optional
 
   epic-4: backlog

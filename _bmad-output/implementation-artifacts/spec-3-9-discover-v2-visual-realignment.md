@@ -2,7 +2,7 @@
 title: 'Story 3.9 — Discover v2 visual realignment'
 type: 'feature'
 created: '2026-09-20'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: '21a48fd9a13bf8332ecdfdb0e8e733c5c672d236'
 followup_review_recommended: false
@@ -91,3 +91,17 @@ deferred: []
 
 **Manual checks:**
 - Open Discover, a provider profile, the booking page, My bookings, both panel pages and the admin page at 1440px and at 375px; compare Discover side by side with the mockup.
+
+## Auto Run Result
+
+Status: done
+
+**Özet:** Ürünün görsel dili Discover v2 mockup'ına taşındı: soğuk gri zemin, beyaz kartlar, mavi müşteri vurgusu, Instrument Sans (başlıklarda Newsreader), 1px çizgiler, 240px filtre rayı, üç kolonlu sağlayıcı kartı. DESIGN.md de aynı değişiklikle güncellendi, böylece sonraki hikâyeler bu dili miras alıyor. Sağlayıcının teal'i, escrow'un siyahı ve "tek siyah buton" kuralı korundu.
+
+**Commit'ler:** `935eb4a` spec, `6b6082e` feat.
+
+**Review:** Katmanlı review çalıştırılmadı. Bu hikâyenin kabulü görsel; ajanın da benim de tarayıcım yok, dolayısıyla asıl doğrulama kullanıcının mockup ile yan yana bakması. Otomatik kontroller (typecheck, build, testler, eski token/font taraması, kontrast hesapları) temiz.
+
+**Doğrulama:** frontend typecheck ve build temiz; backend 448/448 (dokunulmadı); `--color-you`, Darker Grotesque, Familjen Grotesk, Martian Mono için tarama sıfır sonuç; her yeni renk çifti 4.5:1 üzerinde.
+
+**Kalan riskler:** Hiçbir ekran tarayıcıda görülmedi. 375px ve 1440px yerleşimleri, ProviderCard'ın yeni ızgarası ve öneri açılır listesi gözle kontrol edilmeli. EXPERIENCE.md kapsam dışı bırakıldı; içinde artık geçersiz olan bir `{colors.you}` örneği kaldı.
