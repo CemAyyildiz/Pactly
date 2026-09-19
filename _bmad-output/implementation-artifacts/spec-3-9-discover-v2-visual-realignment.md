@@ -2,8 +2,9 @@
 title: 'Story 3.9 — Discover v2 visual realignment'
 type: 'feature'
 created: '2026-09-20'
-status: 'ready-for-dev'
+status: 'in-progress'
 review_loop_iteration: 0
+baseline_revision: '21a48fd9a13bf8332ecdfdb0e8e733c5c672d236'
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-Pactly-2026-09-15/DESIGN.md'
