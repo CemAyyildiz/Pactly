@@ -2,7 +2,7 @@
 title: 'Story 3.5 — Two-sided status panel'
 type: 'feature'
 created: '2026-09-19'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: 'be4f6067129a58d731b3814522b55e37f8f54ac8'
 followup_review_recommended: false
@@ -80,8 +80,27 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-20 — Review pass (2 katman, Sonnet: Verification Gap + Edge Case Hunter)
+- verdicts: 3 bulgu — high 0, medium 1, low 2, false 0, maybe-false 0
+- findings:
+  - `[low]` `[patch]` V1 Geçmiş rezervasyonların (en yeni önce) sıralaması testsiz — test eklendi.
+  - `[medium]` `[patch]` V2 Toplu yaşam döngüsü okumasının rezervasyon başına ayrımı hiç birden fazla rezervasyonla sınanmamış — iki farklı durumlu rezervasyonla test eklendi.
+  - `[low]` `[reject]` E1 "Window closed" satırının backend testi yok — backend yalnızca `cancelDeadline`'ı iletiyor ve bu zaten sınanıyor; "Window closed" davranışı frontend'deki `Countdown` bileşeninde.
+
 ## Verification
 
 **Commands:**
 - `npm run -w backend typecheck && npm run -w backend test && npm run -w backend build` -- expected: clean, all pass
 - `npm run -w frontend typecheck && npm run -w frontend build` -- expected: clean
+
+## Auto Run Result
+
+Status: done
+
+**Özet:** `GET /me/bookings` müşterinin tüm sağlayıcılardaki rezervasyonlarını, `GET /me/provider/bookings` ise sağlayıcının kendi profilindeki rezervasyonları döndürüyor. İkisi de SQL'de çağıranla sınırlı. Yaşam döngüsü her liste için tek toplu sorguyla okunuyor. Escrow durumu ve bakiye durumu hep ayrı. `/me/bookings` sayfasında kartlar, `/panel/bookings` sayfasında 1024px'ten itibaren tablo, altında kartlar var. Durum etiketleri kelimeyle yazılıyor. Ücretsiz iptal geri sayımı var ve para hareketi iddiasında bulunmuyor. Kontrat varsa Stellar Expert linki gösteriliyor. Süresi dolmuş hold'lar katlanmış bir bölümde.
+
+**Commit'ler:** `2a62ad5` spec, `152fa2e` start, `0f8e89b` feat, `c61d3b0` fix (worktree'de yazıldı, 3.4'ün kapanışından sonra `main` üzerine rebase edildi), chore(3.5).
+
+**Review:** 3 bulgu (medium 1, low 2). Patch: V1, V2. Reddedilen: E1 (low). Takip review önerisi: false.
+
+**Doğrulama:** backend typecheck ve build temiz, test 341/341; frontend typecheck ve build temiz.
