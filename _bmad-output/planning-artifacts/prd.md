@@ -1,9 +1,16 @@
+---
+title: Pactly — Product Requirements Document
+status: final
+created: 2026-09-15
+updated: 2026-09-16
+---
+
 # Pactly — Product Requirements Document
 
-**Ürün:** Randevuyla çalışan profesyoneller için emanetli (escrow) kapora altyapısı
+**Ürün:** Randevulu hizmetler için güvenceli randevu marketplace'i — kapora emanette tutulur
 **Etkinlik:** Rise In × Stellar Pro Hackathon 2026 — Genesis Track
 **Demo senaryosu:** Online terapi seansı
-**Durum:** v1.0
+**Durum:** v1.1
 
 ---
 
@@ -11,6 +18,7 @@
 
 ### Hedefler
 
+- Randevuyla çalışan tüm hizmetleri tek bir platformda listelemek ve danışanın buradan uzman bulmasını sağlamak
 - Randevuyla çalışan profesyonellerin no-show kaynaklı gelir kaybını emanetli kapora ile güvenceye almak
 - Danışanın ön ödeme yaparken üstlendiği "param boşa gider mi" riskini ortadan kaldırmak
 - Sınır ötesi küçük tutarlı kapora tahsilatını mümkün kılmak (kart reddi, havale gecikmesi, yüksek komisyon olmadan)
@@ -25,11 +33,14 @@ Profesyonel önden ödeme isterse bu kez risk danışana geçer. Tanımadığı 
 
 Pactly, kaporayı tarafsız bir emanette kilitler; randevu gerçekleşince profesyonele serbest bırakır, gerçekleşmezse iptal politikasına göre çözer. Ödeyen kripto ya da TL kullanabilir; profesyonel her zaman TL alır.
 
+Ürün bunu tek bir profesyonel için değil, tüm randevulu hizmetlerin listelendiği bir marketplace olarak yapar. Danışan platformda uzman arar, karşılaştırır ve randevu alır; bir danışan farklı uzmanlardan aldığı randevuları tek panelden takip eder. Platformda yalnızca başvurusu onaylanmış uzmanlar listelenir; kalite sinyali de uydurulamaz iki veriye dayanır: onaylı uzman rozeti ve kaporası serbest bırakılmış, yani gerçekten gerçekleşmiş seans sayısı.
+
 ### Değişiklik Günlüğü
 
 | Tarih | Sürüm | Açıklama |
 |---|---|---|
-| 2026-09 | v1.0 | İlk taslak |
+| 2026-09-15 | v1.0 | İlk taslak |
+| 2026-09-16 | v1.1 | Marketplace kararı: keşif, arama ve filtreler; küratörlü uzman kabulü ve yönetim onayı; doğrulanmış seansa dayalı değerlendirme; cüzdan yalnızca ödeme anında; kalan tutarın görüşme öncesi ödenmesi. Kaynak: UX turu (`ux-designs/ux-Pactly-2026-09-15/`) |
 
 ---
 
@@ -49,6 +60,20 @@ Pactly, kaporayı tarafsız bir emanette kilitler; randevu gerçekleşince profe
 - **FR10:** Kimlik doğrulama SEP-10 ile cüzdan imzası üzerinden yapılmalı; şifre veya kayıt olmamalı.
 - **FR11:** Contract her durum geçişinde event yayınlamalı (locked, released, refunded).
 
+**Marketplace (v1.1)**
+
+- **FR12:** Danışan, onaylı uzmanları kategori bazlı bir keşif sayfasında listeleyebilmeli; kartta ücret, kapora tutarı, ücretsiz iptal süresi ve en erken müsait saatler görünmeli.
+- **FR13:** Danışan uzman, hizmet ya da kategori adıyla arama yapabilmeli; arama otomatik tamamlama önermeli ve sonuçsuz sorguda alternatif öneriler göstermeli.
+- **FR14:** Sonuçlar görüşme biçimi, ücret aralığı, kapora oranı ve müsaitlik ile filtrelenebilmeli.
+- **FR15:** Keşif, arama, profil görüntüleme ve fiyat karşılaştırma giriş gerektirmemeli; cüzdan yalnızca kapora ödenirken istenmeli.
+- **FR16:** Her uzmanın paylaşılabilir bir profil adresi olmalı; keşiften gelen danışan ile linkle gelen danışan aynı sayfaya ulaşmalı.
+- **FR17:** Bir danışan farklı uzmanlardan aldığı tüm randevuları ve kapora durumlarını tek panelden görebilmeli.
+- **FR18:** Profesyonel platforma başvuru yapabilmeli; başvuru yönetim tarafından onaylanana kadar profili marketplace'te listelenmemeli.
+- **FR19:** Yönetim, bekleyen başvuruları listeleyip onaylayabilmeli veya reddedebilmeli; karar başvurana bildirilmeli.
+- **FR20:** Uzman profilinde "doğrulanmış seans" sayısı gösterilmeli; bu sayı yalnızca kaporası serbest bırakılmış randevulardan artmalı.
+- **FR21:** Değerlendirme yalnızca kaporası serbest bırakılmış bir randevunun danışanı tarafından yazılabilmeli.
+- **FR22:** Seans ücretinin kapora dışında kalan kısmı görüşmeden önce ödenmeli; danışan bunu platform dışında (elden) ya da Pactly üzerinden ödeyebilmeli. Randevu, kalan tutarın ödenip ödenmediğini durum olarak taşımalı.
+
 ### Fonksiyonel Olmayan Gereksinimler
 
 - **NFR1:** Tüm akış Stellar testnet üzerinde çalışmalı (mainnet bonus).
@@ -57,6 +82,10 @@ Pactly, kaporayı tarafsız bir emanette kilitler; randevu gerçekleşince profe
 - **NFR4:** Ürün yalnızca randevu ve ödeme katmanıdır; seans içeriği, notu, video görüşmesi ve sağlık verisi kapsam dışıdır.
 - **NFR5:** Contract'ta tamsayı taşması kontrolleri açık olmalı; tutarlar i128 olarak tutulmalı.
 - **NFR6:** Demo ≤5 dakikada uçtan uca gösterilebilmeli.
+- **NFR7:** Ürün dikey bağımsız olmalı; arayüz dili tek bir mesleğe göre yazılmamalı. Terapi yalnızca demo senaryosudur.
+- **NFR8:** Arayüz, `ux-designs/ux-Pactly-2026-09-15/DESIGN.md` ve `EXPERIENCE.md` dokümanlarına uymalı. Çakışmada bu dokümanlar mockup'lara üstün gelir.
+- **NFR9:** Kullanıcıya teknik terim gösterilmemeli (escrow, Soroban, trustline, SEP-6, hash). Güven kanıtı olarak "Stellar", "cüzdan", "işlem" ve "sözleşme" gösterilebilir.
+- **NFR10:** Arayüz duyarlı olmalı: danışan akışı mobil öncelikli (375px'ten itibaren), uzman paneli masaüstü öncelikli. Kırılma noktaları 375 · 768 · 1024 · 1440.
 
 ---
 
@@ -98,13 +127,35 @@ Contract için birim testleri zorunlu: lock+release, zamanında iptal (iade), no
 - Cüzdanda XLM bakiyesi ve USDC trustline akışın ilk adımında otomatik kurulmalı; aksi halde anchor `pending_trust` durumunda bekler.
 - Submission şartı: kullanılan skill dosyaları README'de path ile belirtilmeli.
 
+### Veri Modeli Eklemeleri (v1.1)
+
+Marketplace kararı backend'e dört yeni kavram getirir:
+
+| Kavram | İçerik |
+|---|---|
+| Kategori | Ad, slug, üst kategori. Başlangıç seti: terapi ve iyi oluş, eğitim ve dersler, danışmanlık, spor ve güzellik |
+| Uzman başvurusu | Başvuru bilgileri, durum (bekliyor / onaylı / reddedildi), karar tarihi ve karar veren |
+| Uzman profili | Kategori, tanıtım, dil, görüşme biçimi, ücret, kapora oranı, iptal süresi, doğrulanmış seans sayacı |
+| Değerlendirme | Randevuya bağlı puan ve yorum; yalnızca `Released` durumundaki randevu için oluşturulabilir |
+
+Doğrulanmış seans sayacı contract'ın `released` event'i dinlenerek artırılır; elle güncellenemez.
+
+### UX Kaynakları
+
+Arayüz kararları UX turunda alındı ve şu dokümanlarda tanımlıdır:
+
+- `ux-designs/ux-Pactly-2026-09-15/DESIGN.md` — görsel sistem, renk kuralı, tipografi, bileşenler
+- `ux-designs/ux-Pactly-2026-09-15/EXPERIENCE.md` — bilgi mimarisi, durumlar, metin kuralları, akışlar
+- `ux-designs/ux-Pactly-2026-09-15/mockups/` — keşif ve rezervasyon ekranı referansları
+
 ---
 
 ## 4. Epic Listesi
 
 - **Epic 1 — Temel Altyapı ve Escrow Contract:** Monorepo iskeleti, Soroban escrow contract'ı ve testleri, testnet kurulum scriptleri.
 - **Epic 2 — Anchor Entegrasyonu ve Ödeme Rayı:** SEP-10 auth, SEP-6 deposit/withdraw, SEP-38 quote; backend servis katmanı.
-- **Epic 3 — Randevu Akışı ve Arayüz:** Profesyonel profili, danışan rezervasyonu, cüzdan bağlama, ödeme ve iki taraflı panel.
+- **Epic 3 — Marketplace ve Randevu Akışı:** Uzman profili, keşif sayfası, arama ve filtreler, danışan rezervasyonu, ödeme ve iki taraflı panel.
+- **Epic 4 — Uzman Kabulü ve Güven:** Uzman başvurusu, yönetim onayı, doğrulanmış seans sayacı ve değerlendirmeler.
 
 ---
 
@@ -239,17 +290,18 @@ Bir geliştirici olarak, randevu ve kullanıcı verisini tutan bir backend'e iht
 
 **Kabul Kriterleri**
 1. Profesyonel profili (müsaitlik, ücret, kapora oranı, iptal politikası) saklanmalı.
+1a. Marketplace kavramları saklanmalı: kategori, uzman başvurusu ve durumu, doğrulanmış seans sayacı, değerlendirme (bkz. §3 Veri Modeli Eklemeleri).
 2. Randevu kaydı ve zincirdeki booking_id eşleştirilmeli.
 3. Contract çağrıları (create/release/resolve) servis katmanından yapılabilmeli.
 4. Contract event'leri dinlenip randevu durumu güncellenmeli.
 
 ---
 
-## Epic 3 — Randevu Akışı ve Arayüz
+## Epic 3 — Marketplace ve Randevu Akışı
 
-**Amaç:** Uçtan uca demo edilebilir bir kullanıcı deneyimi. Bu epic sonunda terapi senaryosu baştan sona tıklanabilir olmalı.
+**Amaç:** Uçtan uca demo edilebilir bir kullanıcı deneyimi. Bu epic sonunda danışan, marketplace'ten uzman bulup terapi senaryosunu baştan sona tamamlayabilmeli.
 
-### Story 3.1 — Profesyonel profili ve müsaitlik tanımlama
+### Story 3.1 — Uzman profili ve müsaitlik tanımlama
 
 Bir profesyonel olarak, çalışma saatlerimi ve kapora kurallarımı tanımlamak istiyorum, böylece danışanlar randevu alabilsin.
 
@@ -258,28 +310,54 @@ Bir profesyonel olarak, çalışma saatlerimi ve kapora kurallarımı tanımlama
 2. Müsait saatler takvim üzerinde işaretlenebilmeli.
 3. Profil kaydedildiğinde danışan tarafında görünür olmalı.
 
-### Story 3.2 — Danışan rezervasyon akışı
+### Story 3.2 — Keşif sayfası ve kategoriler
+
+Bir danışan olarak, platformdaki uzmanları kategorilere göre listelemek istiyorum, böylece ihtiyacıma uygun kişiyi bulabileyim.
+
+**Kabul Kriterleri**
+1. Yalnızca onaylı uzmanlar listelenmeli.
+2. Kategori sekmeleri çalışmalı; seçim adres satırına yazılmalı ve geri tuşu doğru çalışmalı.
+3. Uzman kartı şunları göstermeli: ad, unvan, görüşme biçimi ve süresi, onaylı rozeti, doğrulanmış seans sayısı, seans ücreti, kapora tutarı, ücretsiz iptal süresi ve en erken üç müsait saat.
+4. Kartta bir saate tıklanınca uzman profili o saat seçili olarak açılmalı.
+5. İlk yüklemede kart iskeletleri gösterilmeli.
+6. Sayfa giriş yapılmadan görüntülenebilmeli.
+
+### Story 3.3 — Arama ve filtreler
+
+Bir danışan olarak, aradığım hizmeti yazarak ve sonuçları daraltarak bulmak istiyorum.
+
+**Kabul Kriterleri**
+1. Arama kutusu uzman adı, hizmet ve kategori üzerinde çalışmalı.
+2. Otomatik tamamlama 250 ms gecikmeyle önerileri göstermeli; her önerinin yanında sonuç sayısı olmalı.
+3. Filtreler uygulanabilmeli: görüşme biçimi, ücret aralığı, kapora oranı, müsaitlik.
+4. Filtre değişikliği sonucu sayfa yenilenmeden güncellemeli.
+5. Sonuç bulunamadığında boş ekran gösterilmemeli; sorgu tekrar edilip en az üç alternatif öneri sunulmalı.
+
+### Story 3.4 — Danışan rezervasyon akışı
 
 Bir danışan olarak, uygun bir saat seçip kaporayı ödeyerek randevumu kesinleştirmek istiyorum.
 
 **Kabul Kriterleri**
-1. Müsait saatler listelenmeli; dolu saatler seçilemez olmalı.
-2. Seçim sonrası kapora tutarı, toplam ücret ve iptal politikası açıkça gösterilmeli.
-3. Cüzdan bağlanabilmeli (Stellar Wallets Kit).
+1. Müsait saatler listelenmeli; dolu saatler seçilemez olmalı ve odak almamalı.
+2. Seçim sonrası kapora tutarı, toplam ücret ve iptal politikası açıkça gösterilmeli; kapora tutarı ile ücretsiz iptal süresi her zaman birlikte görünmeli.
+3. Cüzdan yalnızca ödeme adımında istenmeli (Stellar Wallets Kit); önceki adımlarda giriş sorulmamalı.
 4. Ödeme yolu seçilebilmeli: stablecoin veya TRY (SEP-6 deposit).
 5. Ödeme sonrası randevu onaylanmalı ve saat kapanmalı.
+6. Kapora tutarı anchor limitleri dışındaysa (50 TRY altı, 3.000 TRY üstü) kullanıcı ödeme adımından önce uyarılmalı.
+7. Seçilen saat bu sırada başkası tarafından alınırsa anlaşılır bir mesaj ve aynı günün diğer saatleri gösterilmeli.
 
-### Story 3.3 — İki taraflı durum paneli
+### Story 3.5 — İki taraflı durum paneli
 
 Bir kullanıcı olarak, randevumun ve kaporamın durumunu görmek istiyorum, böylece ne olduğunu takip edebileyim.
 
 **Kabul Kriterleri**
 1. Profesyonel; gelen randevuları ve kapora durumlarını listeleyebilmeli.
-2. Danışan; kendi randevularını ve kapora durumunu görebilmeli.
-3. Durumlar açıkça gösterilmeli: kilitli / serbest / iade edildi.
+2. Danışan; farklı uzmanlardan aldığı tüm randevuları tek listede, tarihe göre görebilmeli.
+3. Durumlar açıkça gösterilmeli: kilitli / serbest bırakıldı / iade edildi / devredildi. Durum yalnızca renkle değil metinle de anlatılmalı.
 4. Zincir üzerindeki işlem bir explorer linkiyle doğrulanabilir olmalı.
+5. Ücretsiz iptal süresine kalan zaman geri sayım olarak gösterilmeli.
 
-### Story 3.4 — Seans onayı ve iptal akışı
+### Story 3.6 — Seans onayı ve iptal akışı
 
 Bir kullanıcı olarak, seans gerçekleştiğinde onaylamak veya gerekirse iptal etmek istiyorum.
 
@@ -289,7 +367,18 @@ Bir kullanıcı olarak, seans gerçekleştiğinde onaylamak veya gerekirse iptal
 3. İptal öncesi, deadline'a göre sonucun ne olacağı kullanıcıya gösterilmeli.
 4. İşlem sonucu panele yansımalı.
 
-### Story 3.5 — Demo hazırlığı ve dokümantasyon
+### Story 3.7 — Kalan tutarın görüşme öncesi ödenmesi
+
+Bir danışan olarak, seans ücretinin kapora dışında kalan kısmını görüşmeden önce ödemek istiyorum; bir profesyonel olarak bunun ödendiğini görmek istiyorum.
+
+**Kabul Kriterleri**
+1. Randevu kaydı kalan tutarı ve ödeme durumunu (ödenmedi / platform üzerinden ödendi / elden ödendi) taşımalı.
+2. Danışan kalan tutarı Pactly üzerinden ödeyebilmeli.
+3. Profesyonel, elden ödeme aldığında bunu işaretleyebilmeli.
+4. İki tarafın panelinde de kalan tutarın durumu görünmeli.
+5. Arayüz kalan tutarın görüşmeden önce ödendiğini açıkça belirtmeli.
+
+### Story 3.8 — Demo hazırlığı ve dokümantasyon
 
 Bir ekip olarak, jüriye 5 dakikada uçtan uca gösterebileceğimiz bir demo istiyoruz.
 
@@ -299,3 +388,54 @@ Bir ekip olarak, jüriye 5 dakikada uçtan uca gösterebileceğimiz bir demo ist
 3. Kullanılan skill dosyaları path ile belirtilmeli.
 4. Demo senaryosu adım adım yazılmış olmalı (terapi seansı).
 5. Testnet'te en az bir tam akış (kilitle → serbest bırak → TL çek) çalışır durumda olmalı.
+6. Marketplace demo için en az 6 onaylı örnek uzman, en az iki kategoride yüklenmiş olmalı.
+
+---
+
+## Epic 4 — Uzman Kabulü ve Güven
+
+**Amaç:** Marketplace'in kalite katmanını kurmak. Bu epic sonunda platformda yalnızca onaylı uzmanlar listelenmeli ve güven sinyalleri uydurulamaz verilere dayanmalı.
+
+**Öncelik notu:** Story 4.1–4.3 MVP kapsamındadır. Story 4.4 zaman kalırsa yapılır; demo bu story olmadan da eksiksiz çalışır.
+
+### Story 4.1 — Uzman başvuru akışı
+
+Bir profesyonel olarak, platforma başvurmak istiyorum, böylece hizmetimi burada satabileyim.
+
+**Kabul Kriterleri**
+1. Başvuru formu şunları toplamalı: ad, unvan, kategori, hizmet tanımı, görüşme biçimi ve süresi, seans ücreti, kapora oranı, iptal süresi.
+2. Başvuru kaydedildiğinde durumu `bekliyor` olmalı.
+3. Başvuran, başvuru durumunu görebileceği bir sayfaya yönlendirilmeli.
+4. Onaylanmamış profil marketplace listelerinde ve aramada görünmemeli.
+5. Onay beklerken uzman paneli salt okunur açılmalı ve durumu belirten bir şerit göstermeli.
+
+### Story 4.2 — Yönetim onay listesi
+
+Bir yönetici olarak, bekleyen başvuruları inceleyip karara bağlamak istiyorum.
+
+**Kabul Kriterleri**
+1. Bekleyen başvurular liste halinde görüntülenebilmeli.
+2. Başvuru onaylanabilmeli veya gerekçeyle reddedilebilmeli.
+3. Onaylanan profil marketplace'te anında görünür olmalı ve "onaylı uzman" rozeti aktifleşmeli.
+4. Karar başvurana bildirilmeli.
+5. Ekrana yalnızca yetkili hesap erişebilmeli.
+
+### Story 4.3 — Doğrulanmış seans sayacı
+
+Bir danışan olarak, uzmanın gerçekten kaç görüşme yaptığını görmek istiyorum, böylece uydurma referanslara güvenmek zorunda kalmayayım.
+
+**Kabul Kriterleri**
+1. Sayaç yalnızca contract'ın `released` event'i ile artmalı.
+2. Sayaç elle güncellenememeli.
+3. Sayı uzman kartında ve profilinde "doğrulanmış seans" olarak gösterilmeli.
+4. İptal edilen ya da iade edilen randevular sayacı artırmamalı.
+
+### Story 4.4 — Değerlendirmeler
+
+Bir danışan olarak, görüştüğüm uzmanı değerlendirmek istiyorum.
+
+**Kabul Kriterleri**
+1. Değerlendirme yalnızca kaporası serbest bırakılmış bir randevunun danışanı tarafından yazılabilmeli.
+2. Bir randevu için yalnızca bir değerlendirme yazılabilmeli.
+3. Puan ve yorum uzman profilinde gösterilmeli.
+4. Değerlendirmenin hangi randevuya bağlı olduğu doğrulanabilir olmalı.

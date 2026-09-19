@@ -80,6 +80,7 @@ Görsel özellikler `DESIGN.md.Bileşenler` bölümündedir.
 | Uzman kartı | Keşfet, arama | Kartın tamamı tıklanabilir. Saat çipine tıklamak profili o saat seçili açar. |
 | Saat çipi | Kart, profil, rezervasyon | Dolu saat tıklanamaz ve odak almaz. Seçim tek tıkla değişir, onay istemez. |
 | Kapora hapı | Kart, profil, rezervasyon, randevular | Bilgi taşır, tıklanmaz. Tutar ve ücretsiz iptal süresi birlikte. |
+| Kalan tutar satırı | Rezervasyon, randevu detayı | "Kalan 1.400 TL · görüşme öncesi" — ödeme durumu üç değerden biri: ödenmedi, Pactly üzerinden ödendi, elden ödendi. Uzman elden ödemeyi işaretleyebilir. |
 | Emanet şeridi | Rezervasyon | Sayfa boyunca görünür kalır. Mobilde alta sabitlenir ve kapora tutarını taşır. |
 | Kilitleme butonu | Rezervasyon | Tek tıkla cüzdan imzası ister. Basıldıktan sonra devre dışı kalır ve "Cüzdanında bir onay bekliyor" durumuna geçer. |
 | Geri sayım | Randevularım, kilitlendi onayı | Ücretsiz iptal süresine kalan zaman. 6 saatin altında `{colors.alert}` rengine döner. |
@@ -181,5 +182,5 @@ Kapora hapı, emanet şeridi ve mühür anı hiçbir koşulda kapsamdan çıkar�
 
 - **Kategoriler** PRD'deki üç alandan türetildi (terapi ve iyi oluş, eğitim ve dersler, danışmanlık) ve dördüncü olarak spor ve güzellik eklendi. Kullanıcı onayı bekliyor.
 - **Duyarlı öncelik** varsayım olarak alındı: danışan akışı mobil öncelikli, uzman paneli masaüstü öncelikli.
-- **Kalan tutarın** (görüşme ücretinin kapora dışındaki kısmı) nasıl ödendiği PRD'de tanımlı değil. Şimdilik "görüşmede ödenir" olarak yazıldı; PM kararı gerekiyor.
+- ~~Kalan tutarın nasıl ödendiği~~ — **karara bağlandı (2026-09-16):** kalan tutar görüşmeden önce ödenir; danışan elden ya da Pactly üzerinden ödeyebilir. Randevu, kalan tutarın ödeme durumunu taşır (PRD FR22, Story 3.7).
 - **Yönetim paneli** küratörlü kabul kararından doğdu, PRD'de yok. PRD güncellemesinde eklenmeli.
