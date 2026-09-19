@@ -2,8 +2,9 @@
 title: 'Story 3.7 — Paying the balance before the session'
 type: 'feature'
 created: '2026-09-20'
-status: 'ready-for-dev'
+status: 'in-progress'
 review_loop_iteration: 0
+baseline_revision: '567484280a797b6b6c46cd3c8f682fdf959def80'
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
