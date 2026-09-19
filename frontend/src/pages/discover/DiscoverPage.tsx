@@ -16,6 +16,13 @@ const SKELETON_COUNT = 6;
 
 const AVAILABILITY_VALUES = new Set<DiscoverAvailability>(["24h", "week"]);
 
+/** Same shape the backend's own `parseDiscoverFilters` requires (AD-7's
+ * smallest-unit integer strings, `"0"` allowed) -- a URL value that fails
+ * this must never reach `BigInt(...)` anywhere downstream. */
+const NON_NEGATIVE_INTEGER_STRING = /^(0|[1-9]\d*)$/;
+const MIN_DEPOSIT_RATE_BPS_FILTER = 1;
+const MAX_DEPOSIT_RATE_BPS_FILTER = 10000;
+
 /**
  * `/` -- the Discover page. Story 3.2 built the category rail, the card
  * grid, and its URL state; Story 3.3 adds the search box (with debounced
@@ -50,11 +57,19 @@ export function DiscoverPage() {
 
   const q = searchParams.get("q") ?? "";
   const formats = searchParams.getAll("format");
-  const minPrice = searchParams.get("minPrice") ?? undefined;
-  const maxPrice = searchParams.get("maxPrice") ?? undefined;
+  const minPriceRaw = searchParams.get("minPrice");
+  const minPrice = minPriceRaw !== null && NON_NEGATIVE_INTEGER_STRING.test(minPriceRaw) ? minPriceRaw : undefined;
+  const maxPriceRaw = searchParams.get("maxPrice");
+  const maxPrice = maxPriceRaw !== null && NON_NEGATIVE_INTEGER_STRING.test(maxPriceRaw) ? maxPriceRaw : undefined;
   const maxDepositBpsRaw = searchParams.get("maxDepositBps");
-  const maxDepositBps =
+  const maxDepositBpsParsed =
     maxDepositBpsRaw !== null && /^\d+$/.test(maxDepositBpsRaw) ? Number(maxDepositBpsRaw) : undefined;
+  const maxDepositBps =
+    maxDepositBpsParsed !== undefined &&
+    maxDepositBpsParsed >= MIN_DEPOSIT_RATE_BPS_FILTER &&
+    maxDepositBpsParsed <= MAX_DEPOSIT_RATE_BPS_FILTER
+      ? maxDepositBpsParsed
+      : undefined;
   const whenRaw = searchParams.get("when");
   const availability = whenRaw && AVAILABILITY_VALUES.has(whenRaw as DiscoverAvailability) ? (whenRaw as DiscoverAvailability) : undefined;
 

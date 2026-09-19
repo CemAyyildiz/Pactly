@@ -738,6 +738,45 @@ test("suggestDiscoverQueries: groups into category/service/provider, each with i
   }
 });
 
+test("suggestDiscoverQueries: a suggestion's count equals the length of the list its value returns", async () => {
+  const result = openTestDatabase();
+  try {
+    const categoryId = await seedCategory(result, undefined, "Wellness");
+    await seedProviderProfile(result, {
+      categoryId,
+      isApproved: true,
+      displayName: "Ayse Yilmaz",
+      title: "Massage therapy",
+    });
+    // Shares the query only through its bio, not its own title/name --
+    // proves "count" is the real search's own result length, not a
+    // narrower exact-title tally (the previous bug undercounted this
+    // suggestion at 1 instead of 2).
+    await seedProviderProfile(result, {
+      categoryId,
+      isApproved: true,
+      displayName: "Zeynep Demir",
+      title: "Consulting",
+      bio: "Ask about our massage therapy add-on.",
+    });
+
+    const suggestions = await suggestDiscoverQueries(result.db, "massage therapy");
+    assert.ok(suggestions.length > 0);
+    for (const suggestion of suggestions) {
+      const providers =
+        suggestion.kind === "category"
+          ? await listDiscoverProviders(result.db, suggestion.value)
+          : await listDiscoverProviders(result.db, undefined, { query: suggestion.value });
+      assert.equal(suggestion.count, providers.length, `count mismatch for ${suggestion.kind} "${suggestion.label}"`);
+    }
+
+    const service = suggestions.find((s) => s.kind === "service" && s.label === "Massage therapy");
+    assert.equal(service?.count, 2);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
 test("suggestDiscoverQueries: caps at 8 suggestions total", async () => {
   const result = openTestDatabase();
   try {

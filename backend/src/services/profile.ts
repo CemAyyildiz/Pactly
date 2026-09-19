@@ -607,8 +607,11 @@ export interface DiscoverSuggestion {
   value: string;
   /** Approved providers picking this suggestion would return (the I/O
    * matrix's own "Suggestions" row) -- for a category, its
-   * `providerCount`; for a service or provider name, how many approved
-   * profiles share that exact title/display name. */
+   * `providerCount`; for a service or provider name, exactly what
+   * `listDiscoverProviders(db, undefined, { query: value })` returns,
+   * since picking one of those sets `q` to `value` and runs that same
+   * full-text search, which can match through the bio or category name
+   * too, not just the title/display name an exact-string count would see. */
   count: number;
 }
 
@@ -650,32 +653,39 @@ export async function suggestDiscoverQueries(db: Db, rawQuery: string): Promise<
       count: categoryCounts.get(category.id) ?? 0,
     }));
 
-  // Grouped by the exact string so "count" reflects how many approved
-  // profiles that specific title/name actually covers, not a broader
-  // substring match -- a suggestion is a single concrete pick, not another
-  // free-text search.
-  const titleCounts = new Map<string, number>();
-  const nameCounts = new Map<string, number>();
+  // Distinct titles/names matching the query -- one suggestion per string,
+  // not one per matching profile.
+  const titles = new Set<string>();
+  const names = new Set<string>();
   for (const profile of approvedProfiles) {
     if (profile.title.toLowerCase().includes(needle)) {
-      titleCounts.set(profile.title, (titleCounts.get(profile.title) ?? 0) + 1);
+      titles.add(profile.title);
     }
     if (profile.displayName.toLowerCase().includes(needle)) {
-      nameCounts.set(profile.displayName, (nameCounts.get(profile.displayName) ?? 0) + 1);
+      names.add(profile.displayName);
     }
   }
-  const serviceSuggestions: DiscoverSuggestion[] = [...titleCounts.entries()].map(([title, count]) => ({
-    kind: "service",
-    label: title,
-    value: title,
-    count,
-  }));
-  const providerSuggestions: DiscoverSuggestion[] = [...nameCounts.entries()].map(([name, count]) => ({
-    kind: "provider",
-    label: name,
-    value: name,
-    count,
-  }));
+
+  // Picking a service/provider suggestion sets `q` to its own `value` and
+  // runs the same full-text search `listDiscoverProviders` does -- so
+  // "count" is exactly that search's result length, not a narrower
+  // exact-title/name tally (see `DiscoverSuggestion.count`'s own comment).
+  const serviceSuggestions: DiscoverSuggestion[] = await Promise.all(
+    [...titles].map(async (title) => ({
+      kind: "service",
+      label: title,
+      value: title,
+      count: (await listDiscoverProviders(db, undefined, { query: title })).length,
+    })),
+  );
+  const providerSuggestions: DiscoverSuggestion[] = await Promise.all(
+    [...names].map(async (name) => ({
+      kind: "provider",
+      label: name,
+      value: name,
+      count: (await listDiscoverProviders(db, undefined, { query: name })).length,
+    })),
+  );
 
   return [...categorySuggestions, ...serviceSuggestions, ...providerSuggestions].slice(0, MAX_SUGGESTIONS);
 }

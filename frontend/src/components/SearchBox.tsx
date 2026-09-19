@@ -74,6 +74,11 @@ export function SearchBox({ value, onCommit, suggestions, suggestionsLoading, on
   }
 
   function handleSelect(suggestion: DiscoverSuggestion) {
+    // Clear the pending debounce timer exactly as `commitNow` does --
+    // otherwise it fires ~250ms later with the older typed text and
+    // overwrites the suggestion the user just picked.
+    clearTimeout(timerRef.current);
+    timerRef.current = undefined;
     setDraft(suggestion.kind === "category" ? "" : suggestion.label);
     onSelectSuggestion(suggestion);
     setOpen(false);

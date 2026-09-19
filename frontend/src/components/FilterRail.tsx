@@ -4,6 +4,18 @@ import { parseDecimalToSmallestUnit, smallestUnitToDecimalInput } from "../lib/m
 import { formatSessionFormat } from "../lib/sessionFormat";
 import type { DiscoverAvailability } from "../api/types";
 
+/** Same shape the backend's own `parseDiscoverFilters` requires (AD-7's
+ * smallest-unit integer strings, `"0"` allowed) -- a `minPrice`/`maxPrice`
+ * that fails this must never reach `smallestUnitToDecimalInput`'s own
+ * `BigInt(...)` call below, even if some future caller forgets to
+ * pre-validate it (defence in depth alongside `DiscoverPage`'s own read of
+ * the URL). */
+const NON_NEGATIVE_INTEGER_STRING = /^(0|[1-9]\d*)$/;
+
+function toPriceInputText(amount: string | undefined): string {
+  return amount !== undefined && NON_NEGATIVE_INTEGER_STRING.test(amount) ? smallestUnitToDecimalInput(amount) : "";
+}
+
 /** The complete universe of `sessionFormat` values the demo seed and the
  * rest of this frontend know about (`lib/sessionFormat.ts`'s own label
  * map) -- "the formats present" (the spec's own wording) reduces to this
@@ -34,14 +46,14 @@ export interface FilterFieldsProps {
  * or Enter (AC4: "every change updates results without a reload", not
  * necessarily on every keystroke). */
 function PriceRangeField({ minPrice, maxPrice, onPriceRangeChange }: Pick<FilterFieldsProps, "minPrice" | "maxPrice" | "onPriceRangeChange">) {
-  const [minText, setMinText] = useState(minPrice !== undefined ? smallestUnitToDecimalInput(minPrice) : "");
-  const [maxText, setMaxText] = useState(maxPrice !== undefined ? smallestUnitToDecimalInput(maxPrice) : "");
+  const [minText, setMinText] = useState(toPriceInputText(minPrice));
+  const [maxText, setMaxText] = useState(toPriceInputText(maxPrice));
 
   useEffect(() => {
-    setMinText(minPrice !== undefined ? smallestUnitToDecimalInput(minPrice) : "");
+    setMinText(toPriceInputText(minPrice));
   }, [minPrice]);
   useEffect(() => {
-    setMaxText(maxPrice !== undefined ? smallestUnitToDecimalInput(maxPrice) : "");
+    setMaxText(toPriceInputText(maxPrice));
   }, [maxPrice]);
 
   function commit() {
@@ -100,7 +112,7 @@ function DepositCapField({
       return;
     }
     const percent = Number(trimmed);
-    if (!Number.isFinite(percent) || percent < 0) {
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
       onMaxDepositBpsChange(undefined);
       return;
     }
