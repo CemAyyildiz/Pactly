@@ -426,6 +426,7 @@ function fakeEscrowAdapter(overrides: Partial<EscrowAdapter> = {}): EscrowAdapte
   return {
     deploy: overrides.deploy ?? unimplemented("deploy"),
     fund: overrides.fund ?? unimplemented("fund"),
+    complete: overrides.complete ?? unimplemented("complete"),
     approve: overrides.approve ?? unimplemented("approve"),
     release: overrides.release ?? unimplemented("release"),
     startDispute: overrides.startDispute ?? unimplemented("startDispute"),

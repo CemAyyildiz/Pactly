@@ -4,7 +4,7 @@
  * `../chain/event-worker.ts` -- which is what AD-1/AD-3 mean in practice:
  * nothing else may write `escrow_state`.
  */
-import { and, eq, gt, isNotNull, isNull, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, ne, notInArray, or, sql } from "drizzle-orm";
 
 import type { Db, DbOrTx } from "./client.js";
 import { availabilitySlots, bookings, providerProfiles, type BalanceState, type EscrowState } from "./schema.js";
@@ -149,6 +149,15 @@ export async function countPendingHoldsForWallet(db: Db, clientWalletAddress: st
 export async function getBookingById(db: Db, id: string): Promise<BookingRow | undefined> {
   const rows = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
   return rows[0];
+}
+
+/** Story 3.6: every booking named in `ids`, in one query -- the admin
+ * disputes list's own N+1 avoidance (same discipline as
+ * `getEscrowLifecycleForBookings`). Empty input short-circuits to an empty
+ * array. */
+export async function getBookingsByIds(db: Db, ids: string[]): Promise<BookingRow[]> {
+  if (ids.length === 0) return [];
+  return db.select().from(bookings).where(inArray(bookings.id, ids));
 }
 
 /** The event worker's own write path, as a synchronous call -- callable
@@ -322,6 +331,35 @@ export async function recordDeploySubmission(
  * built fund transaction is ever the one worth signing. */
 export async function setEscrowFundTxHash(db: Db, id: string, txHash: string): Promise<void> {
   await db.update(bookings).set({ escrowFundTxHash: txHash }).where(eq(bookings.id, id));
+}
+
+/** Story 3.6: every action past deploy/fund shares this one write path --
+ * stores the just-built unsigned XDR's own `txHash` on the booking so
+ * `submitSignedTransaction`'s hash-matching rule (3.4's submit allow-list)
+ * extends to it. Not write-once, unlike the deploy XDR: a declined
+ * signature must still be retryable, and each call simply overwrites
+ * whatever was stored before -- only the most recently built transaction
+ * for that action is ever the one worth signing. */
+export type EscrowActionKind = "complete" | "approve" | "release" | "dispute" | "resolve";
+
+export async function setEscrowActionTxHash(db: Db, id: string, action: EscrowActionKind, txHash: string): Promise<void> {
+  switch (action) {
+    case "complete":
+      await db.update(bookings).set({ escrowCompleteTxHash: txHash }).where(eq(bookings.id, id));
+      return;
+    case "approve":
+      await db.update(bookings).set({ escrowApproveTxHash: txHash }).where(eq(bookings.id, id));
+      return;
+    case "release":
+      await db.update(bookings).set({ escrowReleaseTxHash: txHash }).where(eq(bookings.id, id));
+      return;
+    case "dispute":
+      await db.update(bookings).set({ escrowDisputeTxHash: txHash }).where(eq(bookings.id, id));
+      return;
+    case "resolve":
+      await db.update(bookings).set({ escrowResolveTxHash: txHash }).where(eq(bookings.id, id));
+      return;
+  }
 }
 
 /**

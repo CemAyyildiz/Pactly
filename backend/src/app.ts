@@ -49,18 +49,27 @@ import {
   SlotUnavailableError,
   TooManyHoldsError,
   XdrMismatchError,
+  approveAppointment,
+  completeAppointment,
   fundDeposit,
   getBookingForClient,
   getBookingView,
   holdSlot,
   listBookingsForClient,
   listBookingsForProvider,
+  listOpenDisputes,
   lockDeposit,
+  openDispute,
+  releaseDeposit,
+  resolveBookingDispute,
   submitSignedTransaction,
 } from "./services/booking.js";
 import { EscrowApiError, EscrowConfigError, EscrowRequestError } from "./escrow/trustless-work/errors.js";
 import { defaultEscrowAdapter } from "./escrow/trustless-work/client.js";
 import type { EscrowAdapter } from "./escrow/interface.js";
+import { config } from "./config.js";
+import { DISPUTE_REASONS, DISPUTE_OUTCOMES, type DisputeReason, type DisputeOutcome } from "./db/schema.js";
+import { getBookingById } from "./db/bookings.js";
 
 export interface Variables {
   /** Set by `requirePactlyAuth` once a request's Pactly JWT verifies --
@@ -94,6 +103,24 @@ export async function requirePactlyAuth(c: Context<{ Variables: Variables }>, ne
       return c.json({ code: "unauthorized", message: "Sign in required." }, 401);
     }
     throw error;
+  }
+  await next();
+}
+
+/**
+ * Story 3.6: gates every `/admin/...` route to a wallet in
+ * `config.adminWallets` (AD-12) -- a non-admin caller gets the same
+ * `404 NOT_ADMIN` every other "you don't own this" check in this file gives
+ * (never a `403`, so an admin-only route's very existence is not
+ * distinguishable from an unknown one). Runs after {@link requirePactlyAuth}
+ * (which is what sets `walletAddress`), never before. Being *an* admin is
+ * distinct from being *the* dispute resolver (`config
+ * .trustlessWorkPlatformAddress`) -- the resolve route's own extra check,
+ * not this middleware's.
+ */
+async function requireAdmin(c: Context<{ Variables: Variables }>, next: Next) {
+  if (!config.adminWallets.includes(c.get("walletAddress"))) {
+    return c.json({ code: "NOT_ADMIN", message: "This wallet is not a Pactly admin." }, 404);
   }
   await next();
 }
@@ -530,6 +557,173 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
       }
       throw error;
     }
+  });
+
+  // ---------------------------------------------------------------------
+  // Story 3.6: appointment completion, release and resolution. Every
+  // action route shares the deploy/fund routes' own discipline: ownership
+  // (or, for `/admin/...`, admin-wallet membership) resolves to a
+  // `404`/`NOT_ADMIN` before anything else, a wrong lifecycle state is a
+  // `409 BOOKING_STATE`, and a Trustless Work failure maps through the same
+  // `escrowErrorResponse` helper Story 3.4 already defined above.
+  // ---------------------------------------------------------------------
+
+  app.post("/bookings/:id/complete", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    try {
+      const result = await completeAppointment(db, bookingId, c.get("walletAddress"), escrowAdapter);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof BookingNotFoundError) {
+        return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof BookingEscrowStateError) {
+        return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
+      }
+      if (error instanceof EscrowApiError || error instanceof EscrowRequestError || error instanceof EscrowConfigError) {
+        const response = escrowErrorResponse(error);
+        return c.json({ code: response.code, message: response.message }, response.status);
+      }
+      throw error;
+    }
+  });
+
+  app.post("/bookings/:id/approve", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    try {
+      const result = await approveAppointment(db, bookingId, c.get("walletAddress"), escrowAdapter);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof BookingNotFoundError) {
+        return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof BookingEscrowStateError) {
+        return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
+      }
+      if (error instanceof EscrowApiError || error instanceof EscrowRequestError || error instanceof EscrowConfigError) {
+        const response = escrowErrorResponse(error);
+        return c.json({ code: response.code, message: response.message }, response.status);
+      }
+      throw error;
+    }
+  });
+
+  app.post("/bookings/:id/release", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    try {
+      const result = await releaseDeposit(db, bookingId, c.get("walletAddress"), escrowAdapter);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof BookingNotFoundError) {
+        return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof BookingEscrowStateError) {
+        return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
+      }
+      if (error instanceof EscrowApiError || error instanceof EscrowRequestError || error instanceof EscrowConfigError) {
+        const response = escrowErrorResponse(error);
+        return c.json({ code: response.code, message: response.message }, response.status);
+      }
+      throw error;
+    }
+  });
+
+  /** Either side (client or provider) may open a dispute -- `reason` is
+   * validated here, against the schema's own {@link DISPUTE_REASONS}, so an
+   * unknown value never reaches the service layer at all (the spec's own
+   * "unknown reason: 400" row). */
+  app.post("/bookings/:id/dispute", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    const body = await c.req.json().catch(() => undefined);
+    const reason = typeof body?.reason === "string" ? body.reason : undefined;
+    if (!reason || !(DISPUTE_REASONS as readonly string[]).includes(reason)) {
+      return c.json(
+        { code: "invalid_request", message: `reason must be one of ${DISPUTE_REASONS.join(", ")}.` },
+        400,
+      );
+    }
+    try {
+      const result = await openDispute(db, bookingId, c.get("walletAddress"), reason as DisputeReason, escrowAdapter);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof BookingNotFoundError) {
+        return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof BookingEscrowStateError) {
+        return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
+      }
+      if (error instanceof EscrowApiError || error instanceof EscrowRequestError || error instanceof EscrowConfigError) {
+        const response = escrowErrorResponse(error);
+        return c.json({ code: response.code, message: response.message }, response.status);
+      }
+      throw error;
+    }
+  });
+
+  /** Pactly's own dispute-resolver signature: gated to an admin wallet
+   * ({@link requireAdmin}, `404` otherwise) that is *also*
+   * `config.trustlessWorkPlatformAddress` -- an admin who is not the
+   * dispute resolver gets `403 NOT_DISPUTE_RESOLVER`, never a silent
+   * success building an XDR nobody can actually sign as the resolver. */
+  app.post("/admin/bookings/:id/resolve", requirePactlyAuth, requireAdmin, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    if (c.get("walletAddress") !== config.trustlessWorkPlatformAddress) {
+      return c.json(
+        { code: "NOT_DISPUTE_RESOLVER", message: "This admin wallet is not Pactly's dispute resolver." },
+        403,
+      );
+    }
+    const body = await c.req.json().catch(() => undefined);
+    const outcome = typeof body?.outcome === "string" ? body.outcome : undefined;
+    if (!outcome || !(DISPUTE_OUTCOMES as readonly string[]).includes(outcome)) {
+      return c.json(
+        { code: "invalid_request", message: `outcome must be one of ${DISPUTE_OUTCOMES.join(", ")}.` },
+        400,
+      );
+    }
+    const existing = await getBookingById(db, bookingId);
+    if (!existing) {
+      return c.json({ code: "BOOKING_NOT_FOUND", message: "No booking was found with that id." }, 404);
+    }
+    try {
+      const result = await resolveBookingDispute(db, bookingId, outcome as DisputeOutcome, escrowAdapter);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof BookingEscrowStateError) {
+        return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
+      }
+      if (error instanceof EscrowApiError || error instanceof EscrowRequestError || error instanceof EscrowConfigError) {
+        const response = escrowErrorResponse(error);
+        return c.json({ code: response.code, message: response.message }, response.status);
+      }
+      throw error;
+    }
+  });
+
+  /** The admin "Resolutions" list: every dispute the chain still shows as
+   * open, plus who opened it, why, and the policy's own suggested outcome
+   * -- guidance only, never applied automatically (Story 3.6's own
+   * Boundaries: "The admin may pick either outcome"). Any admin wallet may
+   * view this, whether or not it is also the dispute resolver -- only
+   * `/admin/bookings/:id/resolve` itself needs that stricter check. */
+  app.get("/admin/disputes", requirePactlyAuth, requireAdmin, async (c) => {
+    const disputes = await listOpenDisputes(db);
+    return c.json({ disputes });
   });
 
   return app;

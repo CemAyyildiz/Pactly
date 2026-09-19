@@ -128,6 +128,24 @@ npm run dev
 - The screen reads "Locking with Pactly…" until the reconciler confirms the deposit on chain; only then does the seal stamp and "You're set." appear, with the escrow proof (contract id, linking to the testnet explorer) beneath it. The slot then shows as taken on the provider's profile.
 - Declining a wallet prompt is never an error: the slot stays held for the rest of its 10-minute window, and **Lock with Pactly** can be tapped again.
 
+### Complete, release and resolve
+
+Story 3.6 adds the rest of a deposit's life after it locks: the provider marking the appointment complete, the client approving it, the provider releasing it, and — if either side cancels or a no-show is claimed — a dispute Pactly resolves as the named dispute-resolver signer. Every action still only ever builds unsigned XDR; nothing moves automatically.
+
+**The happy path — complete → approve → release:**
+
+1. Once a booking reads **Funded** (both `/me/bookings` and the provider's `/panel/bookings`), sign in as the **provider** and open the booking's row. Tap **Mark appointment complete** and approve the wallet prompt — the state moves to **Appointment completed**.
+2. Sign in as the **client** on `/me/bookings` and tap **Approve**. The state moves to **Ready to release**.
+3. Back as the provider, tap **Release deposit**. Once the reconciler confirms it on chain, both sides read **Released**.
+
+**Cancel → resolve:**
+
+1. Before releasing, either side can tap **Open a dispute** on their own booking row. The screen states the booking-policy outcome in plain words first (who cancelled, and whether the deadline had passed) — this is guidance, never something that has already happened on chain.
+2. Pick the reason (cancelled by the client, cancelled by the provider, no-show, or a plain disagreement) and sign. Both sides now read **In resolution**.
+3. Set `TRUSTLESS_WORK_PLATFORM_ADDRESS` (Pactly's own dispute-resolver wallet) as one of the wallets in `PACTLY_ADMIN_WALLETS` — see `.env.example`'s `SEED_ADMIN_WALLET` note. Sign in with that exact wallet, open `/admin/resolutions`, and resolve the dispute with either outcome (the policy's own suggestion is shown, never applied for you). Both sides then read **Resolved**, with the outcome spelled out ("Refunded to you" / "Paid to the provider").
+
+A wallet in `PACTLY_ADMIN_WALLETS` that is *not* also `TRUSTLESS_WORK_PLATFORM_ADDRESS` can see `/admin/resolutions` but gets `403 NOT_DISPUTE_RESOLVER` if it tries to resolve one — only Pactly's own resolver signer may actually build that transaction.
+
 ### Other commands
 
 ```bash

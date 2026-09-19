@@ -116,15 +116,20 @@ export function MyBookingsPage() {
             <BookingCard
               key={booking.id}
               viewer="client"
+              id={booking.id}
               heading={booking.provider.displayName}
               subheading={booking.provider.title}
               slotStartsAt={booking.slotStartsAt}
               deposit={booking.deposit}
               balance={booking.balance}
+              escrowState={booking.escrowState}
               lifecycle={booking.lifecycle}
               balanceState={booking.balanceState}
               cancelDeadline={booking.cancelDeadline}
               contractId={booking.contractId}
+              session={session}
+              onActionSubmitted={() => void bookingsQuery.refetch()}
+              onUnauthorized={handleSignOut}
             />
           ))}
         </div>
@@ -138,15 +143,20 @@ export function MyBookingsPage() {
               <BookingCard
                 key={booking.id}
                 viewer="client"
+                id={booking.id}
                 heading={booking.provider.displayName}
                 subheading={booking.provider.title}
                 slotStartsAt={booking.slotStartsAt}
                 deposit={booking.deposit}
                 balance={booking.balance}
+                escrowState={booking.escrowState}
                 lifecycle={booking.lifecycle}
                 balanceState={booking.balanceState}
                 cancelDeadline={booking.cancelDeadline}
                 contractId={booking.contractId}
+                session={session}
+                onActionSubmitted={() => void bookingsQuery.refetch()}
+                onUnauthorized={handleSignOut}
               />
             ))}
           </div>

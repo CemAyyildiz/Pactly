@@ -94,6 +94,18 @@ export interface ReleaseEscrowInput {
   providerAddress: string;
 }
 
+/** Story 3.6: marks milestone 0 completed -- the provider's own signed
+ * declaration that the appointment happened, ranking between `funded` and
+ * `approved` in the reconciler's lifecycle. Never moves money by itself
+ * (`escrow_state` stays `locked`); it only ever changes what the milestone's
+ * own `status` field reads on chain. */
+export interface CompleteEscrowInput {
+  contractId: string;
+  /** The provider's own address -- `changeMilestoneStatus`'s
+   * `serviceProvider`, per the role map (Story 1.8). */
+  providerAddress: string;
+}
+
 export interface StartDisputeInput {
   contractId: string;
   /** Whoever raises the dispute -- the client (as approver) or the
@@ -123,6 +135,9 @@ export interface SubmitTransactionResult {
 export interface EscrowAdapter {
   deploy(input: DeployEscrowInput): Promise<DeployEscrowResult>;
   fund(input: FundEscrowInput): Promise<UnsignedTransaction>;
+  /** Story 3.6: the provider's own "the appointment happened" declaration
+   * -- see {@link CompleteEscrowInput}'s own doc comment. */
+  complete(input: CompleteEscrowInput): Promise<UnsignedTransaction>;
   approve(input: ApproveEscrowInput): Promise<UnsignedTransaction>;
   release(input: ReleaseEscrowInput): Promise<UnsignedTransaction>;
   startDispute(input: StartDisputeInput): Promise<UnsignedTransaction>;

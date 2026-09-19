@@ -19,6 +19,7 @@ import {
   type ApiProblemDetails,
   type ApproveMilestonesPayload,
   type BuildTransactionResponse,
+  type ChangeMilestoneStatusPayload,
   type DeployEscrowResponse,
   type DeploySingleReleaseEscrowPayload,
   type FundEscrowPayload,
@@ -27,10 +28,11 @@ import {
   type SingleReleaseStartDisputePayload,
 } from "@trustless-work/escrow-js";
 
-import { approve, deploy, fund, release, resolveDispute, startDispute, submit, type EscrowCallDeps } from "../src/escrow/trustless-work/client.js";
+import { approve, complete, deploy, fund, release, resolveDispute, startDispute, submit, type EscrowCallDeps } from "../src/escrow/trustless-work/client.js";
 import { EscrowApiError, EscrowConfigError, EscrowRequestError } from "../src/escrow/trustless-work/errors.js";
 import type {
   ApproveEscrowInput,
+  CompleteEscrowInput,
   DeployEscrowInput,
   FundEscrowInput,
   ReleaseEscrowInput,
@@ -51,7 +53,7 @@ function fakeAddress(): string {
  * `chain-client.test.ts`'s own `unreachableStages`). */
 function unreachableStages(): Pick<
   EscrowCallDeps,
-  "deployEscrow" | "fundEscrow" | "approveMilestones" | "releaseFunds" | "startDispute" | "resolveDispute"
+  "deployEscrow" | "fundEscrow" | "changeMilestoneStatus" | "approveMilestones" | "releaseFunds" | "startDispute" | "resolveDispute"
 > {
   return {
     deployEscrow: async () => {
@@ -59,6 +61,9 @@ function unreachableStages(): Pick<
     },
     fundEscrow: async () => {
       throw new Error("fundEscrow should not have been called");
+    },
+    changeMilestoneStatus: async () => {
+      throw new Error("changeMilestoneStatus should not have been called");
     },
     approveMilestones: async () => {
       throw new Error("approveMilestones should not have been called");
@@ -169,6 +174,28 @@ test("fund builds the unsigned fund XDR for the client's own signature", async (
   assert.equal(captured.contractId, contractId);
   assert.equal(captured.signer, clientAddress);
   assert.equal(captured.amount, 0.5);
+});
+
+test("complete builds the unsigned changeMilestoneStatus XDR for the provider (service provider), milestone 0 set to completed", async () => {
+  let captured: ChangeMilestoneStatusPayload | undefined;
+  const providerAddress = fakeAddress();
+  const contractId = "predicted-contract-id";
+  const deps: Partial<EscrowCallDeps> = {
+    ...unreachableStages(),
+    changeMilestoneStatus: async (payload) => {
+      captured = payload;
+      return { unsignedXdr: "complete-unsigned-xdr", txHash: "complete-tx-hash" } satisfies BuildTransactionResponse;
+    },
+  };
+  const input: CompleteEscrowInput = { contractId, providerAddress };
+  const result = await complete(input, deps);
+
+  assert.equal(result.unsignedXdr, "complete-unsigned-xdr");
+  assert.equal(result.txHash, "complete-tx-hash");
+  assert.ok(captured);
+  assert.equal(captured.contractId, contractId);
+  assert.equal(captured.serviceProvider, providerAddress);
+  assert.deepEqual(captured.updates, [{ index: 0, newStatus: "completed" }]);
 });
 
 test("approve builds the unsigned approve XDR for the client (approver), milestone index [0]", async () => {

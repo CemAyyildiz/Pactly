@@ -275,6 +275,40 @@ async function seed(): Promise<void> {
     } else {
       console.log("[seed:demo] SEED_PROVIDER_WALLET not set -- skipping the tester's own profile");
     }
+
+    // Story 3.6: the admin role has no database row -- it is entirely
+    // `config.adminWallets` (PACTLY_ADMIN_WALLETS) plus
+    // `config.trustlessWorkPlatformAddress` (Pactly's own dispute-resolver
+    // signer). This is purely a demo-time expectations check: it writes
+    // nothing, and only tells whoever is setting up the demo whether
+    // `POST /admin/bookings/:id/resolve` will actually work for the wallet
+    // they intend to sign in as.
+    const seedAdminWallet = process.env.SEED_ADMIN_WALLET?.trim();
+    if (seedAdminWallet) {
+      const isListedAdmin = config.adminWallets.includes(seedAdminWallet);
+      const isDisputeResolver = seedAdminWallet === config.trustlessWorkPlatformAddress;
+      if (!isListedAdmin) {
+        console.log(
+          `[seed:demo] SEED_ADMIN_WALLET ${seedAdminWallet} is not listed in PACTLY_ADMIN_WALLETS -- add it there ` +
+            "for the admin Resolutions screen (GET /admin/disputes) to accept this wallet at all.",
+        );
+      }
+      if (!isDisputeResolver) {
+        console.log(
+          `[seed:demo] SEED_ADMIN_WALLET ${seedAdminWallet} does not equal TRUSTLESS_WORK_PLATFORM_ADDRESS -- ` +
+            "Story 3.6's resolve action requires the two to be the exact same wallet (Pactly's own dispute-resolver " +
+            "signer), so resolving a dispute as this wallet will 403 NOT_DISPUTE_RESOLVER until they match.",
+        );
+      }
+      if (isListedAdmin && isDisputeResolver) {
+        console.log(`[seed:demo] SEED_ADMIN_WALLET ${seedAdminWallet} is configured correctly as Pactly's dispute resolver.`);
+      }
+    } else {
+      console.log(
+        "[seed:demo] SEED_ADMIN_WALLET not set -- skipping the admin-resolver expectations check " +
+          "(see .env.example / README for Story 3.6's resolve action).",
+      );
+    }
   } finally {
     closeDatabase({ db, sqlite });
   }

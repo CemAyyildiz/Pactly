@@ -389,6 +389,80 @@ test("runMigrations adds slot_id/hold_expires_at/escrow_deploy_xdr to a bookings
   }
 });
 
+test("runMigrations adds Story 3.6's five action tx-hash columns to a bookings table created before it, and creates escrow_dispute_openings (ALTER, not a no-op CREATE)", async () => {
+  const sqlite = new Database(":memory:");
+  try {
+    sqlite.pragma("foreign_keys = ON");
+    // The pre-3.6 DDL: Story 3.4's own shape (escrow_deploy_xdr and
+    // friends), but none of Story 3.6's five action tx-hash columns.
+    sqlite.exec(`CREATE TABLE categories (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, parent_category_id TEXT
+    )`);
+    sqlite.exec(`CREATE TABLE provider_profiles (
+      id TEXT PRIMARY KEY, wallet_address TEXT NOT NULL UNIQUE, category_id TEXT NOT NULL REFERENCES categories(id),
+      display_name TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '', location TEXT NOT NULL DEFAULT '',
+      bio TEXT NOT NULL DEFAULT '', languages TEXT NOT NULL DEFAULT '[]', session_format TEXT NOT NULL,
+      session_length_minutes INTEGER NOT NULL, price_amount TEXT NOT NULL, deposit_rate_bps INTEGER NOT NULL,
+      cancellation_window_hours INTEGER NOT NULL, is_approved INTEGER NOT NULL DEFAULT 0,
+      verified_session_count INTEGER NOT NULL DEFAULT 0, provider_cancellation_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )`);
+    sqlite.exec(`CREATE TABLE availability_slots (
+      id TEXT PRIMARY KEY, provider_profile_id TEXT NOT NULL REFERENCES provider_profiles(id),
+      starts_at INTEGER NOT NULL, withdrawn_at INTEGER, created_at INTEGER NOT NULL,
+      UNIQUE (provider_profile_id, starts_at)
+    )`);
+    sqlite.exec(`CREATE TABLE bookings (
+      id TEXT PRIMARY KEY, provider_profile_id TEXT NOT NULL REFERENCES provider_profiles(id),
+      client_wallet_address TEXT NOT NULL, token_address TEXT NOT NULL, deposit_amount TEXT NOT NULL,
+      balance_amount TEXT NOT NULL DEFAULT '0', cancel_deadline INTEGER NOT NULL, escrow_state TEXT,
+      balance_state TEXT NOT NULL DEFAULT 'unpaid', escrow_contract_id TEXT, slot_id TEXT REFERENCES availability_slots(id),
+      hold_expires_at INTEGER, escrow_deploy_xdr TEXT, escrow_deploy_tx_hash TEXT, escrow_fund_tx_hash TEXT,
+      deploy_submitted_at INTEGER, created_at INTEGER NOT NULL
+    )`);
+
+    const categoryId = randomUUID();
+    sqlite.prepare(`INSERT INTO categories (id, name, slug) VALUES (?, 'Consulting', ?)`).run(categoryId, `consulting-${categoryId}`);
+    const providerProfileId = randomUUID();
+    sqlite
+      .prepare(
+        `INSERT INTO provider_profiles
+          (id, wallet_address, category_id, session_format, session_length_minutes, price_amount, deposit_rate_bps, cancellation_window_hours, created_at)
+         VALUES (?, ?, ?, 'video', 50, '10000000', 2000, 24, ?)`,
+      )
+      .run(providerProfileId, `GPROVIDERPRE36${providerProfileId.replace(/-/g, "").toUpperCase()}`, categoryId, Date.now());
+    const bookingId = randomBookingId();
+    sqlite
+      .prepare(
+        `INSERT INTO bookings (id, provider_profile_id, client_wallet_address, token_address, deposit_amount, cancel_deadline, created_at)
+         VALUES (?, ?, 'GCLIENTPRE36', 'CTOKENPRE36', '1000000', ?, ?)`,
+      )
+      .run(bookingId, providerProfileId, Math.floor(Date.now() / 1000) + 3600, Date.now());
+
+    // The migration under test: must add the five missing columns in place
+    // (without touching the row already there) and create the new table.
+    runMigrations(sqlite);
+
+    const columns = sqlite.prepare(`PRAGMA table_info(bookings)`).all() as Array<{ name: string }>;
+    for (const column of ["escrow_complete_tx_hash", "escrow_approve_tx_hash", "escrow_release_tx_hash", "escrow_dispute_tx_hash", "escrow_resolve_tx_hash"]) {
+      assert.ok(columns.some((c) => c.name === column), `expected ${column} to exist after migration`);
+    }
+    const tables = sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'escrow_dispute_openings'`).all();
+    assert.equal(tables.length, 1, "escrow_dispute_openings must be created");
+
+    const db = drizzle(sqlite, { schema });
+    const booking = await getBookingById(db, bookingId);
+    assert.equal(booking?.escrowCompleteTxHash, null);
+    assert.equal(booking?.escrowApproveTxHash, null);
+    assert.equal(booking?.escrowReleaseTxHash, null);
+    assert.equal(booking?.escrowDisputeTxHash, null);
+    assert.equal(booking?.escrowResolveTxHash, null);
+    assert.equal(booking?.clientWalletAddress, "GCLIENTPRE36", "the pre-existing row must survive the migration");
+  } finally {
+    sqlite.close();
+  }
+});
+
 // The two tests below insert and select through the Drizzle table objects
 // directly, for tables nothing else in the codebase reads or writes yet
 // (provider_applications, reviews -- future stories' job). `migrations.ts`
@@ -446,6 +520,31 @@ test("reviews round-trips through the Drizzle schema (DDL agrees with schema.ts)
     assert.equal(rows[0]?.bookingId, bookingId);
     assert.equal(rows[0]?.rating, 5);
     assert.equal(rows[0]?.comment, "Great session");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("escrow_dispute_openings round-trips through the Drizzle schema, including a null suggested_outcome (DDL agrees with schema.ts)", async () => {
+  const result = openTestDatabase();
+  try {
+    const { escrowDisputeOpenings } = await import("../src/db/schema.js");
+    const bookingId = await seedBooking(result);
+    await result.db.insert(escrowDisputeOpenings).values({
+      bookingId,
+      contractId: "CFAKECONTRACT",
+      openedByWallet: "GOPENERWALLET",
+      reason: "disagreement",
+      suggestedOutcome: null,
+      txHash: "dispute-tx-hash",
+      openedAt: Date.now(),
+    });
+
+    const rows = await result.db.select().from(escrowDisputeOpenings).where(eq(escrowDisputeOpenings.bookingId, bookingId));
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.reason, "disagreement");
+    assert.equal(rows[0]?.suggestedOutcome, null);
+    assert.equal(rows[0]?.openedByWallet, "GOPENERWALLET");
   } finally {
     closeDatabase(result);
   }

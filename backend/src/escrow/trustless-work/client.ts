@@ -41,6 +41,7 @@ import {
   type ApproveMilestonesPayload,
   type AttributionHeaders,
   type BuildTransactionResponse,
+  type ChangeMilestoneStatusPayload,
   type DeployEscrowResponse,
   type DeploySingleReleaseEscrowPayload,
   type Distribution,
@@ -55,6 +56,7 @@ import {
 import { config } from "../../config.js";
 import type {
   ApproveEscrowInput,
+  CompleteEscrowInput,
   DeployEscrowInput,
   DeployEscrowResult,
   EscrowAdapter,
@@ -86,6 +88,10 @@ export interface EscrowCallDeps {
     attribution?: AttributionHeaders,
   ) => Promise<DeployEscrowResponse>;
   fundEscrow: (payload: FundEscrowPayload) => Promise<BuildTransactionResponse>;
+  /** Story 3.6: "Complete" -- `rest.changeMilestoneStatus(payload,
+   * "single-release")`, the provider's own signed declaration that the
+   * appointment happened (milestone 0, status "completed"). */
+  changeMilestoneStatus: (payload: ChangeMilestoneStatusPayload) => Promise<BuildTransactionResponse>;
   approveMilestones: (payload: ApproveMilestonesPayload) => Promise<BuildTransactionResponse>;
   releaseFunds: (payload: SingleReleaseReleaseFundsPayload) => Promise<BuildTransactionResponse>;
   startDispute: (payload: SingleReleaseStartDisputePayload) => Promise<BuildTransactionResponse>;
@@ -132,6 +138,8 @@ function defaultDeps(overrides: Partial<EscrowCallDeps>): EscrowCallDeps {
       overrides.deployEscrow ??
       ((payload, attribution) => getClient().rest.deployEscrow(payload, ESCROW_TYPE, attribution)),
     fundEscrow: overrides.fundEscrow ?? ((payload) => getClient().rest.fundEscrow(payload, ESCROW_TYPE)),
+    changeMilestoneStatus:
+      overrides.changeMilestoneStatus ?? ((payload) => getClient().rest.changeMilestoneStatus(payload, ESCROW_TYPE)),
     approveMilestones:
       overrides.approveMilestones ?? ((payload) => getClient().rest.approveMilestones(payload, ESCROW_TYPE)),
     releaseFunds: overrides.releaseFunds ?? ((payload) => getClient().rest.releaseFunds(payload, ESCROW_TYPE)),
@@ -274,6 +282,28 @@ export async function fund(
   return toUnsignedTransaction(response);
 }
 
+/**
+ * Story 3.6: "Complete" -- the provider's own signed declaration that the
+ * appointment happened, over `rest.changeMilestoneStatus(payload,
+ * "single-release")` with milestone 0 set to `"completed"`. Never moves
+ * money and never touches `escrow_state` itself (AD-1); the reconciler
+ * derives a `completed` lifecycle row from the milestone's own status once
+ * this lands, ranking between `funded` and `approved`.
+ */
+export async function complete(
+  input: CompleteEscrowInput,
+  overrides: Partial<EscrowCallDeps> = {},
+): Promise<UnsignedTransaction> {
+  const deps = defaultDeps(overrides);
+  const payload: ChangeMilestoneStatusPayload = {
+    contractId: input.contractId,
+    serviceProvider: input.providerAddress,
+    updates: [{ index: 0, newStatus: "completed" }],
+  };
+  const response = await callTrustlessWork(() => deps.changeMilestoneStatus(payload));
+  return toUnsignedTransaction(response);
+}
+
 /** Builds the unsigned approve XDR for the client's (approver's) own
  * signature -- this escrow has exactly one milestone, so `milestoneIndexes`
  * is always `[0]`. */
@@ -403,6 +433,7 @@ export function createEscrowAdapter(overrides: Partial<EscrowCallDeps> = {}): Es
   return {
     deploy: (input) => deploy(input, overrides),
     fund: (input) => fund(input, overrides),
+    complete: (input) => complete(input, overrides),
     approve: (input) => approve(input, overrides),
     release: (input) => release(input, overrides),
     startDispute: (input) => startDispute(input, overrides),

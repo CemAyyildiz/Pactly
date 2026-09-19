@@ -6,6 +6,7 @@ import { AvailabilityPage } from "./pages/panel/AvailabilityPage";
 import { BookingsPage } from "./pages/panel/BookingsPage";
 import { BookingPage } from "./pages/booking/BookingPage";
 import { MyBookingsPage } from "./pages/my-bookings/MyBookingsPage";
+import { ResolutionsPage } from "./pages/admin/ResolutionsPage";
 
 /** The minimal top bar every screen shares (Task list): brand, and the
  * escrow-provenance note DESIGN.md/EXPERIENCE.md require to be visible
@@ -36,6 +37,7 @@ export function App() {
         <Route path="/me/bookings" element={<MyBookingsPage />} />
         <Route path="/panel/availability" element={<AvailabilityPage />} />
         <Route path="/panel/bookings" element={<BookingsPage />} />
+        <Route path="/admin/resolutions" element={<ResolutionsPage />} />
       </Routes>
     </>
   );

@@ -222,6 +222,26 @@ export const bookings = sqliteTable("bookings", {
    * client has now committed a real signature and needs time to complete
    * funding. UTC epoch seconds. */
   deploySubmittedAt: integer("deploy_submitted_at"),
+  /**
+   * Story 3.6: one stored `txHash` per completion/release/resolution action
+   * this booking has ever built, each set the moment its own unsigned XDR
+   * is built (mirroring `escrowDeployTxHash`/`escrowFundTxHash`'s own
+   * pattern) so `submitSignedTransaction`'s hash-matching rule (3.4's
+   * submit allow-list) extends to every Story 3.6 action, never only
+   * deploy/fund. Overwritten on each rebuild of that same action -- unlike
+   * the deploy XDR, none of these are write-once, since a declined
+   * signature must still be retryable.
+   */
+  escrowCompleteTxHash: text("escrow_complete_tx_hash"),
+  escrowApproveTxHash: text("escrow_approve_tx_hash"),
+  escrowReleaseTxHash: text("escrow_release_tx_hash"),
+  escrowDisputeTxHash: text("escrow_dispute_tx_hash"),
+  /** The unsigned resolve-dispute transaction's own hash -- also recorded on
+   * `escrow_dispute_resolutions.tx_hash` (Design Notes: "Why the resolution
+   * decision is recorded with its txHash"), duplicated here purely so
+   * `submitSignedTransaction` can match against every action's hash from
+   * this one row, without a second query. */
+  escrowResolveTxHash: text("escrow_resolve_tx_hash"),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -324,8 +344,8 @@ export const processedEvents = sqliteTable(
  * escrow or it did not; there is no per-transaction identity on the
  * read-model row to key on the way `processedEvents.eventType` could.
  * `lifecycleAction` is one of `EscrowLifecycleAction`
- * (`../escrow/trustless-work/reconciler.ts`): `funded` | `approved` |
- * `disputed` | `released` | `resolved` -- `resolved` is kept distinct from
+ * (`../escrow/trustless-work/reconciler.ts`): `funded` | `completed` |
+ * `approved` | `disputed` | `released` | `resolved` -- `resolved` is kept distinct from
  * `released` so `getEscrowLifecycle` can tell "the happy path released"
  * apart from "a dispute was resolved" for Epic 3's finer UX labels
  * (Design Notes: "Why lifecycle rows are finer than escrow_state").
@@ -395,4 +415,38 @@ export const escrowDisputeResolutions = sqliteTable("escrow_dispute_resolutions"
    * the allocation Pactly signed. */
   txHash: text("tx_hash").notNull(),
   decidedAt: integer("decided_at").notNull(),
+});
+
+/** Story 3.6: the four reasons a dispute may be opened for. `suggestedOutcome`
+ * (see `escrowDisputeOpenings` below) is derived from this plus the
+ * cancellation policy (decided 2026-09-18, "who cancels decides") -- except
+ * `disagreement`, which the policy names no automatic outcome for, so its
+ * `suggestedOutcome` stays `null`: the admin picks with no policy steer at
+ * all, never a guess this backend invents on the policy's behalf. */
+export const DISPUTE_REASONS = ["client-cancel", "provider-cancel", "no-show", "disagreement"] as const;
+export type DisputeReason = (typeof DISPUTE_REASONS)[number];
+
+/**
+ * Story 3.6: records that a dispute was opened -- who opened it, why, and
+ * the policy's own suggested outcome (stated to the user *before* they ever
+ * open resolution, per EXPERIENCE.md's "Cancelling and resolution" -- this
+ * table is where that same sentence's evidence lives for the admin's own
+ * "Resolutions" list). One row per booking (a booking's deposit can only
+ * ever be disputed once before it is resolved); written by
+ * `services/booking.ts`'s `openDispute` the moment the unsigned
+ * start-dispute XDR is built. Distinct from `escrowDisputeResolutions`
+ * above, which records the *admin's* later decision, not the dispute's own
+ * opening.
+ */
+export const escrowDisputeOpenings = sqliteTable("escrow_dispute_openings", {
+  bookingId: text("booking_id").primaryKey(),
+  contractId: text("contract_id").notNull(),
+  openedByWallet: text("opened_by_wallet").notNull(),
+  reason: text("reason", { enum: DISPUTE_REASONS }).notNull(),
+  /** `null` only for `reason: "disagreement"` -- see this table's own doc
+   * comment. */
+  suggestedOutcome: text("suggested_outcome", { enum: DISPUTE_OUTCOMES }),
+  /** The unsigned start-dispute transaction's own hash. */
+  txHash: text("tx_hash").notNull(),
+  openedAt: integer("opened_at").notNull(),
 });

@@ -61,6 +61,9 @@ function unreachableEscrowAdapter(): EscrowAdapter {
     fund: async () => {
       throw new Error("fund should not have been called");
     },
+    complete: async () => {
+      throw new Error("complete should not have been called");
+    },
     approve: async () => {
       throw new Error("approve should not have been called");
     },

@@ -3,6 +3,7 @@ import { Link } from "react-router";
 
 import { ApiError } from "../../api/client";
 import { useProviderBookings } from "../../api/hooks";
+import { BookingActions } from "../../components/BookingActions";
 import { BookingCard, BALANCE_STATE_LABEL } from "../../components/BookingCard";
 import { Countdown } from "../../components/Countdown";
 import { StateLabel } from "../../components/StateLabel";
@@ -126,6 +127,7 @@ export function BookingsPage() {
                   <th>State</th>
                   <th>Free cancellation</th>
                   <th>Explorer</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -154,6 +156,18 @@ export function BookingsPage() {
                         </a>
                       )}
                     </td>
+                    <td>
+                      <BookingActions
+                        viewer="provider"
+                        id={booking.id}
+                        escrowState={booking.escrowState}
+                        lifecycle={booking.lifecycle}
+                        deposit={booking.deposit}
+                        session={session}
+                        onActionSubmitted={() => void bookingsQuery.refetch()}
+                        onUnauthorized={handleSignOut}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -165,15 +179,20 @@ export function BookingsPage() {
               <BookingCard
                 key={booking.id}
                 viewer="provider"
+                id={booking.id}
                 heading="Client"
                 subheading={shortenStellarId(booking.clientWalletAddress)}
                 slotStartsAt={booking.slotStartsAt}
                 deposit={booking.deposit}
                 balance={booking.balance}
+                escrowState={booking.escrowState}
                 lifecycle={booking.lifecycle}
                 balanceState={booking.balanceState}
                 cancelDeadline={booking.cancelDeadline}
                 contractId={booking.contractId}
+                session={session}
+                onActionSubmitted={() => void bookingsQuery.refetch()}
+                onUnauthorized={handleSignOut}
               />
             ))}
           </div>
@@ -188,15 +207,20 @@ export function BookingsPage() {
               <BookingCard
                 key={booking.id}
                 viewer="provider"
+                id={booking.id}
                 heading="Client"
                 subheading={shortenStellarId(booking.clientWalletAddress)}
                 slotStartsAt={booking.slotStartsAt}
                 deposit={booking.deposit}
                 balance={booking.balance}
+                escrowState={booking.escrowState}
                 lifecycle={booking.lifecycle}
                 balanceState={booking.balanceState}
                 cancelDeadline={booking.cancelDeadline}
                 contractId={booking.contractId}
+                session={session}
+                onActionSubmitted={() => void bookingsQuery.refetch()}
+                onUnauthorized={handleSignOut}
               />
             ))}
           </div>

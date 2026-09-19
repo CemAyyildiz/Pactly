@@ -4,16 +4,22 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPost, apiPut, ApiError } from "./client";
 import type {
+  ActionResponse,
+  AdminDisputesResponse,
   BookingView,
   CategoriesResponse,
   DiscoverFiltersParams,
+  DisputeOutcome,
+  DisputeReason,
   FundResponse,
   HoldSlotResponse,
   LockResponse,
   MyBookingsResponse,
+  OpenDisputeResponse,
   ProviderBookingsResponse,
   ProviderProfile,
   ProvidersResponse,
+  ResolveDisputeResponse,
   SubmitResponse,
   SuggestResponse,
 } from "./types";
@@ -267,6 +273,57 @@ export function useProviderBookings(session: Session | undefined) {
   return useQuery({
     queryKey: ["me", "provider", "bookings", session?.walletAddress],
     queryFn: () => apiGet<ProviderBookingsResponse>("/me/provider/bookings", session?.token),
+    enabled: Boolean(session),
+    retry: false,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Story 3.6: appointment completion, release and resolution. Each action
+// builds an unsigned XDR the caller still has to sign and submit (3.4's own
+// `signXdr` + `submitSignedTransaction` pair) -- these stay plain async
+// functions, the same reasoning `lockDeposit`/`fundDeposit` above already
+// follow: the caller drives a multi-step flow (build -> sign -> submit),
+// which a single `useMutation` cannot express as cleanly as an imperative
+// call `BookingCard.tsx` awaits step by step.
+// ---------------------------------------------------------------------------
+
+export function completeAppointment(bookingId: string, session: Session): Promise<ActionResponse> {
+  return apiPost<ActionResponse>(`/bookings/${bookingId}/complete`, {}, session.token);
+}
+
+export function approveAppointment(bookingId: string, session: Session): Promise<ActionResponse> {
+  return apiPost<ActionResponse>(`/bookings/${bookingId}/approve`, {}, session.token);
+}
+
+export function releaseDeposit(bookingId: string, session: Session): Promise<ActionResponse> {
+  return apiPost<ActionResponse>(`/bookings/${bookingId}/release`, {}, session.token);
+}
+
+/** Builds the unsigned start-dispute XDR and, in the same response, the
+ * booking policy's own suggested outcome -- the caller shows that sentence
+ * *before* ever asking for a signature (EXPERIENCE.md: "Cancelling and
+ * resolution" -- policy guidance stated first, chain state kept separate).
+ * Building this XDR has no on-chain effect by itself; nothing moves unless
+ * the caller goes on to sign and submit it. */
+export function openDispute(bookingId: string, reason: DisputeReason, session: Session): Promise<OpenDisputeResponse> {
+  return apiPost<OpenDisputeResponse>(`/bookings/${bookingId}/dispute`, { reason }, session.token);
+}
+
+/** Pactly's own dispute-resolver signature -- only ever callable by the
+ * admin wallet that is also `TRUSTLESS_WORK_PLATFORM_ADDRESS` (the backend
+ * enforces this; `ResolutionsPage.tsx` just calls it and shows whatever
+ * comes back, including a `403 NOT_DISPUTE_RESOLVER`). */
+export function resolveDispute(bookingId: string, outcome: DisputeOutcome, session: Session): Promise<ResolveDisputeResponse> {
+  return apiPost<ResolveDisputeResponse>(`/admin/bookings/${bookingId}/resolve`, { outcome }, session.token);
+}
+
+/** `GET /admin/disputes` -- the admin "Resolutions" list. No retry: a
+ * `404 NOT_ADMIN` will not become true by retrying the same wallet. */
+export function useAdminDisputes(session: Session | undefined) {
+  return useQuery({
+    queryKey: ["admin", "disputes", session?.walletAddress],
+    queryFn: () => apiGet<AdminDisputesResponse>("/admin/disputes", session?.token),
     enabled: Boolean(session),
     retry: false,
   });

@@ -73,22 +73,29 @@ import type { Db, DbOrTx } from "../../db/client.js";
 import type { DisputeOutcome, EscrowState } from "../../db/schema.js";
 
 /**
- * The five lifecycle actions this story's amended I/O matrix names.
- * `resolved` is kept distinct from `released` (both can map to
+ * The six lifecycle actions this story's (amended, Story 3.6-extended) I/O
+ * matrix names. `completed` (Story 3.6: the provider's own
+ * `changeMilestoneStatus` declaration) ranks between `funded` and
+ * `approved` -- it can only ever follow a funded escrow, and an escrow that
+ * has gone on to `approved` no longer needs to be shown as merely
+ * `completed`. `resolved` is kept distinct from `released` (both can map to
  * `escrow_state = "released"`, via `pay-provider`) so `getEscrowLifecycle`
  * can tell Epic 3's "Released" apart from "Resolved" UX labels (Design
  * Notes: "Why lifecycle rows are finer than escrow_state").
  */
-export const RECOGNIZED_LIFECYCLE_ACTIONS = ["funded", "approved", "disputed", "released", "resolved"] as const;
+export const RECOGNIZED_LIFECYCLE_ACTIONS = ["funded", "completed", "approved", "disputed", "released", "resolved"] as const;
 export type EscrowLifecycleAction = (typeof RECOGNIZED_LIFECYCLE_ACTIONS)[number];
 
 /** Maps a recognized lifecycle action onto `bookings.escrow_state`'s three
- * values. `resolved` needs the recorded Pactly decision's own `outcome` to
- * know which of `refunded`/`released` it means -- the read-model shows
- * *that* a dispute resolved, never *to whom* the money went. */
+ * values. `completed` stays `locked` (Story 3.6: it moves no money -- only
+ * `changeMilestoneStatus` landed, nothing about the deposit itself changed).
+ * `resolved` needs the recorded Pactly decision's own `outcome` to know
+ * which of `refunded`/`released` it means -- the read-model shows *that* a
+ * dispute resolved, never *to whom* the money went. */
 export function escrowStateForLifecycleAction(action: EscrowLifecycleAction, outcome?: DisputeOutcome): EscrowState {
   switch (action) {
     case "funded":
+    case "completed":
     case "approved":
     case "disputed":
       return "locked";
@@ -125,6 +132,16 @@ function isMilestoneApproved(milestone: SingleReleaseMilestone | undefined): boo
   const approvals = milestone.approvals;
   if (approvals && typeof approvals.target === "number" && approvals.approvalCount >= approvals.target) return true;
   return false;
+}
+
+/** Story 3.6: `true` once the provider's own `complete` call has landed --
+ * `changeMilestoneStatus` sets milestone 0's `status` to `"completed"`.
+ * Checked only after {@link isMilestoneApproved} has already said no, so an
+ * escrow that has moved on to `approved` (or further) is never reported as
+ * merely `completed` again. */
+function isMilestoneCompleted(milestone: SingleReleaseMilestone | undefined): boolean {
+  if (!milestone) return false;
+  return typeof milestone.status === "string" && milestone.status.toLowerCase() === "completed";
 }
 
 /** `true` when `value` is an array holding exactly one element equal to
@@ -231,7 +248,10 @@ export type LifecycleDerivation =
  * non-zero); (2) released; (3) an open dispute, and (3b) milestone 0's
  * approvals reached (not yet released) -- both require balance >= deposit,
  * since neither can honestly describe an escrow that was never actually
- * funded; (4) funded. Anything else derives no transition. Never called on
+ * funded; (3c, Story 3.6) milestone 0's own `status` reading `"completed"`
+ * (checked only once (3b) has already said no, and still requiring
+ * `balance >= deposit` for the same reason); (4) funded. Anything else
+ * derives no transition. Never called on
  * a row that failed {@link checkEscrowMatchesBooking} -- the caller checks
  * that first.
  */
@@ -270,6 +290,9 @@ export function deriveEscrowLifecycle(
     }
     if (!snapshot.released && isMilestoneApproved(snapshot.milestones?.[0])) {
       return { kind: "transition", action: "approved" };
+    }
+    if (!snapshot.released && isMilestoneCompleted(snapshot.milestones?.[0])) {
+      return { kind: "transition", action: "completed" };
     }
   }
   if (row.status === "active" && balance >= depositAmount) {

@@ -135,6 +135,15 @@ const STATEMENTS: readonly string[] = [
     tx_hash TEXT NOT NULL,
     decided_at INTEGER NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS escrow_dispute_openings (
+    booking_id TEXT PRIMARY KEY,
+    contract_id TEXT NOT NULL,
+    opened_by_wallet TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    suggested_outcome TEXT,
+    tx_hash TEXT NOT NULL,
+    opened_at INTEGER NOT NULL
+  )`,
 ];
 
 /** `true` when `table` already has a column named `column` -- `PRAGMA
@@ -207,4 +216,21 @@ export function runMigrations(sqlite: Database): void {
     sqlite.exec(`ALTER TABLE availability_slots ADD COLUMN withdrawn_at INTEGER`);
   }
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_bookings_slot_id ON bookings(slot_id)`);
+  // Story 3.6: one stored txHash per new action, mirroring the escrow_deploy_
+  // tx_hash/escrow_fund_tx_hash columns Story 3.4 already added this same way.
+  if (!hasColumn(sqlite, "bookings", "escrow_complete_tx_hash")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_complete_tx_hash TEXT`);
+  }
+  if (!hasColumn(sqlite, "bookings", "escrow_approve_tx_hash")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_approve_tx_hash TEXT`);
+  }
+  if (!hasColumn(sqlite, "bookings", "escrow_release_tx_hash")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_release_tx_hash TEXT`);
+  }
+  if (!hasColumn(sqlite, "bookings", "escrow_dispute_tx_hash")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_dispute_tx_hash TEXT`);
+  }
+  if (!hasColumn(sqlite, "bookings", "escrow_resolve_tx_hash")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_resolve_tx_hash TEXT`);
+  }
 }

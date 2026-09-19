@@ -196,6 +196,76 @@ test("an approved row (milestone 0 approvals reached target, not released) stays
   }
 });
 
+test("Story 3.6: a completed row (milestone 0 status 'completed', not yet approved) stays locked and ranks between funded and approved", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedReconcilableBooking(result);
+    const fundedRow = fakeEscrowRow(seed, { status: "active", balance: "1", lastLedgerSeq: "100" });
+    await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, fundedRow);
+
+    const completedRow = fakeEscrowRow(
+      seed,
+      { status: "active", balance: "1", lastLedgerSeq: "200" },
+      { milestones: [{ description: "session", approvalsTarget: 1, status: "completed" }] },
+    );
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, completedRow);
+    assert.equal(outcome, "applied");
+
+    const booking = await getBooking(result.db, seed.bookingId);
+    assert.equal(booking?.escrowState, "locked", "completing the appointment moves no money");
+
+    assert.ok(await getEscrowProcessedEvent(result.db, seed.contractId, "funded"));
+    assert.ok(await getEscrowProcessedEvent(result.db, seed.contractId, "completed"));
+
+    const lifecycle = await getEscrowLifecycle(result.db, seed.bookingId);
+    assert.equal(lifecycle?.action, "completed", "the latest action ranks 'completed' above 'funded'");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("Story 3.6: once approved, a later poll of the same escrow never regresses the lifecycle label back to 'completed'", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedReconcilableBooking(result);
+    const completedRow = fakeEscrowRow(
+      seed,
+      { status: "active", balance: "1", lastLedgerSeq: "100" },
+      { milestones: [{ description: "session", approvalsTarget: 1, status: "completed" }] },
+    );
+    await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, completedRow);
+
+    const approvedRow = fakeEscrowRow(
+      seed,
+      { status: "active", balance: "1", lastLedgerSeq: "200" },
+      { milestones: [{ description: "session", approvalsTarget: 1, approvals: { target: 1, approvalCount: 1, approvedBy: [seed.clientAddress] } }] },
+    );
+    await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, approvedRow);
+
+    const lifecycle = await getEscrowLifecycle(result.db, seed.bookingId);
+    assert.equal(lifecycle?.action, "approved", "the rank of RECOGNIZED_LIFECYCLE_ACTIONS puts 'approved' above 'completed'");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("a completed row against a zero balance derives no transition -- completed never implies funded", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedReconcilableBooking(result);
+    const row = fakeEscrowRow(
+      seed,
+      { status: "active", balance: "0" },
+      { milestones: [{ description: "session", approvalsTarget: 1, status: "completed" }] },
+    );
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
+    assert.equal(outcome, "none");
+    assert.equal((await getBooking(result.db, seed.bookingId))?.escrowState, null);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
 test("an approved row against a zero balance derives no transition -- approved never implies funded", async () => {
   const result = openTestDatabase();
   try {
@@ -699,6 +769,7 @@ test("humanDecimalToSmallestUnits converts exactly, without floats, and refuses 
 
 test("escrowStateForLifecycleAction maps every recognized action to the right escrow_state", () => {
   assert.equal(escrowStateForLifecycleAction("funded"), "locked");
+  assert.equal(escrowStateForLifecycleAction("completed"), "locked");
   assert.equal(escrowStateForLifecycleAction("approved"), "locked");
   assert.equal(escrowStateForLifecycleAction("disputed"), "locked");
   assert.equal(escrowStateForLifecycleAction("released"), "released");

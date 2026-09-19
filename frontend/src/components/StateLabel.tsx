@@ -20,15 +20,17 @@ const RESOLVED_OUTCOME_LABEL: Record<"client" | "provider", Record<"refund-clien
 /**
  * The spec's own lifecycle label mapping, from the latest recorded action
  * (Boundaries & Constraints): no action yet (a hold with nothing recorded)
- * reads "Waiting for your lock"; `funded` / `approved` / `disputed` /
- * `released` map one-to-one; `resolved` adds the outcome in words. Exported
- * separately from the component so a page can also use the plain text (a
- * `<title>`, a test) without rendering the pill.
+ * reads "Waiting for your lock"; `funded` / `completed` (Story 3.6) /
+ * `approved` / `disputed` / `released` map one-to-one; `resolved` adds the
+ * outcome in words. Exported separately from the component so a page can
+ * also use the plain text (a `<title>`, a test) without rendering the pill.
  */
 export function bookingStateLabel({ lifecycle, viewer }: StateLabelProps): string {
   switch (lifecycle.action) {
     case "funded":
       return "Funded";
+    case "completed":
+      return "Appointment completed";
     case "approved":
       return "Ready to release";
     case "disputed":

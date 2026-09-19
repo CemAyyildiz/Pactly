@@ -140,7 +140,7 @@ export interface SubmitResponse {
   txHash: string;
 }
 
-export type EscrowLifecycleAction = "funded" | "approved" | "disputed" | "released" | "resolved";
+export type EscrowLifecycleAction = "funded" | "completed" | "approved" | "disputed" | "released" | "resolved";
 
 export interface BookingView {
   id: string;
@@ -210,4 +210,55 @@ export interface MyBookingsResponse {
 
 export interface ProviderBookingsResponse {
   bookings: ProviderBookingListItem[];
+}
+
+// ---------------------------------------------------------------------------
+// Story 3.6: appointment completion, release and resolution. Mirrors
+// `backend/src/services/booking.ts` and `backend/src/app.ts`'s response
+// shapes exactly, same discipline as the rest of this file.
+// ---------------------------------------------------------------------------
+
+/** `POST /bookings/:id/{complete,approve,release}`'s shared response shape
+ * -- an unsigned XDR plus its Trustless Work `txHash`, same shape 3.4's
+ * lock/fund steps already use. */
+export interface ActionResponse {
+  unsignedXdr: string;
+  txHash: string;
+}
+
+export type DisputeOutcome = "refund-client" | "pay-provider";
+export type DisputeReason = "client-cancel" | "provider-cancel" | "no-show" | "disagreement";
+
+/** `POST /bookings/:id/dispute`'s response -- the reason echoed back and the
+ * booking policy's own suggested outcome (`undefined` only for
+ * `"disagreement"`, which the policy has no automatic answer for). Stated to
+ * the user before they ever sign, per EXPERIENCE.md's "Cancelling and
+ * resolution". */
+export interface OpenDisputeResponse extends ActionResponse {
+  reason: DisputeReason;
+  suggestedOutcome?: DisputeOutcome;
+}
+
+/** `POST /admin/bookings/:id/resolve`'s response. */
+export interface ResolveDisputeResponse extends ActionResponse {
+  outcome: DisputeOutcome;
+}
+
+/** `GET /admin/disputes`'s own list item -- who opened it, why, the policy's
+ * own suggestion (guidance only), and the deposit amount. */
+export interface AdminDisputeListItem {
+  bookingId: string;
+  contractId: string;
+  openedByWallet: string;
+  reason: DisputeReason;
+  suggestedOutcome?: DisputeOutcome;
+  amount: Money;
+  provider: BookingProviderSummary;
+  clientWalletAddress: string;
+  /** UTC epoch seconds -- `null` only for a pre-3.4 booking with no slot. */
+  slotStartsAt: number | null;
+}
+
+export interface AdminDisputesResponse {
+  disputes: AdminDisputeListItem[];
 }
