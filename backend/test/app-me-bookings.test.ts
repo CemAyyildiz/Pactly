@@ -112,6 +112,124 @@ test("GET /me/bookings returns only the caller's own bookings, across providers,
   }
 });
 
+test("GET /me/bookings sorts past appointments most-recent-first, after any upcoming ones", async () => {
+  const result = openTestDatabase();
+  try {
+    const providerProfileId = await seedProviderProfile(result, { isApproved: true });
+    const now = Math.floor(Date.now() / 1000);
+    const client = "GPASTORDERCLIENT";
+
+    // Two already-locked past appointments (not expired holds -- this
+    // isolates the past-vs-past ordering from the `isExpiredHold` grouping),
+    // the older one seeded first so insertion order can never be mistaken
+    // for the sort order under test.
+    const olderPastNow = now - 20000;
+    const olderPastSlot = olderPastNow + 1200;
+    await replaceFutureSlots(result.db, providerProfileId, [olderPastSlot], olderPastNow);
+    const olderPastHold = await holdSlot(
+      result.db,
+      { providerProfileId, clientWalletAddress: client, slotStartsAt: olderPastSlot },
+      { ...FAKE_USDC_DEPS, now: olderPastNow },
+    );
+    await updateEscrowContractId(result.db, olderPastHold.bookingId, "COLDERPASTCONTRACT000000000000000000000000000000000");
+    await updateEscrowState(result.db, olderPastHold.bookingId, "locked");
+
+    const recentPastNow = now - 10000;
+    const recentPastSlot = recentPastNow + 1200;
+    await replaceFutureSlots(result.db, providerProfileId, [recentPastSlot], recentPastNow);
+    const recentPastHold = await holdSlot(
+      result.db,
+      { providerProfileId, clientWalletAddress: client, slotStartsAt: recentPastSlot },
+      { ...FAKE_USDC_DEPS, now: recentPastNow },
+    );
+    await updateEscrowContractId(result.db, recentPastHold.bookingId, "CRECENTPASTCONTRACT00000000000000000000000000000000");
+    await updateEscrowState(result.db, recentPastHold.bookingId, "locked");
+
+    // One upcoming hold -- must sort before both past ones.
+    const upcomingSlot = now + 3600;
+    await replaceFutureSlots(result.db, providerProfileId, [upcomingSlot]);
+    const upcomingHold = await holdSlot(result.db, { providerProfileId, clientWalletAddress: client, slotStartsAt: upcomingSlot }, FAKE_USDC_DEPS);
+
+    const app = createApp(result.db);
+    const response = await app.request("/me/bookings", { headers: await authHeader(client) });
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { bookings: ListItem[] };
+    assert.deepEqual(
+      body.bookings.map((item) => item.id),
+      [upcomingHold.bookingId, recentPastHold.bookingId, olderPastHold.bookingId],
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("getEscrowLifecycleForBookings groups lifecycle rows per booking, never mixing two bookings' own history", async () => {
+  const result = openTestDatabase();
+  try {
+    const providerProfileId = await seedProviderProfile(result, { isApproved: true });
+    const now = Math.floor(Date.now() / 1000);
+    const client = "GTWOLIFECYCLESCLIENT";
+
+    const fundedSlot = now + 3600;
+    const resolvedSlot = now + 7200;
+    await replaceFutureSlots(result.db, providerProfileId, [fundedSlot, resolvedSlot]);
+
+    const fundedHold = await holdSlot(result.db, { providerProfileId, clientWalletAddress: client, slotStartsAt: fundedSlot }, FAKE_USDC_DEPS);
+    const fundedContractId = "CFUNDEDGROUPCONTRACT0000000000000000000000000000000";
+    await updateEscrowContractId(result.db, fundedHold.bookingId, fundedContractId);
+    await updateEscrowState(result.db, fundedHold.bookingId, "locked");
+    await insertEscrowProcessedEventIfNew(result.db, {
+      bookingId: fundedHold.bookingId,
+      contractId: fundedContractId,
+      lifecycleAction: "funded",
+      amount: fundedHold.deposit.amount,
+      ledgerSeq: "1",
+      isAnomaly: false,
+      processedAt: Date.now(),
+    });
+
+    const resolvedHold = await holdSlot(result.db, { providerProfileId, clientWalletAddress: client, slotStartsAt: resolvedSlot }, FAKE_USDC_DEPS);
+    const resolvedContractId = "CRESOLVEDGROUPCONTRACT00000000000000000000000000000";
+    await updateEscrowContractId(result.db, resolvedHold.bookingId, resolvedContractId);
+    await updateEscrowState(result.db, resolvedHold.bookingId, "released");
+    await insertEscrowProcessedEventIfNew(result.db, {
+      bookingId: resolvedHold.bookingId,
+      contractId: resolvedContractId,
+      lifecycleAction: "resolved",
+      amount: "0",
+      ledgerSeq: "1",
+      isAnomaly: false,
+      processedAt: Date.now(),
+    });
+    await recordEscrowDisputeResolution(result.db, {
+      bookingId: resolvedHold.bookingId,
+      contractId: resolvedContractId,
+      outcome: "pay-provider",
+      txHash: "faketxhashgroup",
+      decidedAt: Date.now(),
+    });
+
+    const app = createApp(result.db);
+    const response = await app.request("/me/bookings", { headers: await authHeader(client) });
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { bookings: ListItem[] };
+    assert.equal(body.bookings.length, 2);
+
+    const fundedItem = body.bookings.find((item) => item.id === fundedHold.bookingId);
+    const resolvedItem = body.bookings.find((item) => item.id === resolvedHold.bookingId);
+    assert.ok(fundedItem, "the funded booking must be in the list");
+    assert.ok(resolvedItem, "the resolved booking must be in the list");
+    // Each booking's own lifecycle must stay its own -- a grouping bug would
+    // either mix the two contracts' events or lose one booking's action.
+    assert.equal(fundedItem?.lifecycle.action, "funded");
+    assert.equal(fundedItem?.lifecycle.outcome, undefined);
+    assert.equal(resolvedItem?.lifecycle.action, "resolved");
+    assert.equal(resolvedItem?.lifecycle.outcome, "pay-provider");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
 test("GET /me/provider/bookings gives 404 NOT_A_PROVIDER for a wallet with no provider profile", async () => {
   const result = openTestDatabase();
   try {
