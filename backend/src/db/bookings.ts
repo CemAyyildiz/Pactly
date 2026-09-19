@@ -7,7 +7,7 @@
 import { and, eq, gt, isNotNull, isNull, ne, notInArray, or, sql } from "drizzle-orm";
 
 import type { Db, DbOrTx } from "./client.js";
-import { bookings, providerProfiles, type BalanceState, type EscrowState } from "./schema.js";
+import { availabilitySlots, bookings, providerProfiles, type BalanceState, type EscrowState } from "./schema.js";
 
 /** `escrow_state` values the reconciler must never move a booking past --
  * once here, a booking is excluded from every future reconciliation poll
@@ -434,4 +434,45 @@ export async function getReconcilableBookings(db: Db): Promise<ReconcilableBooki
       ),
     );
   return rows.map((row) => ({ booking: row.booking, providerAddress: row.providerAddress }));
+}
+
+// ---------------------------------------------------------------------------
+// Story 3.5: the two-sided status panel's own list reads. Each pairs a
+// booking row with its own slot's `startsAt` (`null` for a pre-3.4 booking
+// with no `slotId`), via a `LEFT JOIN` so a booking is never dropped just
+// because it has no slot -- `services/booking.ts` is where the appointment-
+// date ordering and the per-item view shape actually get built; these two
+// functions are only the SQL that scopes a list to one wallet's own rows.
+// ---------------------------------------------------------------------------
+
+export interface BookingWithSlot {
+  booking: BookingRow;
+  slotStartsAt: number | null;
+}
+
+/** `GET /me/bookings`'s own read: every booking `clientWalletAddress` is the
+ * client on, across every provider (the spec's own "Always" rule) -- this
+ * `WHERE` clause is the one thing standing between one client's list and
+ * another's (the spec's own "Isolation" row). */
+export async function listBookingRowsForClient(db: Db, clientWalletAddress: string): Promise<BookingWithSlot[]> {
+  const rows = await db
+    .select({ booking: bookings, slotStartsAt: availabilitySlots.startsAt })
+    .from(bookings)
+    .leftJoin(availabilitySlots, eq(bookings.slotId, availabilitySlots.id))
+    .where(eq(bookings.clientWalletAddress, clientWalletAddress));
+  return rows.map((row) => ({ booking: row.booking, slotStartsAt: row.slotStartsAt ?? null }));
+}
+
+/** `GET /me/provider/bookings`'s own read: every booking against one
+ * provider profile -- the caller resolves `providerProfileId` from their own
+ * wallet first (`services/booking.ts`'s `listBookingsForProvider`), never
+ * from a caller-supplied id, so another provider's bookings can never be
+ * requested through this function at all. */
+export async function listBookingRowsForProvider(db: Db, providerProfileId: string): Promise<BookingWithSlot[]> {
+  const rows = await db
+    .select({ booking: bookings, slotStartsAt: availabilitySlots.startsAt })
+    .from(bookings)
+    .leftJoin(availabilitySlots, eq(bookings.slotId, availabilitySlots.id))
+    .where(eq(bookings.providerProfileId, providerProfileId));
+  return rows.map((row) => ({ booking: row.booking, slotStartsAt: row.slotStartsAt ?? null }));
 }

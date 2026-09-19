@@ -56,9 +56,18 @@ import {
   TERMINAL_ESCROW_STATES,
   type ReconcilableBooking,
 } from "../../db/bookings.js";
-import { insertEscrowProcessedEventIfNewSync, listEscrowProcessedEventsForBooking } from "../../db/escrowProcessedEvents.js";
+import {
+  insertEscrowProcessedEventIfNewSync,
+  listEscrowProcessedEventsForBooking,
+  listEscrowProcessedEventsForBookings,
+  type EscrowProcessedEventRow,
+} from "../../db/escrowProcessedEvents.js";
 import { getEscrowWatermark, setEscrowWatermark } from "../../db/escrowReconcilerWatermarks.js";
-import { getEscrowDisputeResolution, type EscrowDisputeResolutionRow } from "../../db/escrowDisputeResolutions.js";
+import {
+  getEscrowDisputeResolution,
+  getEscrowDisputeResolutionsForBookings,
+  type EscrowDisputeResolutionRow,
+} from "../../db/escrowDisputeResolutions.js";
 import type { BookingRow } from "../../db/bookings.js";
 import type { Db, DbOrTx } from "../../db/client.js";
 import type { DisputeOutcome, EscrowState } from "../../db/schema.js";
@@ -614,6 +623,38 @@ export interface EscrowLifecycle {
  * `contractId` and no recorded lifecycle rows yet returns `{}` with both
  * fields `undefined`, not `undefined` itself.
  */
+/** Ranks `RECOGNIZED_LIFECYCLE_ACTIONS` order and picks the row furthest
+ * along it -- not the greatest `processedAt` (two actions derived in the
+ * same poll land in the same millisecond, so a timestamp cannot order
+ * them). Shared by the single-booking and batched lifecycle reads below, so
+ * they can never derive a different "latest" for the same rows. */
+function pickLatestLifecycleEvent<T extends { lifecycleAction: string }>(rows: readonly T[]): T {
+  const rank = (action: string): number => (RECOGNIZED_LIFECYCLE_ACTIONS as readonly string[]).indexOf(action);
+  return rows.reduce((newest, candidate) => (rank(candidate.lifecycleAction) > rank(newest.lifecycleAction) ? candidate : newest));
+}
+
+/** Turns one booking's already-filtered processed-event rows (matching its
+ * *current* `escrowContractId` only) plus its recorded dispute decision, if
+ * any, into an {@link EscrowLifecycle} -- the one place both
+ * {@link getEscrowLifecycle} and {@link getEscrowLifecycleForBookings} build
+ * this shape, so a list and a single read can never drift apart. */
+function buildLifecycle(
+  booking: BookingRow,
+  matchingRows: readonly EscrowProcessedEventRow[],
+  decision: EscrowDisputeResolutionRow | undefined,
+): EscrowLifecycle {
+  if (matchingRows.length === 0) {
+    return { contractId: booking.escrowContractId ?? undefined };
+  }
+  const latest = pickLatestLifecycleEvent(matchingRows);
+  const action = latest.lifecycleAction as EscrowLifecycleAction;
+  const result: EscrowLifecycle = { contractId: booking.escrowContractId ?? undefined, action };
+  if (action === "resolved" && decision) {
+    result.outcome = decision.outcome;
+  }
+  return result;
+}
+
 export async function getEscrowLifecycle(db: Db, bookingId: string): Promise<EscrowLifecycle | undefined> {
   const booking = await getBookingById(db, bookingId);
   if (!booking) return undefined;
@@ -621,21 +662,49 @@ export async function getEscrowLifecycle(db: Db, bookingId: string): Promise<Esc
   const rows = (await listEscrowProcessedEventsForBooking(db, bookingId)).filter(
     (row) => row.contractId === booking.escrowContractId,
   );
-  if (rows.length === 0) {
-    return { contractId: booking.escrowContractId ?? undefined };
-  }
-  // Ranked by lifecycle position, not `processedAt`: two actions derived in
-  // the same poll land in the same millisecond, so a timestamp cannot order
-  // them. RECOGNIZED_LIFECYCLE_ACTIONS is already in lifecycle order.
-  const rank = (action: string): number => (RECOGNIZED_LIFECYCLE_ACTIONS as readonly string[]).indexOf(action);
-  const latest = rows.reduce((newest, candidate) =>
-    rank(candidate.lifecycleAction) > rank(newest.lifecycleAction) ? candidate : newest,
-  );
-  const action = latest.lifecycleAction as EscrowLifecycleAction;
-  const result: EscrowLifecycle = { contractId: booking.escrowContractId ?? undefined, action };
-  if (action === "resolved") {
+  const lifecycle = buildLifecycle(booking, rows, undefined);
+  // The dispute-resolution decision is only ever fetched once a "resolved"
+  // action is actually on record -- every other booking (the overwhelming
+  // majority) skips this second query entirely.
+  if (lifecycle.action === "resolved") {
     const decision = await getEscrowDisputeResolution(db, bookingId);
-    if (decision) result.outcome = decision.outcome;
+    if (decision) lifecycle.outcome = decision.outcome;
+  }
+  return lifecycle;
+}
+
+/**
+ * Story 3.5: the same lifecycle {@link getEscrowLifecycle} derives, batched
+ * for a whole list of bookings -- one query against
+ * `escrow_processed_events` and one against `escrow_dispute_resolutions`
+ * for every booking id at once (the spec's own Code Map note: "avoid N+1 by
+ * reading escrow_processed_events and escrow_dispute_resolutions for all
+ * listed booking ids in one query each"), never one round trip per row.
+ * `undefined` is never a value in the returned map -- a booking with no
+ * recorded transition yet still gets `{contractId}` (or `{}` when it has no
+ * `contractId` either), exactly like the single-booking read.
+ */
+export async function getEscrowLifecycleForBookings(db: Db, bookings: readonly BookingRow[]): Promise<Map<string, EscrowLifecycle>> {
+  const result = new Map<string, EscrowLifecycle>();
+  if (bookings.length === 0) return result;
+
+  const bookingIds = bookings.map((booking) => booking.id);
+  const [allEvents, decisionsByBooking] = await Promise.all([
+    listEscrowProcessedEventsForBookings(db, bookingIds),
+    getEscrowDisputeResolutionsForBookings(db, bookingIds),
+  ]);
+  const eventsByBooking = new Map<string, EscrowProcessedEventRow[]>();
+  for (const row of allEvents) {
+    const existing = eventsByBooking.get(row.bookingId);
+    if (existing) {
+      existing.push(row);
+    } else {
+      eventsByBooking.set(row.bookingId, [row]);
+    }
+  }
+  for (const booking of bookings) {
+    const rows = (eventsByBooking.get(booking.id) ?? []).filter((row) => row.contractId === booking.escrowContractId);
+    result.set(booking.id, buildLifecycle(booking, rows, decisionsByBooking.get(booking.id)));
   }
   return result;
 }

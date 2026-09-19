@@ -41,7 +41,11 @@ import { TransactionBuilder } from "@stellar/stellar-sdk";
 
 import { config } from "../config.js";
 import { defaultEscrowAdapter } from "../escrow/trustless-work/client.js";
-import { getEscrowLifecycle } from "../escrow/trustless-work/reconciler.js";
+import {
+  getEscrowLifecycle,
+  getEscrowLifecycleForBookings,
+  type EscrowLifecycle,
+} from "../escrow/trustless-work/reconciler.js";
 import type { EscrowAdapter, SubmitTransactionResult, UnsignedTransaction } from "../escrow/interface.js";
 import {
   getBookingById,
@@ -49,6 +53,8 @@ import {
   countPendingHoldsForWallet,
   insertBooking,
   insertBookingHoldIfSlotFree,
+  listBookingRowsForClient,
+  listBookingRowsForProvider,
   listPotentialDoubleSales,
   listConflictingSlotBookings,
   clearUnsubmittedEscrowContractId,
@@ -60,8 +66,8 @@ import {
 } from "../db/bookings.js";
 import { getSlotById, getSlotByProviderAndStart, listOpenSlotsInRange } from "../db/availabilitySlots.js";
 import { recordEscrowDisputeResolution } from "../db/escrowDisputeResolutions.js";
-import { getProviderProfileById } from "../db/providerProfiles.js";
-import { computeDepositAmount, ProviderNotFoundError } from "./profile.js";
+import { getProviderProfileById, getProviderProfileByWallet } from "../db/providerProfiles.js";
+import { computeDepositAmount, NotAProviderError, ProviderNotFoundError } from "./profile.js";
 import { resolveUsdcAsset, type ResolveUsdcAssetOptions } from "../anchor/usdc.js";
 import type { Db } from "../db/client.js";
 import { BALANCE_STATES, type BalanceState, type DisputeOutcome } from "../db/schema.js";
@@ -856,4 +862,157 @@ export function expireHolds(db: Db, now: number = Math.floor(Date.now() / 1000),
   }
 
   return potentialDoubleSales.length + newlyLoggedConflicts;
+}
+
+// ---------------------------------------------------------------------------
+// Story 3.5: the two-sided status panel's own list reads
+// (`GET /me/bookings`, `GET /me/provider/bookings`). Both share the same
+// per-item shape and appointment-date sort (the spec's own "Always" rule);
+// only the "whose summary" field differs -- a provider summary for the
+// client's own list, the client wallet for the provider's own list.
+// ---------------------------------------------------------------------------
+
+export interface BookingListItemBase {
+  id: string;
+  /** UTC epoch seconds -- `null` only for a pre-3.4 booking with no
+   * `slotId`. */
+  slotStartsAt: number | null;
+  deposit: Money;
+  balance: Money;
+  price: Money;
+  escrowState: BookingRow["escrowState"];
+  lifecycle: { contractId?: string; action?: string; outcome?: DisputeOutcome };
+  balanceState: BalanceState;
+  cancelDeadline: number;
+  contractId: string | null;
+  holdExpiresAt: number | null;
+  /** The AD-13 hold's own 10-minute window has passed with `escrowState`
+   * still `null` -- the spec's own "Always" rule: "An expired, never-funded
+   * hold is listed under 'Expired holds' (collapsed), never as a booking."
+   * The frontend groups on this flag; the row itself is never dropped here
+   * (Story 3.4's own double-sale note: an expired hold's escrow may still
+   * reconcile later, so it must stay traceable from this list too). */
+  isExpiredHold: boolean;
+}
+
+export interface ClientBookingListItem extends BookingListItemBase {
+  provider: BookingProviderSummary;
+}
+
+export interface ProviderBookingListItem extends BookingListItemBase {
+  /** The full wallet address -- shortened only at render time (the
+   * frontend's own `shortenStellarId`, the same helper `EscrowProof` already
+   * uses), never truncated here (this backend never invents a display
+   * format; see `lib/money.ts`'s own equivalent discipline for amounts). */
+  clientWalletAddress: string;
+}
+
+function isExpiredHoldRow(booking: BookingRow, now: number): boolean {
+  return booking.escrowState === null && booking.holdExpiresAt !== null && booking.holdExpiresAt < now;
+}
+
+/** Upcoming appointments first, soonest first; then past ones, most recent
+ * first -- the spec's own "Always" sort rule, shared by both lists. A
+ * booking with no slot (a pre-3.4 row with no `slotId`) sorts after every
+ * dated one, in whatever order it was read in among themselves. */
+function compareByAppointmentDate(a: { slotStartsAt: number | null }, b: { slotStartsAt: number | null }, now: number): number {
+  if (a.slotStartsAt === null && b.slotStartsAt === null) return 0;
+  if (a.slotStartsAt === null) return 1;
+  if (b.slotStartsAt === null) return -1;
+  const aUpcoming = a.slotStartsAt >= now;
+  const bUpcoming = b.slotStartsAt >= now;
+  if (aUpcoming !== bUpcoming) return aUpcoming ? -1 : 1;
+  return aUpcoming ? a.slotStartsAt - b.slotStartsAt : b.slotStartsAt - a.slotStartsAt;
+}
+
+function toBookingListItemBase(
+  booking: BookingRow,
+  slotStartsAt: number | null,
+  lifecycle: EscrowLifecycle | undefined,
+  now: number,
+): BookingListItemBase {
+  return {
+    id: booking.id,
+    slotStartsAt,
+    deposit: { amount: booking.depositAmount, asset: ASSET },
+    balance: { amount: booking.balanceAmount, asset: ASSET },
+    price: { amount: (BigInt(booking.depositAmount) + BigInt(booking.balanceAmount)).toString(), asset: ASSET },
+    escrowState: booking.escrowState,
+    lifecycle: { contractId: lifecycle?.contractId, action: lifecycle?.action, outcome: lifecycle?.outcome },
+    balanceState: booking.balanceState,
+    cancelDeadline: booking.cancelDeadline,
+    contractId: booking.escrowContractId,
+    holdExpiresAt: booking.holdExpiresAt,
+    isExpiredHold: isExpiredHoldRow(booking, now),
+  };
+}
+
+/**
+ * `GET /me/bookings`: every booking the caller's own wallet is the client
+ * on, across every provider (the spec's own "Always" rule), ordered by
+ * appointment date. Isolation rests entirely on
+ * {@link listBookingRowsForClient}'s own `WHERE client_wallet_address = ?`
+ * -- this function never filters by anything else, so another wallet's rows
+ * can never leak in here.
+ */
+export async function listBookingsForClient(
+  db: Db,
+  clientWalletAddress: string,
+  now: number = Math.floor(Date.now() / 1000),
+): Promise<ClientBookingListItem[]> {
+  const rows = await listBookingRowsForClient(db, clientWalletAddress);
+  if (rows.length === 0) return [];
+
+  const lifecycleByBooking = await getEscrowLifecycleForBookings(
+    db,
+    rows.map((row) => row.booking),
+  );
+  const providerIds = [...new Set(rows.map((row) => row.booking.providerProfileId))];
+  const profiles = await Promise.all(providerIds.map((id) => getProviderProfileById(db, id)));
+  const profileById = new Map(profiles.filter((profile): profile is NonNullable<typeof profile> => Boolean(profile)).map((profile) => [profile.id, profile]));
+
+  const items: ClientBookingListItem[] = rows.map(({ booking, slotStartsAt }) => {
+    const profile = profileById.get(booking.providerProfileId);
+    return {
+      ...toBookingListItemBase(booking, slotStartsAt, lifecycleByBooking.get(booking.id), now),
+      provider: profile
+        ? { id: profile.id, displayName: profile.displayName, title: profile.title }
+        : { id: booking.providerProfileId, displayName: "", title: "" },
+    };
+  });
+  items.sort((a, b) => compareByAppointmentDate(a, b, now));
+  return items;
+}
+
+/**
+ * `GET /me/provider/bookings`: every booking against the caller's own
+ * provider profile -- resolved from the caller's own wallet, never a
+ * caller-supplied id (the same discipline every other `/me/provider` route
+ * already follows), so another provider's bookings can never be requested
+ * through this function at all. Refuses {@link NotAProviderError} for a
+ * wallet with no provider profile.
+ */
+export async function listBookingsForProvider(
+  db: Db,
+  providerWalletAddress: string,
+  now: number = Math.floor(Date.now() / 1000),
+): Promise<ProviderBookingListItem[]> {
+  const profile = await getProviderProfileByWallet(db, providerWalletAddress);
+  if (!profile) {
+    throw new NotAProviderError();
+  }
+  const rows = await listBookingRowsForProvider(db, profile.id);
+  if (rows.length === 0) return [];
+
+  const lifecycleByBooking = await getEscrowLifecycleForBookings(
+    db,
+    rows.map((row) => row.booking),
+  );
+
+  const items: ProviderBookingListItem[] = rows.map(({ booking, slotStartsAt }) => ({
+    ...toBookingListItemBase(booking, slotStartsAt, lifecycleByBooking.get(booking.id), now),
+    clientWalletAddress: booking.clientWalletAddress,
+  }));
+  items.sort((a, b) => compareByAppointmentDate(a, b, now));
+  return items;
 }

@@ -10,6 +10,8 @@ import type {
   FundResponse,
   HoldSlotResponse,
   LockResponse,
+  MyBookingsResponse,
+  ProviderBookingsResponse,
   ProviderProfile,
   ProvidersResponse,
   SubmitResponse,
@@ -240,5 +242,32 @@ export function useBooking(bookingId: string | undefined, session: Session | und
     // failed fetch, it does not stop `refetchInterval` from trying again
     // on schedule regardless of the last outcome.
     refetchInterval: (query) => (query.state.data?.escrowState || query.state.error ? false : BOOKING_POLL_INTERVAL_MS),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Story 3.5: the two-sided status panel. No actions live here yet (Stories
+// 3.6/3.7), so both lists are plain queries -- no mutation, no
+// `queryClient.setQueryData` to keep in sync with anything.
+// ---------------------------------------------------------------------------
+
+/** `GET /me/bookings` -- "My bookings": every booking the signed-in wallet
+ * is the client on, across every provider. */
+export function useMyBookings(session: Session | undefined) {
+  return useQuery({
+    queryKey: ["me", "bookings", session?.walletAddress],
+    queryFn: () => apiGet<MyBookingsResponse>("/me/bookings", session?.token),
+    enabled: Boolean(session),
+    retry: false,
+  });
+}
+
+/** `GET /me/provider/bookings` -- the provider panel's "Bookings" view. */
+export function useProviderBookings(session: Session | undefined) {
+  return useQuery({
+    queryKey: ["me", "provider", "bookings", session?.walletAddress],
+    queryFn: () => apiGet<ProviderBookingsResponse>("/me/provider/bookings", session?.token),
+    enabled: Boolean(session),
+    retry: false,
   });
 }

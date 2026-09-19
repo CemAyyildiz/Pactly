@@ -157,3 +157,57 @@ export interface BookingView {
   cancelDeadline: number;
   provider: BookingProviderSummary;
 }
+
+// ---------------------------------------------------------------------------
+// Story 3.5: the two-sided status panel. Mirrors `backend/src/services/
+// booking.ts`'s `BookingListItemBase`/`ClientBookingListItem`/
+// `ProviderBookingListItem` exactly, same discipline as the rest of this
+// file.
+// ---------------------------------------------------------------------------
+
+export type BalanceState = "unpaid" | "paid_platform" | "paid_cash";
+
+export interface BookingLifecycle {
+  contractId?: string;
+  action?: EscrowLifecycleAction;
+  outcome?: "refund-client" | "pay-provider";
+}
+
+export interface BookingListItemBase {
+  id: string;
+  /** UTC epoch seconds -- `null` only for a pre-3.4 booking with no slot. */
+  slotStartsAt: number | null;
+  deposit: Money;
+  balance: Money;
+  price: Money;
+  escrowState: "locked" | "released" | "refunded" | null;
+  lifecycle: BookingLifecycle;
+  balanceState: BalanceState;
+  /** UTC epoch seconds. */
+  cancelDeadline: number;
+  contractId: string | null;
+  /** UTC epoch seconds. */
+  holdExpiresAt: number | null;
+  /** The AD-13 hold's own window has passed with no chain evidence at all --
+   * shown under a separate, collapsed "Expired holds" group, never mixed
+   * into the main list (the spec's own "Always" rule). */
+  isExpiredHold: boolean;
+}
+
+export interface ClientBookingListItem extends BookingListItemBase {
+  provider: BookingProviderSummary;
+}
+
+export interface ProviderBookingListItem extends BookingListItemBase {
+  /** Full wallet address -- shortened only at render time (`lib/stellar.ts`'s
+   * `shortenStellarId`, the same helper `EscrowProof` already uses). */
+  clientWalletAddress: string;
+}
+
+export interface MyBookingsResponse {
+  bookings: ClientBookingListItem[];
+}
+
+export interface ProviderBookingsResponse {
+  bookings: ProviderBookingListItem[];
+}

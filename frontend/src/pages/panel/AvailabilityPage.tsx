@@ -267,6 +267,7 @@ export function AvailabilityPage() {
       <div className="top-bar" style={{ padding: 0, border: "none", marginBottom: "var(--space-6)" }}>
         <h1 style={{ margin: 0 }}>Availability &amp; rules</h1>
         <div className="top-bar__nav">
+          <Link to="/panel/bookings">Bookings</Link>
           <Link to={`/providers/${profile.id}`}>View public profile</Link>
           <button type="button" className="button-ghost" onClick={handleSignOut}>
             Sign out

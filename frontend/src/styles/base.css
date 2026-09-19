@@ -1337,3 +1337,187 @@ button {
   color: #a9a7a0;
   max-width: 220px;
 }
+
+/* ---------------------------------------------------------------------
+ * Story 3.5: the two-sided status panel -- state label, countdown, booking
+ * card, and the panel's Bookings table/card toggle.
+ * --------------------------------------------------------------------- */
+
+.state-label {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-full);
+  font-size: var(--text-12);
+  font-weight: 600;
+  padding: 4px 10px;
+  border: 1px solid var(--color-line);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+.state-label--positive {
+  background: var(--color-pro-soft);
+  color: #0f3d3a;
+  border-color: #b8d5cf;
+}
+
+.state-label--alert {
+  background: var(--color-alert-soft);
+  color: var(--color-alert);
+  border-color: var(--color-alert);
+}
+
+.countdown {
+  margin: 0;
+  font-size: var(--text-14);
+  color: var(--color-faint);
+}
+
+.countdown--alert {
+  color: var(--color-alert);
+  font-weight: 600;
+}
+
+.booking-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.booking-card {
+  background: var(--color-card);
+  border: 1.5px solid var(--color-ink);
+  border-radius: var(--radius-lg);
+  padding: var(--space-card-pad);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.booking-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.booking-card__heading {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: var(--text-24);
+  line-height: 1;
+}
+
+.booking-card__subheading {
+  margin: 2px 0 0;
+  font-size: var(--text-14);
+  color: var(--color-faint);
+}
+
+.booking-card__appointment {
+  margin: 0;
+  font-weight: 600;
+}
+
+.booking-card__amounts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.booking-card__amount-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.booking-card__amount-row dt {
+  color: var(--color-faint);
+  font-weight: 400;
+}
+
+.booking-card__amount-row dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.booking-card__explorer-link {
+  font-family: var(--font-label);
+  font-size: var(--text-12);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  align-self: flex-start;
+}
+
+.expired-holds {
+  margin-top: var(--space-6);
+  border: 1.5px dashed var(--color-line);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+}
+
+.expired-holds summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-faint);
+}
+
+.expired-holds .booking-list {
+  margin-top: var(--space-4);
+}
+
+/* The panel's Bookings view: a table at >=1024px, cards below (DESIGN.md:
+ * "Provider panel: desktop-first, table layout. On mobile the table
+ * becomes a card list."). Both markups render the same data; only this
+ * media query decides which one is visible, so there is exactly one source
+ * of truth for the list itself. */
+.bookings-table-wrap {
+  display: none;
+  overflow-x: auto;
+}
+
+.bookings-cards {
+  display: flex;
+}
+
+@media (min-width: 1024px) {
+  .bookings-table-wrap {
+    display: block;
+  }
+  .bookings-cards {
+    display: none;
+  }
+}
+
+.bookings-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-card);
+  border: 1.5px solid var(--color-ink);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.bookings-table th,
+.bookings-table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-line);
+  font-size: var(--text-14);
+}
+
+.bookings-table th {
+  font-family: var(--font-label);
+  font-size: var(--text-12);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--color-faint);
+  font-weight: 500;
+}
+
+.bookings-table tbody tr:last-child td {
+  border-bottom: none;
+}

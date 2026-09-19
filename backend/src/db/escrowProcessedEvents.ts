@@ -8,7 +8,7 @@
  * read-model row this reconciler derives a transition from carries no
  * per-transaction identity to key on.
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import type { Db, DbOrTx } from "./client.js";
 import { escrowProcessedEvents } from "./schema.js";
@@ -61,4 +61,14 @@ export async function getEscrowProcessedEvent(
  * `getEscrowLifecycle` picks the most recently processed one itself. */
 export async function listEscrowProcessedEventsForBooking(db: Db, bookingId: string): Promise<EscrowProcessedEventRow[]> {
   return db.select().from(escrowProcessedEvents).where(eq(escrowProcessedEvents.bookingId, bookingId));
+}
+
+/** Story 3.5: the same rows as {@link listEscrowProcessedEventsForBooking},
+ * for every id in `bookingIds` at once -- one query for a whole list
+ * (`getEscrowLifecycleForBookings`'s own N+1 avoidance), never one query per
+ * row. Empty input short-circuits to `[]` rather than asking `drizzle-orm`'s
+ * `inArray` to build a query with an empty list. */
+export async function listEscrowProcessedEventsForBookings(db: Db, bookingIds: string[]): Promise<EscrowProcessedEventRow[]> {
+  if (bookingIds.length === 0) return [];
+  return db.select().from(escrowProcessedEvents).where(inArray(escrowProcessedEvents.bookingId, bookingIds));
 }

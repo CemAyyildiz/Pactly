@@ -7,7 +7,7 @@
  * resolved dispute actually means (the read-model shows that a dispute
  * resolved, never to whom the money went).
  */
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import type { Db } from "./client.js";
 import { escrowDisputeResolutions, type DisputeOutcome } from "./schema.js";
@@ -45,4 +45,17 @@ export type EscrowDisputeResolutionRow = typeof escrowDisputeResolutions.$inferS
 export async function getEscrowDisputeResolution(db: Db, bookingId: string): Promise<EscrowDisputeResolutionRow | undefined> {
   const rows = await db.select().from(escrowDisputeResolutions).where(eq(escrowDisputeResolutions.bookingId, bookingId)).limit(1);
   return rows[0];
+}
+
+/** Story 3.5: every recorded decision for the ids in `bookingIds`, keyed by
+ * `bookingId` -- one query for a whole list
+ * (`getEscrowLifecycleForBookings`'s own N+1 avoidance), never one query per
+ * row. Empty input short-circuits to an empty map. */
+export async function getEscrowDisputeResolutionsForBookings(
+  db: Db,
+  bookingIds: string[],
+): Promise<Map<string, EscrowDisputeResolutionRow>> {
+  if (bookingIds.length === 0) return new Map();
+  const rows = await db.select().from(escrowDisputeResolutions).where(inArray(escrowDisputeResolutions.bookingId, bookingIds));
+  return new Map(rows.map((row) => [row.bookingId, row]));
 }

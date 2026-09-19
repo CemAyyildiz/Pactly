@@ -53,6 +53,8 @@ import {
   getBookingForClient,
   getBookingView,
   holdSlot,
+  listBookingsForClient,
+  listBookingsForProvider,
   lockDeposit,
   submitSignedTransaction,
 } from "./services/booking.js";
@@ -493,6 +495,38 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
     } catch (error) {
       if (error instanceof BookingNotFoundError) {
         return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+      }
+      throw error;
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // Story 3.5: the two-sided status panel. Both routes resolve "whose
+  // bookings" from the caller's own wallet alone (same discipline as every
+  // other `/me/...` route in this file) -- there is no id in either URL for
+  // a caller to substitute someone else's for.
+  // ---------------------------------------------------------------------
+
+  /** "My bookings": every booking the caller's own wallet is the client on,
+   * across every provider, ordered by appointment date (AC2). An empty
+   * list is a plain `200` with `bookings: []` -- the "No bookings yet."
+   * empty state is the frontend's own job, not an error case here. */
+  app.get("/me/bookings", requirePactlyAuth, async (c) => {
+    const bookingsList = await listBookingsForClient(db, c.get("walletAddress"));
+    return c.json({ bookings: bookingsList });
+  });
+
+  /** The provider panel's "Bookings" view: every booking against the
+   * caller's own provider profile, ordered by appointment date. A wallet
+   * with no provider profile gets the same `404 NOT_A_PROVIDER` every other
+   * `/me/provider` route already gives. */
+  app.get("/me/provider/bookings", requirePactlyAuth, async (c) => {
+    try {
+      const bookingsList = await listBookingsForProvider(db, c.get("walletAddress"));
+      return c.json({ bookings: bookingsList });
+    } catch (error) {
+      if (error instanceof NotAProviderError) {
+        return c.json({ code: "NOT_A_PROVIDER", message: error.message }, 404);
       }
       throw error;
     }
