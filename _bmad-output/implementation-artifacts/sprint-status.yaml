@@ -58,7 +58,7 @@ development_status:
   epic-3: in-progress
   3-1-provider-profile-and-availability: done
   3-2-discovery-page-and-categories: done
-  3-3-search-and-filters: backlog
+  3-3-search-and-filters: done
   3-4-client-booking-flow: backlog
   3-5-two-sided-status-panel: backlog
   3-6-session-confirmation-and-cancellation: backlog

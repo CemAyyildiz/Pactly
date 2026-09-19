@@ -2,7 +2,7 @@
 title: 'Story 3.3 — Search and filters'
 type: 'feature'
 created: '2026-09-19'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: '6ddd4197bc88c907d343ef6a19c59eb94134ba8e'
 followup_review_recommended: false
@@ -85,8 +85,33 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-20 — Review pass (2 katman, Sonnet: Verification Gap + Edge Case Hunter)
+- verdicts: 9 bulgu — high 0, medium 2, low 7, false 0, maybe-false 0
+- findings:
+  - `[low]` `[patch]` V1 Öneri sayısı yalnızca tam başlık/isim eşleşmesini sayıyor, seçilince yapılan tam aramaysa daha fazla sonuç dönebiliyor — sayı, aynı eşleştirmeyle hesaplanıyor; eşitlik testi eklendi.
+  - `[medium]` `[patch]` E1 URL'deki geçersiz `minPrice`/`maxPrice` `BigInt(...)`'e ulaşıp Discover sayfasını çökertiyor — URL okunurken doğrulanıyor.
+  - `[low]` `[patch]` E2 URL'deki 1–10000 dışındaki `maxDepositBps` aktif filtre gibi görünüyor ama backend yok sayıyor — aynı sınırla doğrulanıyor.
+  - `[low]` `[patch]` E3 %100 üstü depozito tavanı backend'in düşürdüğü bir değer üretiyor — geçersiz sayılıyor.
+  - `[medium]` `[patch]` E4 Öneri seçildiğinde bekleyen 250 ms zamanlayıcı sonradan tetiklenip seçimi eski yazıyla eziyor — seçimde zamanlayıcı temizleniyor.
+  - `[low]` `[reject]` E5 `listDiscoverProviders` fiyat parametrelerini kendisi doğrulamıyor — tek çağıran route zaten doğruluyor.
+  - `[low]` `[reject]` E6 Geçersiz fiyat metni geri bildirim olmadan yok sayılıyor — sonuçlar değişmediği için etki küçük, satır içi hata karmaşıklık katar.
+  - `[low]` `[reject]` E7 `clearFilter`'ın varsayılan dalı yok — bugün her chip bağlı; varsayımsal gelecek riski.
+  - `[low]` `[reject]` E8 Çok kategori eşleşince 8'lik öneri sınırını kategoriler dolduruyor — demo verisiyle olası değil.
+
 ## Verification
 
 **Commands:**
 - `npm run -w backend typecheck && npm run -w backend test && npm run -w backend build` -- expected: clean, all pass
 - `npm run -w frontend typecheck && npm run -w frontend build` -- expected: clean
+
+## Auto Run Result
+
+Status: done
+
+**Özet:** `GET /providers` artık metin araması (isim, ünvan, bio ve kategori; LIKE kaçışlı), format, fiyat aralığı (BigInt), depozito tavanı ve zaman penceresi filtrelerini destekliyor. Geçersiz parametreler yok sayılıyor. `GET /providers/suggest` sayılarıyla birlikte en fazla 8 öneri döndürüyor. Discover'da 250 ms gecikmeli arama kutusu, klavyeyle gezilebilen öneriler, filtre rayı (mobilde alttan açılan panel) ve sorguyu tekrarlayıp üç çıkış yolu öneren boş sonuç durumu var. Tüm durum URL'de tutuluyor.
+
+**Commit'ler:** `61d9c3d` spec, `08dcad0` feat, fix(3.3), chore(3.3).
+
+**Review:** 9 bulgu (medium 2, low 7). Patch: V1, E1–E4. Reddedilenler: E5–E8 (low). Takip review önerisi: false.
+
+**Doğrulama:** backend typecheck ve build temiz, testler geçiyor; frontend typecheck ve build temiz. Filtreler seed edilmiş, çalışan bir backend üzerinde denendi. Tarayıcıda etkileşimli QA yapılmadı.
