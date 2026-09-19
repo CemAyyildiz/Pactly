@@ -52,7 +52,7 @@ development_status:
   2-3-sep-6-withdraw-professional-cashing-out: backlog
   2-4-sep-6-deposit-client-paying-in-local-currency: backlog
   2-5-backend-service-layer-and-data-model: review
-  2-6-trustless-work-escrow-adapter-and-reconciliation: backlog
+  2-6-trustless-work-escrow-adapter-and-reconciliation: in-progress
   epic-2-retrospective: optional
 
   epic-3: backlog
