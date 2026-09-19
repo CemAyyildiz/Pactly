@@ -13,8 +13,8 @@
  *
  * **Protocol version.** This targets Trustless Work's Core v2 API via the
  * installed `@trustless-work/escrow-js@1.0.0-beta.1` -- confirmed against
- * its real, installed `.d.ts` files, not the spec's paraphrase of them (see
- * this story's own final report for every discrepancy found). Every escrow
+ * its real, installed `.d.ts` files, not assumed from documentation alone.
+ * Every escrow
  * this adapter builds is `"single-release"`, one milestone,
  * `approvalsTarget: 1` -- Pactly has no use for `"multi-release"` escrows
  * or `updateEscrow` (explicitly out of this story's scope).
@@ -187,7 +187,7 @@ function toUnsignedTransaction(response: BuildTransactionResponse): UnsignedTran
  * `deploy` and `resolveDispute` are the two calls that bake it directly
  * into the payload (platform/disputeResolvers/admin roles), so a blank
  * value here would silently build a payload naming nobody rather than
- * failing loudly (the review's B6/E16/E17 findings). */
+ * failing loudly. */
 function requirePlatformAddress(platformAddress: string): string {
   if (!platformAddress) {
     throw new EscrowConfigError(
@@ -213,8 +213,9 @@ function requirePlatformAddress(platformAddress: string): string {
  * administer one, so overloading Pactly's existing platform address onto
  * `admin` adds no new trust surface beyond what the role map already
  * concedes for `platform`/`disputeResolvers`. This is a trust assumption,
- * not a property Trustless Work enforces trustlessly -- named here and in
- * this story's own final report, per this story's own constraints.
+ * not a property Trustless Work enforces trustlessly, and is named here
+ * plainly for that reason (AD-2: a Pactly-controlled signer must be
+ * documented as a trust assumption, never described as trustless).
  */
 export async function deploy(
   input: DeployEscrowInput,
@@ -319,11 +320,11 @@ export async function startDispute(
  * Builds the unsigned resolve-dispute XDR -- the one adapter function
  * Pactly itself is ever the signer for (`disputeResolver`, per the role
  * map). Every cancellation, late-cancellation or no-show that the client
- * does not resolve by approving in time becomes a dispute Pactly resolves
- * here, explicitly, by naming a distribution -- never an outcome the
- * protocol enforces automatically on a deadline (Story 1.8 AC7). Nothing
- * about this function is triggered by a clock; it is only ever called on
- * Pactly's own explicit decision.
+ * does not resolve by approving becomes a dispute Pactly resolves here,
+ * explicitly, by naming a distribution -- never an outcome the protocol
+ * enforces automatically on a deadline (Story 1.8 AC7). Nothing about this
+ * function is triggered by a clock; it is only ever called on Pactly's own
+ * explicit decision, made after the fact, not on any timing condition.
  */
 export async function resolveDispute(
   input: ResolveDisputeInput,

@@ -1,6 +1,6 @@
 /**
- * Pactly's own dispute-resolution decisions (Story 2.6, Design Notes: "Why
- * the resolution decision is recorded with its txHash"). Written once by
+ * Pactly's own dispute-resolution decisions (Design Notes: "Why the
+ * resolution decision is recorded with its txHash"). Written by
  * `services/booking.ts`'s `resolveBookingDispute`, the moment the unsigned
  * resolve-dispute XDR is built -- never by the reconciler, which only ever
  * *reads* this table to learn which of `refunded`/`released` a chain-shown
@@ -20,15 +20,24 @@ export interface NewEscrowDisputeResolution {
   decidedAt: number;
 }
 
-/** At most one resolution per booking, ever -- a booking's deposit can only
- * be allocated once. Throws on a second attempt rather than silently
- * overwriting an earlier decision with a different one. */
+/** Records one booking's dispute-resolution decision, replacing whichever
+ * one (if any) was recorded before it -- a single atomic upsert, never a
+ * check-then-insert: an unsigned or expired XDR from an earlier
+ * `resolveBookingDispute` call must not permanently lock the booking to a
+ * decision nobody ever actually signed, and a concurrent call racing this
+ * one must never surface a raw SQLite constraint-violation error. The
+ * booking-level precondition (locked, with chain-confirmed `disputed`
+ * evidence for this same `contractId`) is `resolveBookingDispute`'s own
+ * job, checked before this is ever called -- this function only ever
+ * touches its own table. */
 export async function recordEscrowDisputeResolution(db: Db, values: NewEscrowDisputeResolution): Promise<void> {
-  const existing = await getEscrowDisputeResolution(db, values.bookingId);
-  if (existing) {
-    throw new TypeError(`A dispute resolution is already recorded for booking "${values.bookingId}"`);
-  }
-  await db.insert(escrowDisputeResolutions).values(values);
+  await db
+    .insert(escrowDisputeResolutions)
+    .values(values)
+    .onConflictDoUpdate({
+      target: escrowDisputeResolutions.bookingId,
+      set: { contractId: values.contractId, outcome: values.outcome, txHash: values.txHash, decidedAt: values.decidedAt },
+    });
 }
 
 export type EscrowDisputeResolutionRow = typeof escrowDisputeResolutions.$inferSelect;

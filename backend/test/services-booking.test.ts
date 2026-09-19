@@ -19,6 +19,8 @@ import { Keypair, StrKey } from "@stellar/stellar-sdk";
 import { BookingEscrowStateError, fundDeposit, lockDeposit, resolveBookingDispute, setBalanceState } from "../src/services/booking.js";
 import { getEscrowDisputeResolution } from "../src/db/escrowDisputeResolutions.js";
 import { getBookingById, updateEscrowContractId, updateEscrowStateSync } from "../src/db/bookings.js";
+import { insertEscrowProcessedEventIfNew } from "../src/db/escrowProcessedEvents.js";
+import type { Db } from "../src/db/client.js";
 import type {
   DeployEscrowInput,
   DeployEscrowResult,
@@ -31,6 +33,22 @@ import { closeDatabase, openTestDatabase, randomBookingId, seedBooking, seedProv
 
 function fakeContractId(): string {
   return StrKey.encodeContract(randomBytes(32));
+}
+
+/** Seeds the reconciler's own record of a "disputed" transition for
+ * `contractId` -- `resolveBookingDispute` now refuses to build a
+ * resolution without one (it must never resolve a dispute the chain has
+ * not actually confirmed exists). */
+async function markDisputed(db: Db, bookingId: string, contractId: string, amount: string): Promise<void> {
+  await insertEscrowProcessedEventIfNew(db, {
+    bookingId,
+    contractId,
+    lifecycleAction: "disputed",
+    amount,
+    ledgerSeq: "1",
+    isAnomaly: false,
+    processedAt: Date.now(),
+  });
 }
 
 function unreachableEscrowAdapter(): EscrowAdapter {
@@ -117,39 +135,44 @@ test("lockDeposit throws for an unknown booking id without ever calling the adap
   }
 });
 
-test("lockDeposit refuses to redeploy once escrow_state is already set", async () => {
-  const result = openTestDatabase();
-  try {
-    const bookingId = await seedBooking(result);
-    updateEscrowStateSync(result.db, bookingId, "locked");
-
-    await assert.rejects(() => lockDeposit(result.db, bookingId, unreachableEscrowAdapter()), BookingEscrowStateError);
-  } finally {
-    closeDatabase(result);
-  }
-});
-
-test("lockDeposit may run again (overwriting the persisted contractId) while escrow_state is still null", async () => {
+test("lockDeposit refuses to run again once a contractId is already persisted, even before escrow_state is ever set", async () => {
   const result = openTestDatabase();
   try {
     const bookingId = await seedBooking(result);
     const firstContractId = fakeContractId();
-    const secondContractId = fakeContractId();
     let calls = 0;
     const adapter: EscrowAdapter = {
       ...unreachableEscrowAdapter(),
       deploy: async () => {
         calls += 1;
-        return { contractId: calls === 1 ? firstContractId : secondContractId, unsignedXdr: "x", txHash: "h" };
+        return { contractId: firstContractId, unsignedXdr: "x", txHash: "h" };
       },
     };
 
     await lockDeposit(result.db, bookingId, adapter);
-    const secondResult = await lockDeposit(result.db, bookingId, adapter);
-    assert.equal(secondResult.contractId, secondContractId);
+    assert.equal(calls, 1);
+
+    // A second call must refuse before ever calling the adapter again --
+    // overwriting the persisted contractId here could orphan a deploy (or
+    // fund) that already landed on chain.
+    await assert.rejects(() => lockDeposit(result.db, bookingId, unreachableEscrowAdapter()), BookingEscrowStateError);
+    assert.equal(calls, 1, "the adapter must not be called again");
 
     const booking = await getBookingById(result.db, bookingId);
-    assert.equal(booking?.escrowContractId, secondContractId, "the later deploy's contractId must win");
+    assert.equal(booking?.escrowContractId, firstContractId, "the original contractId must survive the refused second call");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("lockDeposit refuses to run again once escrow_state is also set", async () => {
+  const result = openTestDatabase();
+  try {
+    const bookingId = await seedBooking(result);
+    await updateEscrowContractId(result.db, bookingId, fakeContractId());
+    updateEscrowStateSync(result.db, bookingId, "locked");
+
+    await assert.rejects(() => lockDeposit(result.db, bookingId, unreachableEscrowAdapter()), BookingEscrowStateError);
   } finally {
     closeDatabase(result);
   }
@@ -221,6 +244,24 @@ test("resolveBookingDispute refuses unless the booking is locked with a persiste
   }
 });
 
+test("resolveBookingDispute refuses when the booking is locked but no chain-confirmed dispute is recorded for its contractId", async () => {
+  const result = openTestDatabase();
+  try {
+    const bookingId = await seedBooking(result);
+    await updateEscrowContractId(result.db, bookingId, fakeContractId());
+    updateEscrowStateSync(result.db, bookingId, "locked");
+
+    // No `markDisputed` here -- `escrow_state` alone reading "locked" is
+    // also true before any dispute ever existed, so it must not be enough.
+    await assert.rejects(
+      () => resolveBookingDispute(result.db, bookingId, "refund-client", unreachableEscrowAdapter()),
+      BookingEscrowStateError,
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
 test("resolveBookingDispute (refund-client) builds one full-amount distribution to the client and records the decision", async () => {
   const result = openTestDatabase();
   try {
@@ -232,6 +273,7 @@ test("resolveBookingDispute (refund-client) builds one full-amount distribution 
     const contractId = fakeContractId();
     await updateEscrowContractId(result.db, bookingId, contractId);
     updateEscrowStateSync(result.db, bookingId, "locked");
+    await markDisputed(result.db, bookingId, contractId, depositAmount);
 
     let captured: ResolveDisputeInput | undefined;
     const adapter: EscrowAdapter = {
@@ -270,6 +312,7 @@ test("resolveBookingDispute (pay-provider) builds one full-amount distribution t
     const contractId = fakeContractId();
     await updateEscrowContractId(result.db, bookingId, contractId);
     updateEscrowStateSync(result.db, bookingId, "locked");
+    await markDisputed(result.db, bookingId, contractId, depositAmount);
 
     let captured: ResolveDisputeInput | undefined;
     const adapter: EscrowAdapter = {
@@ -289,21 +332,36 @@ test("resolveBookingDispute (pay-provider) builds one full-amount distribution t
   }
 });
 
-test("resolveBookingDispute refuses a second decision for the same booking", async () => {
+test("a second decision replaces the first, rather than raising a raw SQLite error or getting stuck", async () => {
   const result = openTestDatabase();
   try {
     const bookingId = await seedBooking(result);
     const contractId = fakeContractId();
     await updateEscrowContractId(result.db, bookingId, contractId);
     updateEscrowStateSync(result.db, bookingId, "locked");
+    await markDisputed(result.db, bookingId, contractId, "5000000");
 
+    let txHash = "first-attempt-tx-hash";
     const adapter: EscrowAdapter = {
       ...unreachableEscrowAdapter(),
-      resolveDispute: async () => ({ unsignedXdr: "x", txHash: "h" }),
+      resolveDispute: async () => ({ unsignedXdr: "x", txHash }),
     };
 
-    await resolveBookingDispute(result.db, bookingId, "refund-client", adapter);
-    await assert.rejects(() => resolveBookingDispute(result.db, bookingId, "refund-client", adapter), TypeError);
+    const first = await resolveBookingDispute(result.db, bookingId, "refund-client", adapter);
+    assert.equal(first.txHash, "first-attempt-tx-hash");
+    const firstRecorded = await getEscrowDisputeResolution(result.db, bookingId);
+    assert.equal(firstRecorded?.outcome, "refund-client");
+    assert.equal(firstRecorded?.txHash, "first-attempt-tx-hash");
+
+    // The first attempt's XDR was never signed (expired, or the wrong
+    // outcome was chosen) -- a second, corrected attempt must replace it,
+    // not be permanently blocked by it.
+    txHash = "second-attempt-tx-hash";
+    const second = await resolveBookingDispute(result.db, bookingId, "pay-provider", adapter);
+    assert.equal(second.txHash, "second-attempt-tx-hash");
+    const secondRecorded = await getEscrowDisputeResolution(result.db, bookingId);
+    assert.equal(secondRecorded?.outcome, "pay-provider");
+    assert.equal(secondRecorded?.txHash, "second-attempt-tx-hash");
   } finally {
     closeDatabase(result);
   }

@@ -123,11 +123,30 @@ const STATEMENTS: readonly string[] = [
   )`,
 ];
 
+/** `true` when `table` already has a column named `column` -- `PRAGMA
+ * table_info` is SQLite's own way to ask, and the only reliable one: a
+ * `CREATE TABLE IF NOT EXISTS` is a silent no-op against a table that
+ * already exists, so a column added to `schema.ts` after a database was
+ * first created needs its own `ALTER TABLE`, guarded by this check so
+ * re-running it against an already-migrated database stays a no-op too. */
+function hasColumn(sqlite: Database, table: string, column: string): boolean {
+  const columns = sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return columns.some((existing) => existing.name === column);
+}
+
 /** Applies every `CREATE TABLE IF NOT EXISTS` statement, in order (later
- * tables reference earlier ones via `REFERENCES`). */
+ * tables reference earlier ones via `REFERENCES`), then every column added
+ * to an existing table since this database might first have been created
+ * -- `bookings.escrow_contract_id` (Story 2.6): a database created before
+ * this column existed has a `bookings` table the `CREATE TABLE IF NOT
+ * EXISTS` above never touches, so without this every query that reads or
+ * writes `escrow_contract_id` against it fails with "no such column". */
 export function runMigrations(sqlite: Database): void {
   sqlite.pragma("foreign_keys = ON");
   for (const statement of STATEMENTS) {
     sqlite.exec(statement);
+  }
+  if (!hasColumn(sqlite, "bookings", "escrow_contract_id")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_contract_id TEXT`);
   }
 }

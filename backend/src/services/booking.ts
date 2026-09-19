@@ -17,19 +17,20 @@
  * -- it stays in the tree, reviewed and tested, as a record of the
  * pre-pivot design (AD-8's own "no completed history is erased").
  *
- * **Why deploy and fund are two separate exported functions (amended
- * 2026-09-19).** Building a fund transaction against a contract that is not
- * yet on chain is unverified, and both transactions would otherwise share
- * the client's sequence number (this story's spec, Design Notes).
- * `lockDeposit` builds and persists the deploy; a caller signs and submits
- * it, then calls `fundDeposit` once it has landed. A re-`lockDeposit` is
- * allowed while `escrowState` is still `null` -- it overwrites the
- * persisted `contractId`; an unsubmitted earlier deploy XDR is harmless
- * because `fundDeposit` only ever targets the currently persisted id.
+ * **Why deploy and fund are two separate exported functions.** Building a
+ * fund transaction against a contract that is not yet on chain is
+ * unverified, and both transactions would otherwise share the client's
+ * sequence number. `lockDeposit` builds and persists the deploy; a caller
+ * signs and submits it, then calls `fundDeposit` once it has landed.
+ * `lockDeposit` refuses to run a second time once any `contractId` is
+ * persisted -- overwriting it could orphan a deploy (or fund) that already
+ * landed; recovering an abandoned, never-signed deploy is deferred to
+ * Epic 3.
  */
 import { randomBytes } from "node:crypto";
 
 import { defaultEscrowAdapter } from "../escrow/trustless-work/client.js";
+import { getEscrowLifecycle } from "../escrow/trustless-work/reconciler.js";
 import type { DeployEscrowResult, EscrowAdapter, UnsignedTransaction } from "../escrow/interface.js";
 import {
   getBookingById,
@@ -149,24 +150,23 @@ async function requireProviderAddress(db: Db, booking: BookingRow): Promise<stri
 
 /**
  * Builds the unsigned deploy XDR for an already-held booking and persists
- * the escrow's predicted `contractId` (Story 2.6, amended 2026-09-19:
- * replaces the old direct `chain.createBooking` call with the
- * vendor-neutral `EscrowAdapter`, and no longer also builds `fund` in the
- * same call -- see this module's own top doc comment). The client address
- * always comes from the booking's own `clientWalletAddress` (AD-13's hold
- * already recorded it; a caller can no longer pass a different one, which
- * closed a real money-safety gap this story's own review found -- B10/V1).
- * Resolves the professional's wallet from the booking's own provider
- * profile, so a caller only ever needs the booking id -- never a Trustless
- * Work payload, which stays `escrow/trustless-work/client.ts`'s concern
- * alone.
+ * the escrow's predicted `contractId` -- once, ever, per booking. Replaces
+ * the old direct `chain.createBooking` call with the vendor-neutral
+ * `EscrowAdapter`, and no longer also builds `fund` in the same call (see
+ * this module's own top doc comment). The client address always comes from
+ * the booking's own `clientWalletAddress` (AD-13's hold already recorded
+ * it; a caller can no longer pass a different one, which closed a real
+ * money-safety gap an earlier review found). Resolves the professional's
+ * wallet from the booking's own provider profile, so a caller only ever
+ * needs the booking id -- never a Trustless Work payload, which stays
+ * `escrow/trustless-work/client.ts`'s concern alone.
  *
- * Refused (typed {@link BookingEscrowStateError}) when `escrowState` is
- * already set -- once the reconciler has confirmed any chain evidence for
- * this booking, a redeploy would silently orphan it. Allowed to run again,
- * overwriting the persisted `contractId`, while `escrowState` is still
- * `null` (an unsubmitted earlier deploy is harmless, per this module's own
- * top doc comment).
+ * Refused (typed {@link BookingEscrowStateError}) once a `contractId` is
+ * already persisted for this booking, regardless of `escrowState` --
+ * overwriting it could orphan a deploy (and possibly a `fundDeposit`) that
+ * already landed on chain, since nothing else ever looks anywhere but the
+ * current column value. Recovering an abandoned deploy (one whose XDR was
+ * never signed) is deferred to Epic 3, not handled by re-running this.
  */
 export async function lockDeposit(
   db: Db,
@@ -174,8 +174,8 @@ export async function lockDeposit(
   adapter: EscrowAdapter = defaultEscrowAdapter,
 ): Promise<LockDepositResult> {
   const booking = await requireBooking(db, bookingId);
-  if (booking.escrowState !== null) {
-    throw new BookingEscrowStateError(`Booking "${bookingId}" already has escrow_state "${booking.escrowState}"; cannot deploy again`);
+  if (booking.escrowContractId !== null) {
+    throw new BookingEscrowStateError(`Booking "${bookingId}" already has a persisted escrow contractId; lockDeposit refuses to overwrite it`);
   }
   const providerAddress = await requireProviderAddress(db, booking);
 
@@ -237,10 +237,18 @@ export interface ResolveBookingDisputeResult extends UnsignedTransaction {
  * Pactly's own explicit decision, made elsewhere (booking-policy logic
  * outside this story's scope), about who cancelled and when.
  *
- * Refused (typed {@link BookingEscrowStateError}) unless the booking is
- * `locked` with a persisted `contractId` -- a dispute can only be resolved
- * once the deposit is actually held, and never twice for the same booking
- * ({@link recordEscrowDisputeResolution} itself refuses a second decision).
+ * Refused (typed {@link BookingEscrowStateError}), before the adapter is
+ * ever called, unless the booking is `locked` with a persisted
+ * `contractId` *and* the reconciler's own latest recorded lifecycle action
+ * for that same `contractId` is `"disputed"` ({@link getEscrowLifecycle}) --
+ * a dispute can only be resolved once the chain itself shows one open
+ * against the escrow this booking actually deployed, never merely because
+ * the booking's own `escrowState` happens to read `"locked"` (which is
+ * also true before any dispute exists at all). Recording the decision is
+ * an upsert ({@link recordEscrowDisputeResolution}): calling this again
+ * replaces the earlier decision rather than raising a raw SQLite error,
+ * since an unsigned or expired XDR from a first attempt must not
+ * permanently lock the booking to a decision nobody ever signed.
  */
 export async function resolveBookingDispute(
   db: Db,
@@ -253,6 +261,13 @@ export async function resolveBookingDispute(
     throw new BookingEscrowStateError(
       `Booking "${bookingId}" must be "locked" with a persisted escrow contractId to resolve a dispute ` +
         `(escrowState is "${booking.escrowState}")`,
+    );
+  }
+  const lifecycle = await getEscrowLifecycle(db, bookingId);
+  if (lifecycle?.contractId !== booking.escrowContractId || lifecycle.action !== "disputed") {
+    throw new BookingEscrowStateError(
+      `Booking "${bookingId}" has no chain-confirmed "disputed" evidence for its current escrow contractId; ` +
+        "resolveBookingDispute refuses to build a resolution without it",
     );
   }
   const providerAddress = await requireProviderAddress(db, booking);

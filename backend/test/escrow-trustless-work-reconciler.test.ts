@@ -3,14 +3,16 @@
  * SQLite database (`openDatabase(":memory:")`) through its injected
  * `listEscrows` seam -- never against the network. Covers the I/O matrix
  * rows this story's amended spec names for the reconciler: every lifecycle
- * derivation (funded/approved/disputed/released/resolved), same row
- * replayed, restart resumes from the stored per-escrow watermark, an
- * escrow that does not match its booking (anomaly, no state change), a row
- * for an unrequested contract (ignored), a stale/out-of-order row after a
- * terminal state (no regression), and `getEscrowLifecycle`'s own read
- * shape -- each at the *batch* level (`runReconcilerOnce`) as well as the
- * single-row level, per Story 2.5's own review finding that batch-level
- * cursor/restart coverage was missing.
+ * derivation (funded/approved/disputed/released/resolved, each requiring an
+ * actually-funded balance except resolved itself), same row replayed,
+ * restart resumes from the stored per-escrow watermark (never advanced on
+ * an anomaly), an escrow that does not match its booking on any of its
+ * role/amount/trustline fields (anomaly, no state change), a row for an
+ * unrequested contract (ignored), a stale/out-of-order row after a terminal
+ * state (no regression, enforced in SQL even against a stale in-memory
+ * snapshot), malformed rows that must not abort the batch, and
+ * `getEscrowLifecycle`'s own read shape -- each at the *batch* level
+ * (`runReconcilerOnce`) as well as the single-row level.
  */
 import "./testConfigEnv.js";
 import { randomBytes } from "node:crypto";
@@ -24,7 +26,7 @@ import {
   type SingleReleaseEscrowSnapshot,
 } from "@trustless-work/escrow-js";
 
-import { EscrowRequestError } from "../src/escrow/trustless-work/errors.js";
+import { EscrowConfigError, EscrowRequestError } from "../src/escrow/trustless-work/errors.js";
 
 import {
   checkEscrowMatchesBooking,
@@ -34,6 +36,7 @@ import {
   getEscrowLifecycle,
   humanDecimalToSmallestUnits,
   processEscrowRow,
+  realListEscrows,
   runReconcilerOnce,
   type ReconcilerDeps,
 } from "../src/escrow/trustless-work/reconciler.js";
@@ -52,6 +55,10 @@ function fakeAddress(): string {
 }
 
 const DEPOSIT_AMOUNT = "10000000"; // 1.0 USDC at 7 decimals
+
+/** Pactly's own platform account, shared by every seeded booking in this
+ * file -- one real Pactly platform identity, not one per test. */
+const PLATFORM_ADDRESS = fakeAddress();
 
 interface SeededBooking {
   bookingId: string;
@@ -91,9 +98,9 @@ function baseSnapshot(overrides: Partial<SingleReleaseEscrowSnapshot> = {}, seed
       serviceProviders: [seed.providerAddress],
       releaseSigners: [seed.providerAddress],
       receiver: seed.providerAddress,
-      platform: fakeAddress(),
-      disputeResolvers: [fakeAddress()],
-      admin: fakeAddress(),
+      platform: PLATFORM_ADDRESS,
+      disputeResolvers: [PLATFORM_ADDRESS],
+      admin: PLATFORM_ADDRESS,
     },
     amount: "1", // 10_000_000 smallest units / 1e7
     milestones: [{ description: "session", approvalsTarget: 1 }],
@@ -127,12 +134,19 @@ async function getBooking(db: Parameters<typeof getBookingById>[0], bookingId: s
   return getBookingById(db, bookingId);
 }
 
+/** Every `runReconcilerOnce` call in this file shares one Pactly platform
+ * address -- this wraps it so call sites read like the two-argument
+ * version they were before that became a real check. */
+function runOnce(db: Parameters<typeof runReconcilerOnce>[0]["db"], deps: Omit<ReconcilerDeps, "db" | "platformAddress">) {
+  return runReconcilerOnce({ db, platformAddress: PLATFORM_ADDRESS, ...deps });
+}
+
 test("a funded row (active, balance >= deposit) sets escrow_state to locked and records a 'funded' row", async () => {
   const result = openTestDatabase();
   try {
     const seed = await seedReconcilableBooking(result);
     const row = fakeEscrowRow(seed, { status: "active", balance: "1" });
-    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, row);
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
     assert.equal(outcome, "applied");
     const booking = await getBooking(result.db, seed.bookingId);
     assert.equal(booking?.escrowState, "locked");
@@ -148,7 +162,7 @@ test("a partially funded row (balance < deposit) derives no transition", async (
   try {
     const seed = await seedReconcilableBooking(result);
     const row = fakeEscrowRow(seed, { status: "active", balance: "0.5" });
-    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, row);
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
     assert.equal(outcome, "none");
     const booking = await getBooking(result.db, seed.bookingId);
     assert.equal(booking?.escrowState, null);
@@ -162,14 +176,14 @@ test("an approved row (milestone 0 approvals reached target, not released) stays
   try {
     const seed = await seedReconcilableBooking(result);
     const fundedRow = fakeEscrowRow(seed, { status: "active", balance: "1", lastLedgerSeq: "100" });
-    await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, fundedRow);
+    await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, fundedRow);
 
     const approvedRow = fakeEscrowRow(
       seed,
       { status: "active", balance: "1", lastLedgerSeq: "200" },
       { milestones: [{ description: "session", approvalsTarget: 1, approvals: { target: 1, approvalCount: 1, approvedBy: [seed.clientAddress] } }] },
     );
-    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, approvedRow);
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, approvedRow);
     assert.equal(outcome, "applied");
 
     const booking = await getBooking(result.db, seed.bookingId);
@@ -182,12 +196,42 @@ test("an approved row (milestone 0 approvals reached target, not released) stays
   }
 });
 
+test("an approved row against a zero balance derives no transition -- approved never implies funded", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedReconcilableBooking(result);
+    const row = fakeEscrowRow(
+      seed,
+      { status: "active", balance: "0" },
+      { milestones: [{ description: "session", approvalsTarget: 1, approvals: { target: 1, approvalCount: 1, approvedBy: [seed.clientAddress] } }] },
+    );
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
+    assert.equal(outcome, "none");
+    assert.equal((await getBooking(result.db, seed.bookingId))?.escrowState, null);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("a disputed row against a zero balance derives no transition -- disputed never implies funded", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedReconcilableBooking(result);
+    const row = fakeEscrowRow(seed, { status: "disputed", balance: "0" }, { dispute: { isDisputed: true, reason: "no-show", resolved: false } });
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
+    assert.equal(outcome, "none");
+    assert.equal((await getBooking(result.db, seed.bookingId))?.escrowState, null);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
 test("a released row (status: released) sets escrow_state to released", async () => {
   const result = openTestDatabase();
   try {
     const seed = await seedReconcilableBooking(result);
     const row = fakeEscrowRow(seed, { status: "released", balance: "0" });
-    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, row);
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
     assert.equal(outcome, "applied");
     const booking = await getBooking(result.db, seed.bookingId);
     assert.equal(booking?.escrowState, "released");
@@ -201,7 +245,7 @@ test("a released row via snapshot.released (status still active) also sets escro
   try {
     const seed = await seedReconcilableBooking(result);
     const row = fakeEscrowRow(seed, { status: "active", balance: "0" }, { released: true });
-    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, row);
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
     assert.equal(outcome, "applied");
     const booking = await getBooking(result.db, seed.bookingId);
     assert.equal(booking?.escrowState, "released");
@@ -215,7 +259,7 @@ test("an open dispute leaves escrow_state locked -- opening a dispute never move
   try {
     const seed = await seedReconcilableBooking(result);
     const row = fakeEscrowRow(seed, { status: "disputed", balance: "1" }, { dispute: { isDisputed: true, reason: "no-show", resolved: false } });
-    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, row);
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
     assert.equal(outcome, "applied");
     const booking = await getBooking(result.db, seed.bookingId);
     assert.equal(booking?.escrowState, "locked");
@@ -236,7 +280,7 @@ test("a resolved dispute (balance zero, recorded decision refund-client) sets es
       decidedAt: Date.now(),
     });
     const row = fakeEscrowRow(seed, { status: "disputed", balance: "0" }, { dispute: { isDisputed: true, reason: "no-show", resolved: true } });
-    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, row);
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
     assert.equal(outcome, "applied");
     const booking = await getBooking(result.db, seed.bookingId);
     assert.equal(booking?.escrowState, "refunded");
@@ -258,7 +302,7 @@ test("a resolved dispute (recorded decision pay-provider) sets escrow_state to r
       decidedAt: Date.now(),
     });
     const row = fakeEscrowRow(seed, { status: "disputed", balance: "0" }, { dispute: { isDisputed: true, reason: "no-show", resolved: true } });
-    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, row);
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
     assert.equal(outcome, "applied");
     const booking = await getBooking(result.db, seed.bookingId);
     assert.equal(booking?.escrowState, "released");
@@ -267,17 +311,73 @@ test("a resolved dispute (recorded decision pay-provider) sets escrow_state to r
   }
 });
 
-test("a resolved dispute with no recorded Pactly decision is an anomaly, no state change", async () => {
+test("a resolved dispute with a non-zero balance (overfunded by a third party) still applies the recorded decision, logged rather than stuck", async () => {
   const result = openTestDatabase();
   try {
     const seed = await seedReconcilableBooking(result);
-    const row = fakeEscrowRow(seed, { status: "disputed", balance: "0" }, { dispute: { isDisputed: true, reason: "no-show", resolved: true } });
+    await recordEscrowDisputeResolution(result.db, {
+      bookingId: seed.bookingId,
+      contractId: seed.contractId,
+      outcome: "refund-client",
+      txHash: "resolve-tx-hash",
+      decidedAt: Date.now(),
+    });
+    const row = fakeEscrowRow(seed, { status: "disputed", balance: "0.5" }, { dispute: { isDisputed: true, reason: "no-show", resolved: true } });
     const messages: string[] = [];
-    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, row, (m) => messages.push(m));
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row, (m) =>
+      messages.push(m),
+    );
+    assert.equal(outcome, "applied");
+    assert.equal((await getBooking(result.db, seed.bookingId))?.escrowState, "refunded");
+    assert.ok(messages.some((m) => m.includes("non-zero")), "a non-zero balance on a resolved dispute is logged, not silently ignored");
+    assert.ok(!messages.some((m) => m.includes("anomaly")), "this is not an anomaly -- the decision is still applied");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("a resolved dispute with no recorded Pactly decision is an anomaly, no state change, and the watermark does not advance", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedReconcilableBooking(result);
+    const row = fakeEscrowRow(seed, { status: "disputed", balance: "0", lastLedgerSeq: "100" }, { dispute: { isDisputed: true, reason: "no-show", resolved: true } });
+    const messages: string[] = [];
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row, (m) =>
+      messages.push(m),
+    );
     assert.equal(outcome, "anomaly");
     const booking = await getBooking(result.db, seed.bookingId);
     assert.equal(booking?.escrowState, null);
     assert.ok(messages.some((m) => m.includes("anomaly")));
+    assert.equal(await getEscrowWatermark(result.db, seed.contractId), undefined, "an anomaly must never advance the watermark");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("once the decision is recorded, the exact same (previously anomalous) row at the same ledgerSeq is re-derived and applied", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedReconcilableBooking(result);
+    const row = fakeEscrowRow(seed, { status: "disputed", balance: "0", lastLedgerSeq: "100" }, { dispute: { isDisputed: true, reason: "no-show", resolved: true } });
+
+    const first = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
+    assert.equal(first, "anomaly");
+    assert.equal((await getBooking(result.db, seed.bookingId))?.escrowState, null);
+
+    await recordEscrowDisputeResolution(result.db, {
+      bookingId: seed.bookingId,
+      contractId: seed.contractId,
+      outcome: "refund-client",
+      txHash: "resolve-tx-hash",
+      decidedAt: Date.now(),
+    });
+
+    // Same row, same lastLedgerSeq as the first (anomalous) attempt -- only
+    // reachable because the watermark was never advanced past it.
+    const second = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
+    assert.equal(second, "applied");
+    assert.equal((await getBooking(result.db, seed.bookingId))?.escrowState, "refunded");
   } finally {
     closeDatabase(result);
   }
@@ -288,7 +388,7 @@ test("replaying the same (contractId, lifecycleAction) changes nothing and inser
   try {
     const seed = await seedReconcilableBooking(result);
     const row = fakeEscrowRow(seed, { status: "active", balance: "1", lastLedgerSeq: "100" });
-    const first = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, row);
+    const first = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
     assert.equal(first, "applied");
 
     // Force a re-derivation of the *same* action by resetting the
@@ -296,7 +396,7 @@ test("replaying the same (contractId, lifecycleAction) changes nothing and inser
     // function twice with an unchanged ledgerSeq (which the watermark
     // guard alone would already skip).
     await setEscrowWatermark(result.db, seed.contractId, "50");
-    const second = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, row);
+    const second = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
     assert.equal(second, "duplicate");
 
     const booking = await getBooking(result.db, seed.bookingId);
@@ -312,7 +412,7 @@ test("a row at or below the stored watermark is skipped without re-deriving anyt
     const seed = await seedReconcilableBooking(result);
     await setEscrowWatermark(result.db, seed.contractId, "100");
     const row = fakeEscrowRow(seed, { status: "active", balance: "1", lastLedgerSeq: "100" });
-    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, row);
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
     assert.equal(outcome, "none");
     const booking = await getBooking(result.db, seed.bookingId);
     assert.equal(booking?.escrowState, null, "a watermark-covered row must never be re-derived");
@@ -326,16 +426,87 @@ test("a stale/out-of-order row after a terminal escrow_state never regresses it"
   try {
     const seed = await seedReconcilableBooking(result);
     const releasedRow = fakeEscrowRow(seed, { status: "released", balance: "0", lastLedgerSeq: "200" });
-    await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, releasedRow);
+    await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, releasedRow);
     assert.equal((await getBooking(result.db, seed.bookingId))?.escrowState, "released");
 
     // A stale/out-of-order row claiming "active" again, at a higher
     // ledgerSeq than the released row (so the watermark alone would not
     // have skipped it) -- the terminal-state guard must still hold.
     const staleRow = fakeEscrowRow(seed, { status: "active", balance: "1", lastLedgerSeq: "300" });
-    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, staleRow);
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, staleRow);
     assert.equal(outcome, "none");
     assert.equal((await getBooking(result.db, seed.bookingId))?.escrowState, "released", "terminal states must never regress");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("two rows for the same contract in one batch, terminal first, never regress the booking even against a stale in-memory snapshot", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedReconcilableBooking(result);
+    // The booking snapshot `runReconcilerOnce` would fetch once per batch,
+    // deliberately reused (stale: `escrowState` still `null` here) for a
+    // second row -- the SQL-conditioned write, not this in-memory guard,
+    // is what must prevent the regression.
+    const staleBookingSnapshot = (await getBooking(result.db, seed.bookingId))!;
+
+    const releasedRow = fakeEscrowRow(seed, { status: "released", balance: "0", lastLedgerSeq: "100" });
+    const first = await processEscrowRow(result.db, staleBookingSnapshot, seed.providerAddress, PLATFORM_ADDRESS, releasedRow);
+    assert.equal(first, "applied");
+    assert.equal((await getBooking(result.db, seed.bookingId))?.escrowState, "released");
+
+    const disputedRow = fakeEscrowRow(
+      seed,
+      { status: "disputed", balance: "1", lastLedgerSeq: "200" },
+      { dispute: { isDisputed: true, reason: "x", resolved: false } },
+    );
+    const second = await processEscrowRow(result.db, staleBookingSnapshot, seed.providerAddress, PLATFORM_ADDRESS, disputedRow);
+    assert.equal(second, "none", "the conditioned write declines even though the stale snapshot's own guard would have let it through");
+    assert.equal((await getBooking(result.db, seed.bookingId))?.escrowState, "released", "must never regress from released back to locked");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("a non-integer lastLedgerSeq is an anomaly and does not abort the batch -- a following valid row still applies", async () => {
+  const result = openTestDatabase();
+  try {
+    const badSeed = await seedReconcilableBooking(result);
+    const goodSeed = await seedReconcilableBooking(result);
+    const badRow = fakeEscrowRow(badSeed, { status: "active", balance: "1", lastLedgerSeq: "not-a-number" });
+    const goodRow = fakeEscrowRow(goodSeed, { status: "active", balance: "1" });
+
+    const messages: string[] = [];
+    const batchResult = await runOnce(result.db, { listEscrows: listEscrowsReturning([badRow, goodRow]), log: (m) => messages.push(m) });
+
+    assert.equal(batchResult.anomalies, 1);
+    assert.equal(batchResult.applied, 1);
+    assert.equal((await getBooking(result.db, badSeed.bookingId))?.escrowState, null);
+    assert.equal((await getBooking(result.db, goodSeed.bookingId))?.escrowState, "locked");
+    assert.ok(messages.some((m) => m.includes("non-integer lastLedgerSeq")));
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("a row with no snapshot.roles is an anomaly and does not abort the batch -- a following valid row still applies", async () => {
+  const result = openTestDatabase();
+  try {
+    const badSeed = await seedReconcilableBooking(result);
+    const goodSeed = await seedReconcilableBooking(result);
+    const badRow = fakeEscrowRow(badSeed, {
+      snapshot: { ...baseSnapshot({}, badSeed), roles: undefined as never },
+    });
+    const goodRow = fakeEscrowRow(goodSeed, { status: "active", balance: "1" });
+
+    const messages: string[] = [];
+    const batchResult = await runOnce(result.db, { listEscrows: listEscrowsReturning([badRow, goodRow]), log: (m) => messages.push(m) });
+
+    assert.equal(batchResult.anomalies, 1);
+    assert.equal(batchResult.applied, 1);
+    assert.equal((await getBooking(result.db, badSeed.bookingId))?.escrowState, null);
+    assert.equal((await getBooking(result.db, goodSeed.bookingId))?.escrowState, "locked");
   } finally {
     closeDatabase(result);
   }
@@ -349,8 +520,13 @@ test("an escrow whose engagementId does not match its booking is an anomaly, no 
     // `checkEscrowMatchesBooking` actually reads.
     const topLevelMismatch = fakeEscrowRow(seed, { engagementId: randomBookingId() });
     const messages: string[] = [];
-    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, topLevelMismatch, (m) =>
-      messages.push(m),
+    const outcome = await processEscrowRow(
+      result.db,
+      (await getBooking(result.db, seed.bookingId))!,
+      seed.providerAddress,
+      PLATFORM_ADDRESS,
+      topLevelMismatch,
+      (m) => messages.push(m),
     );
     assert.equal(outcome, "anomaly");
     assert.equal((await getBooking(result.db, seed.bookingId))?.escrowState, null);
@@ -360,22 +536,85 @@ test("an escrow whose engagementId does not match its booking is an anomaly, no 
   }
 });
 
-test("checkEscrowMatchesBooking catches a mismatched receiver, amount, and trustline", async () => {
+test("checkEscrowMatchesBooking refuses an empty platformAddress with a typed EscrowConfigError", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedReconcilableBooking(result);
+    const booking = (await getBooking(result.db, seed.bookingId))!;
+    assert.throws(() => checkEscrowMatchesBooking(booking, seed.providerAddress, "", fakeEscrowRow(seed)), EscrowConfigError);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("checkEscrowMatchesBooking catches one mismatch per role, the milestone approvalsTarget, and the amount", async () => {
   const result = openTestDatabase();
   try {
     const seed = await seedReconcilableBooking(result);
     const booking = (await getBooking(result.db, seed.bookingId))!;
     const goodRow = fakeEscrowRow(seed);
-    assert.equal(checkEscrowMatchesBooking(booking, seed.providerAddress, goodRow), undefined);
+    assert.equal(checkEscrowMatchesBooking(booking, seed.providerAddress, PLATFORM_ADDRESS, goodRow), undefined);
 
-    const wrongReceiver = fakeEscrowRow(seed, {}, { roles: { ...baseSnapshot({}, seed).roles, receiver: fakeAddress() } });
-    assert.ok(checkEscrowMatchesBooking(booking, seed.providerAddress, wrongReceiver));
+    const base = baseSnapshot({}, seed);
+    const mismatched = (rolesOverride: Partial<typeof base.roles>) =>
+      fakeEscrowRow(seed, {}, { roles: { ...base.roles, ...rolesOverride } });
+
+    assert.ok(checkEscrowMatchesBooking(booking, seed.providerAddress, PLATFORM_ADDRESS, mismatched({ approvers: [fakeAddress()] })));
+    assert.ok(checkEscrowMatchesBooking(booking, seed.providerAddress, PLATFORM_ADDRESS, mismatched({ serviceProviders: [fakeAddress()] })));
+    assert.ok(checkEscrowMatchesBooking(booking, seed.providerAddress, PLATFORM_ADDRESS, mismatched({ releaseSigners: [fakeAddress()] })));
+    assert.ok(checkEscrowMatchesBooking(booking, seed.providerAddress, PLATFORM_ADDRESS, mismatched({ receiver: fakeAddress() })));
+    assert.ok(checkEscrowMatchesBooking(booking, seed.providerAddress, PLATFORM_ADDRESS, mismatched({ disputeResolvers: [fakeAddress()] })));
+    assert.ok(checkEscrowMatchesBooking(booking, seed.providerAddress, PLATFORM_ADDRESS, mismatched({ platform: fakeAddress() })));
+    assert.ok(checkEscrowMatchesBooking(booking, seed.providerAddress, PLATFORM_ADDRESS, mismatched({ admin: fakeAddress() })));
+
+    const wrongApprovalsTarget = fakeEscrowRow(seed, {}, { milestones: [{ description: "session", approvalsTarget: 2 }] });
+    assert.ok(checkEscrowMatchesBooking(booking, seed.providerAddress, PLATFORM_ADDRESS, wrongApprovalsTarget));
 
     const wrongAmount = fakeEscrowRow(seed, {}, { amount: "0.5" });
-    assert.ok(checkEscrowMatchesBooking(booking, seed.providerAddress, wrongAmount));
+    assert.ok(checkEscrowMatchesBooking(booking, seed.providerAddress, PLATFORM_ADDRESS, wrongAmount));
+  } finally {
+    closeDatabase(result);
+  }
+});
 
-    const wrongTrustline = fakeEscrowRow(seed, {}, { trustline: { address: fakeContractId(), contractId: fakeContractId(), symbol: "USDC" } });
-    assert.ok(checkEscrowMatchesBooking(booking, seed.providerAddress, wrongTrustline));
+test("checkEscrowMatchesBooking compares the amount as BigInt, so a deposit with leading zeros still matches", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedReconcilableBooking(result);
+    const booking = { ...(await getBooking(result.db, seed.bookingId))!, depositAmount: "0000010000000" };
+    const row = fakeEscrowRow(seed, {}, { amount: "1" }); // 1 * 1e7 === 10_000_000, same value as the padded string
+    assert.equal(checkEscrowMatchesBooking(booking, seed.providerAddress, PLATFORM_ADDRESS, row), undefined);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("checkEscrowMatchesBooking falls back to the root asset.contractId when the snapshot's own trustline contractId is empty", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedReconcilableBooking(result);
+    const booking = (await getBooking(result.db, seed.bookingId))!;
+
+    const fallbackMatches = fakeEscrowRow(
+      seed,
+      { asset: { name: "USDC", address: seed.tokenAddress, contractId: seed.tokenAddress } },
+      { trustline: { address: seed.tokenAddress, symbol: "USDC" } }, // no contractId on the snapshot's own trustline
+    );
+    assert.equal(
+      checkEscrowMatchesBooking(booking, seed.providerAddress, PLATFORM_ADDRESS, fallbackMatches),
+      undefined,
+      "the root asset.contractId must be trusted when the snapshot's own trustline carries none",
+    );
+
+    const neitherMatches = fakeEscrowRow(
+      seed,
+      { asset: { name: "USDC", address: fakeContractId(), contractId: fakeContractId() } },
+      { trustline: { address: seed.tokenAddress, symbol: "USDC" } },
+    );
+    assert.ok(
+      checkEscrowMatchesBooking(booking, seed.providerAddress, PLATFORM_ADDRESS, neitherMatches),
+      "neither the snapshot trustline nor the root asset naming the booking's token is a mismatch, not a silent pass",
+    );
   } finally {
     closeDatabase(result);
   }
@@ -392,8 +631,7 @@ test("a row for an unrequested contractId is ignored as an anomaly, no row inven
     );
 
     const messages: string[] = [];
-    const batchResult = await runReconcilerOnce({
-      db: result.db,
+    const batchResult = await runOnce(result.db, {
       listEscrows: listEscrowsReturning([wantedRow, unrequestedRow]),
       log: (m) => messages.push(m),
     });
@@ -413,11 +651,11 @@ test("runReconcilerOnce running twice over the same rows changes nothing observa
     const seed = await seedReconcilableBooking(result);
     const row = fakeEscrowRow(seed, { status: "active", balance: "1" });
 
-    const first = await runReconcilerOnce({ db: result.db, listEscrows: listEscrowsReturning([row]) });
+    const first = await runOnce(result.db, { listEscrows: listEscrowsReturning([row]) });
     assert.equal(first.applied, 1);
     const bookingAfterFirst = await getBooking(result.db, seed.bookingId);
 
-    const second = await runReconcilerOnce({ db: result.db, listEscrows: listEscrowsReturning([row]) });
+    const second = await runOnce(result.db, { listEscrows: listEscrowsReturning([row]) });
     assert.equal(second.applied, 0);
     assert.equal(second.skipped, 1, "the exact same row, at the exact same ledgerSeq, must be skipped by the watermark");
     const bookingAfterSecond = await getBooking(result.db, seed.bookingId);
@@ -432,7 +670,7 @@ test("a restarted reconciler resumes from the stored per-escrow watermark (batch
   try {
     const seed = await seedReconcilableBooking(result);
     const fundedRow = fakeEscrowRow(seed, { status: "active", balance: "1", lastLedgerSeq: "100" });
-    await runReconcilerOnce({ db: result.db, listEscrows: listEscrowsReturning([fundedRow]) });
+    await runOnce(result.db, { listEscrows: listEscrowsReturning([fundedRow]) });
     assert.equal(await getEscrowWatermark(result.db, seed.contractId), "100");
 
     // "Restart": a fresh call, the escrow now shows a later ledgerSeq but
@@ -440,7 +678,7 @@ test("a restarted reconciler resumes from the stored per-escrow watermark (batch
     // (already locked), but the watermark must still be the gate that is
     // consulted, and it must have resumed from "100", not from nothing.
     const sameStateLaterLedger = fakeEscrowRow(seed, { status: "active", balance: "1", lastLedgerSeq: "150" });
-    const restarted = await runReconcilerOnce({ db: result.db, listEscrows: listEscrowsReturning([sameStateLaterLedger]) });
+    const restarted = await runOnce(result.db, { listEscrows: listEscrowsReturning([sameStateLaterLedger]) });
     assert.equal(restarted.applied, 0);
     assert.equal(restarted.duplicates, 1, "the funded action was already recorded for this contract");
     assert.equal(await getEscrowWatermark(result.db, seed.contractId), "150");
@@ -469,7 +707,7 @@ test("escrowStateForLifecycleAction maps every recognized action to the right es
   assert.throws(() => escrowStateForLifecycleAction("resolved"), TypeError);
 });
 
-test("deriveEscrowLifecycle evaluates the derivation order: a resolved+zero-balance row wins over a stale isDisputed flag", () => {
+test("deriveEscrowLifecycle evaluates the derivation order: a resolved dispute wins over a stale isDisputed flag, balance notwithstanding", () => {
   const seed: SeededBooking = {
     bookingId: randomBookingId(),
     clientAddress: fakeAddress(),
@@ -503,7 +741,17 @@ test("a listEscrows network failure reaches the reconciler's caller as a typed E
   );
 });
 
-test("fetchOwnedEscrows chunks contractIds and follows every keyset page", async () => {
+test("fetchOwnedEscrows throws a typed EscrowRequestError when nextCursor does not advance, rather than looping forever", async () => {
+  const contractId = fakeContractId();
+  const listEscrows: ReconcilerDeps["listEscrows"] = async () => ({
+    data: [],
+    hasMore: true,
+    nextCursor: "stuck-cursor",
+  });
+  await assert.rejects(() => fetchOwnedEscrows(listEscrows, [contractId]), EscrowRequestError);
+});
+
+test("fetchOwnedEscrows follows every keyset page, keying its fake reply on the cursor it was actually sent", async () => {
   const contractIds = Array.from({ length: 3 }, () => fakeContractId());
   const rowFor = (contractId: string): EscrowSummary => ({
     network: "testnet",
@@ -520,20 +768,73 @@ test("fetchOwnedEscrows chunks contractIds and follows every keyset page", async
     snapshot: baseSnapshot({}, { bookingId: "b", clientAddress: "c", providerAddress: "p", tokenAddress: "t", contractId }),
   });
 
-  const calls: unknown[] = [];
-  let page = 0;
+  const calls: Array<{ cursor?: string }> = [];
   const listEscrows: ReconcilerDeps["listEscrows"] = async (params) => {
-    calls.push(params);
-    page += 1;
-    if (page === 1) {
+    calls.push({ cursor: params.cursor });
+    if (params.cursor === undefined) {
       return { data: [rowFor(contractIds[0]!)], hasMore: true, nextCursor: "cursor-2" };
     }
-    return { data: [rowFor(contractIds[1]!), rowFor(contractIds[2]!)], hasMore: false, nextCursor: null };
+    if (params.cursor === "cursor-2") {
+      return { data: [rowFor(contractIds[1]!), rowFor(contractIds[2]!)], hasMore: false, nextCursor: null };
+    }
+    throw new Error(`unexpected cursor "${params.cursor}"`);
   };
 
   const rows = await fetchOwnedEscrows(listEscrows, contractIds);
   assert.equal(rows.length, 3);
   assert.equal(calls.length, 2, "the second keyset page must be followed, not just the first");
+  assert.equal(calls[0]?.cursor, undefined, "the first call must start from no cursor");
+  assert.equal(calls[1]?.cursor, "cursor-2", "the second call must carry the first page's own nextCursor, not repeat the first");
+});
+
+test("fetchOwnedEscrows chunks more than 50 contractIds into multiple requests, each carrying at most 50, that together cover every id", async () => {
+  const contractIds = Array.from({ length: 51 }, () => fakeContractId());
+  const rowFor = (contractId: string): EscrowSummary => ({
+    network: "testnet",
+    contractId,
+    type: "single-release",
+    engagementId: "b",
+    status: "active",
+    totalAmount: null,
+    balance: "0",
+    asset: null,
+    lastLedgerSeq: "1",
+    createdAt: "",
+    updatedAt: "",
+    snapshot: baseSnapshot({}, { bookingId: "b", clientAddress: "c", providerAddress: "p", tokenAddress: "t", contractId }),
+  });
+
+  const requestedChunks: string[][] = [];
+  const listEscrows: ReconcilerDeps["listEscrows"] = async (params) => {
+    const chunk = params.contractIds ?? [];
+    requestedChunks.push(chunk);
+    return { data: chunk.map(rowFor), hasMore: false, nextCursor: null };
+  };
+
+  const rows = await fetchOwnedEscrows(listEscrows, contractIds);
+  assert.equal(rows.length, 51);
+  assert.equal(requestedChunks.length, 2, "51 ids over a chunk size of 50 must take two requests");
+  for (const chunk of requestedChunks) {
+    assert.ok(chunk.length <= 50, `each request must carry at most 50 contractIds, got ${chunk.length}`);
+  }
+  const coveredIds = new Set(requestedChunks.flat());
+  for (const id of contractIds) {
+    assert.ok(coveredIds.has(id), `contractId ${id} must appear in some chunk`);
+  }
+});
+
+test("realListEscrows refuses an empty TRUSTLESS_WORK_API_URL before any network access", async () => {
+  const listEscrows = realListEscrows({ apiUrl: "", apiKey: "some-key", platformAddress: fakeAddress() });
+  // `listEscrows` throws synchronously (the client is constructed lazily,
+  // on first call) -- wrapped in an `async` arrow so the throw becomes a
+  // rejection `assert.rejects` can actually observe, rather than escaping
+  // as a synchronous exception before the promise machinery ever runs.
+  await assert.rejects(async () => listEscrows({ contractIds: [fakeContractId()] }), EscrowConfigError);
+});
+
+test("realListEscrows refuses an empty TRUSTLESS_WORK_API_KEY before any network access", async () => {
+  const listEscrows = realListEscrows({ apiUrl: "https://dev.api.trustlesswork.com", apiKey: "", platformAddress: fakeAddress() });
+  await assert.rejects(async () => listEscrows({ contractIds: [fakeContractId()] }), EscrowConfigError);
 });
 
 test("getEscrowLifecycle returns undefined for an unknown booking", async () => {
@@ -561,7 +862,7 @@ test("getEscrowLifecycle returns the latest recorded action, and the outcome onc
   try {
     const seed = await seedReconcilableBooking(result);
     const fundedRow = fakeEscrowRow(seed, { status: "active", balance: "1", lastLedgerSeq: "100" });
-    await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, fundedRow);
+    await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, fundedRow);
 
     let lifecycle = await getEscrowLifecycle(result.db, seed.bookingId);
     assert.equal(lifecycle?.action, "funded");
@@ -580,7 +881,7 @@ test("getEscrowLifecycle returns the latest recorded action, and the outcome onc
       { status: "disputed", balance: "0", lastLedgerSeq: "200" },
       { dispute: { isDisputed: true, reason: "x", resolved: true } },
     );
-    await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, resolvedRow);
+    await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, resolvedRow);
 
     lifecycle = await getEscrowLifecycle(result.db, seed.bookingId);
     assert.equal(lifecycle?.action, "resolved");
@@ -598,7 +899,7 @@ test("a failure between the dedupe insert and the escrow-state write leaves noth
     const bookingBeforeFailure = (await getBooking(result.db, seed.bookingId))!;
 
     await assert.rejects(() =>
-      processEscrowRow(result.db, bookingBeforeFailure, seed.providerAddress, row, undefined, {
+      processEscrowRow(result.db, bookingBeforeFailure, seed.providerAddress, PLATFORM_ADDRESS, row, undefined, {
         updateEscrowState: () => {
           throw new Error("simulated failure between the dedupe insert and the escrow-state write");
         },
@@ -608,7 +909,7 @@ test("a failure between the dedupe insert and the escrow-state write leaves noth
     assert.equal(await getEscrowProcessedEvent(result.db, seed.contractId, "funded"), undefined);
     assert.equal((await getBooking(result.db, seed.bookingId))?.escrowState, null);
 
-    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, row);
+    const outcome = await processEscrowRow(result.db, (await getBooking(result.db, seed.bookingId))!, seed.providerAddress, PLATFORM_ADDRESS, row);
     assert.equal(outcome, "applied");
     assert.equal((await getBooking(result.db, seed.bookingId))?.escrowState, "locked");
   } finally {
@@ -619,8 +920,7 @@ test("a failure between the dedupe insert and the escrow-state write leaves noth
 test("runReconcilerOnce with no reconcilable bookings does nothing and never calls listEscrows", async () => {
   const result = openTestDatabase();
   try {
-    const batchResult = await runReconcilerOnce({
-      db: result.db,
+    const batchResult = await runOnce(result.db, {
       listEscrows: async () => {
         throw new Error("listEscrows should not have been called");
       },
@@ -636,12 +936,11 @@ test("a released booking is excluded from getReconcilableBookings entirely (AC4)
   try {
     const seed = await seedReconcilableBooking(result);
     const releasedRow = fakeEscrowRow(seed, { status: "released", balance: "0" });
-    await runReconcilerOnce({ db: result.db, listEscrows: listEscrowsReturning([releasedRow]) });
+    await runOnce(result.db, { listEscrows: listEscrowsReturning([releasedRow]) });
     assert.equal((await getBooking(result.db, seed.bookingId))?.escrowState, "released");
 
     let called = false;
-    const secondRun = await runReconcilerOnce({
-      db: result.db,
+    const secondRun = await runOnce(result.db, {
       listEscrows: async () => {
         called = true;
         return { data: [], hasMore: false, nextCursor: null };
@@ -649,6 +948,34 @@ test("a released booking is excluded from getReconcilableBookings entirely (AC4)
     });
     assert.equal(secondRun.applied, 0);
     assert.equal(called, false, "a terminal booking is excluded from the candidate set, so listEscrows is never even called");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("a refunded booking is likewise excluded from getReconcilableBookings entirely (AC4)", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedReconcilableBooking(result);
+    await recordEscrowDisputeResolution(result.db, {
+      bookingId: seed.bookingId,
+      contractId: seed.contractId,
+      outcome: "refund-client",
+      txHash: "resolve-tx-hash",
+      decidedAt: Date.now(),
+    });
+    const resolvedRow = fakeEscrowRow(seed, { status: "disputed", balance: "0" }, { dispute: { isDisputed: true, reason: "x", resolved: true } });
+    await runOnce(result.db, { listEscrows: listEscrowsReturning([resolvedRow]) });
+    assert.equal((await getBooking(result.db, seed.bookingId))?.escrowState, "refunded");
+
+    let called = false;
+    await runOnce(result.db, {
+      listEscrows: async () => {
+        called = true;
+        return { data: [], hasMore: false, nextCursor: null };
+      },
+    });
+    assert.equal(called, false, "a refunded booking is excluded from the candidate set exactly like a released one");
   } finally {
     closeDatabase(result);
   }

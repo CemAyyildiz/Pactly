@@ -285,8 +285,16 @@ test("an amount that cannot safely narrow to Trustless Work's numeric amount ref
 });
 
 test("an empty TRUSTLESS_WORK_API_URL refuses before any network access", async () => {
-  const deps: Partial<EscrowCallDeps> = { apiUrl: "", platformAddress: fakeAddress() };
-  await assert.rejects(() => deploy(baseDeployInput(), deps), EscrowConfigError);
+  // `apiKey` is deliberately non-empty here -- otherwise this test cannot
+  // tell "refused because of the URL" apart from "refused because of the
+  // key" (both throw the same `EscrowConfigError` class), so it would keep
+  // passing even if the two checks' order were ever swapped.
+  const deps: Partial<EscrowCallDeps> = { apiUrl: "", apiKey: "some-key", platformAddress: fakeAddress() };
+  await assert.rejects(() => deploy(baseDeployInput(), deps), (error: unknown) => {
+    assert.ok(error instanceof EscrowConfigError);
+    assert.match(error.message, /TRUSTLESS_WORK_API_URL/);
+    return true;
+  });
 });
 
 test("an empty TRUSTLESS_WORK_API_KEY refuses before any network access", async () => {

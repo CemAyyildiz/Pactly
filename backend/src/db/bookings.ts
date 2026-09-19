@@ -73,6 +73,32 @@ export async function updateEscrowState(db: Db, id: string, escrowState: EscrowS
   updateEscrowStateSync(db, id, escrowState);
 }
 
+/** Same as {@link updateEscrowStateSync}, except the write itself is
+ * conditioned in SQL on the row not already being terminal -- `WHERE id = ?
+ * AND (escrow_state IS NULL OR escrow_state NOT IN ('released',
+ * 'refunded'))`. The reconciler's own in-memory terminal check
+ * (`processEscrowRow`) reads a booking snapshot fetched once per batch, so
+ * a second row for the same escrow processed later in that same batch
+ * could otherwise regress an already-terminal booking (e.g.
+ * `released` -> `locked`) before the first row's own write is even
+ * visible to that stale snapshot. Returns `true` only when a row was
+ * actually written -- `false` when the booking was already terminal (by
+ * this point, not necessarily by the caller's own possibly-stale check) or
+ * does not exist. */
+export function updateEscrowStateIfNotTerminalSync(db: DbOrTx, id: string, escrowState: EscrowState): boolean {
+  const result = db
+    .update(bookings)
+    .set({ escrowState })
+    .where(
+      and(
+        eq(bookings.id, id),
+        or(isNull(bookings.escrowState), notInArray(bookings.escrowState, [...TERMINAL_ESCROW_STATES])),
+      ),
+    )
+    .run();
+  return result.changes > 0;
+}
+
 /** The backend's own write path for the balance side of AD-3. Touches
  * `balanceState` alone -- never `escrowState`. Throws if `id` matches no
  * row, rather than silently writing nothing. */
@@ -83,17 +109,29 @@ export async function updateBalanceState(db: Db, id: string, balanceState: Balan
   }
 }
 
-/** `services/booking.ts`'s `lockDeposit` write path (Story 2.6, AD-4/AC4):
- * persists the escrow's predicted `contractId` the moment the deploy XDR is
- * built. Touches `escrowContractId` alone. A re-`lockDeposit` while
- * `escrowState` is still `null` is allowed to overwrite an earlier value
- * (Design Notes: "Why deploy and fund are separate calls") -- this function
- * itself does not enforce that; the caller does. Throws if `id` matches no
- * row, rather than silently writing nothing. */
+/** `services/booking.ts`'s `lockDeposit` write path: persists the escrow's
+ * predicted `contractId` the moment the deploy XDR is built -- once, ever,
+ * per booking. The write itself is conditioned in SQL (`WHERE id = ? AND
+ * escrow_state IS NULL AND escrow_contract_id IS NULL`) so a second
+ * `lockDeposit` can never silently overwrite a `contractId` whose deploy
+ * (and possibly `fundDeposit`) may already have landed on chain -- doing so
+ * would orphan whatever was actually funded, since every later call
+ * (`fundDeposit`, the reconciler) only ever looks at the *current* column
+ * value. Throws when the write did not happen, whether because `id` does
+ * not exist, an `escrowState` is already recorded, or a `contractId` is
+ * already persisted -- `services/booking.ts`'s own pre-check is expected to
+ * have already ruled out the first two cases with a more specific error;
+ * this is the defense against the same race in the small window between
+ * that check and this write. */
 export async function updateEscrowContractId(db: Db, id: string, contractId: string): Promise<void> {
-  const result = await db.update(bookings).set({ escrowContractId: contractId }).where(eq(bookings.id, id));
+  const result = await db
+    .update(bookings)
+    .set({ escrowContractId: contractId })
+    .where(and(eq(bookings.id, id), isNull(bookings.escrowState), isNull(bookings.escrowContractId)));
   if (result.changes === 0) {
-    throw new TypeError(`No booking exists with id "${id}"`);
+    throw new TypeError(
+      `Could not persist escrowContractId for booking "${id}": it does not exist, or already has an escrow_state or a contractId`,
+    );
   }
 }
 
