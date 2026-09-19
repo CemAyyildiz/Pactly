@@ -5,3 +5,19 @@ node_modules/
 !.env.example
 target/
 dist/
+
+# Node
+npm-debug.log*
+*.tsbuildinfo
+.vite/
+coverage/
+
+# Rust / Soroban
+*.wasm
+
+# Local data
+backend/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

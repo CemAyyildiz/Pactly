@@ -1,0 +1,5 @@
+# Applies to every cargo invocation in this repository (contracts/escrow).
+[toolchain]
+channel = "1.97.1"
+targets = ["wasm32v1-none"]
+profile = "minimal"

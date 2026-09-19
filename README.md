@@ -5,7 +5,7 @@ A trust-backed booking marketplace for appointment-based services. The deposit i
 **Event:** Rise In × Stellar Pro Hackathon 2026 — Genesis Track
 **Network:** Stellar testnet · **Asset:** USDC · **Anchor:** `tr-mock-anchor.fly.dev`
 
-> Status: planning complete, implementation starting. The setup steps below are verified as the code lands.
+> Status: implementation in progress. The setup steps below are verified against the current code.
 
 ## The problem
 
@@ -70,21 +70,41 @@ frontend/           # React + TypeScript + Vite
 scripts/            # testnet funding, trustlines, deployment, seed data
 ```
 
-## Setup (planned)
+## Setup
 
-Requirements: Node.js 22 LTS, Rust toolchain with the `wasm32v1-none` target, Stellar CLI.
+### Prerequisites
+
+| Tool | Version | Needed for |
+|---|---|---|
+| Node.js | 22 LTS (>= 22.12) | backend and frontend |
+| npm | 10 or newer | workspaces |
+| Rust (rustup) | 1.97.1, pinned in `rust-toolchain.toml` (rustup installs it on first cargo run) | escrow contract |
+| `wasm32v1-none` target | `rustup target add wasm32v1-none` | contract wasm build |
+| Stellar CLI | current release — [install guide](https://developers.stellar.org/docs/tools/cli/install-cli) | testnet deployment only (Story 1.7); not needed to run the app or the contract tests |
+
+### Install and run
 
 ```bash
-npm install                 # backend + frontend dependencies
-npm run setup:testnet       # test accounts, trustlines, contract deploy → .env
+npm install                 # installs both workspaces (backend, frontend)
+cp .env.example .env        # the defaults point at Stellar testnet and run as-is
 npm run dev                 # backend + frontend together
 ```
 
-Contract tests:
+- Backend: <http://localhost:3001/health> returns `{"status":"ok"}`.
+- Frontend: <http://localhost:5173> shows the placeholder screen.
+
+The backend reads every variable once in `backend/src/config.ts` and exits, naming the variable, if one is missing from `.env`.
+
+### Other commands
 
 ```bash
-cd contracts/escrow && cargo test
+npm run build               # type-check and build backend and frontend
+npm test                    # contract tests, then any workspace tests
+npm run contracts:test      # cargo test in contracts/escrow
+npm run contracts:build     # release wasm → contracts/escrow/target/wasm32v1-none/release/pactly_escrow.wasm
 ```
+
+`npm run setup:testnet` (test accounts, trustlines, contract deploy → `.env`) arrives with Story 1.7; see [`scripts/README.md`](scripts/README.md).
 
 ## Stack
 

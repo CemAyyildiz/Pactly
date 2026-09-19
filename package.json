@@ -1,0 +1,23 @@
+{
+  "name": "pactly",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Trust-backed booking marketplace with a Soroban escrow deposit.",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail --names backend,frontend --prefix-colors blue,magenta \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "build": "npm run build --workspaces",
+    "test": "npm run contracts:test && npm run test --workspaces --if-present",
+    "contracts:build": "cargo build --manifest-path contracts/escrow/Cargo.toml --target wasm32v1-none --release",
+    "contracts:test": "cargo test --manifest-path contracts/escrow/Cargo.toml"
+  },
+  "devDependencies": {
+    "concurrently": "10.0.5"
+  }
+}
