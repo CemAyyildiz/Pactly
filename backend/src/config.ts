@@ -101,6 +101,25 @@ export interface Config {
   escrowContractId: string;
   /** Stellar account ids granted the `admin` role (AD-12). */
   adminWallets: string[];
+  /** Trustless Work's Core v2 API base URL (Story 2.6). Empty until Story
+   * 1.8's blocked live ACs are unblocked with a real operator key -- the
+   * adapter refuses before any network access when this is empty, same
+   * discipline as `escrowContractId` above. */
+  trustlessWorkApiUrl: string;
+  /** `x-api-key` header value for the Trustless Work API. Empty until a
+   * real operator key exists. */
+  trustlessWorkApiKey: string;
+  /** Attribution header value (`X-TW-Platform`) identifying Pactly to
+   * Trustless Work -- provided by the operator's TW account, not invented
+   * here. May be empty (the adapter omits the header rather than sending
+   * one that is blank). */
+  trustlessWorkPlatformId: string;
+  /** Pactly's own Stellar account (G...) used for every Trustless Work
+   * role Pactly itself holds: platform, dispute resolver, and (Story 2.6's
+   * own admin-role decision -- see `escrow/trustless-work/client.ts`)
+   * admin. Signing itself is out of this story's scope; only the address
+   * is needed to build unsigned XDR naming Pactly correctly. */
+  trustlessWorkPlatformAddress: string;
   /** Absolute path; a relative DATABASE_PATH is resolved against backend/. */
   databasePath: string;
 }
@@ -115,6 +134,10 @@ function loadConfig(): Config {
     pactlyAuthSigningSecret: secret("PACTLY_AUTH_SIGNING_SECRET", 32),
     escrowContractId: declared("ESCROW_CONTRACT_ID"),
     adminWallets: list("PACTLY_ADMIN_WALLETS"),
+    trustlessWorkApiUrl: declared("TRUSTLESS_WORK_API_URL"),
+    trustlessWorkApiKey: declared("TRUSTLESS_WORK_API_KEY"),
+    trustlessWorkPlatformId: declared("TRUSTLESS_WORK_PLATFORM_ID"),
+    trustlessWorkPlatformAddress: declared("TRUSTLESS_WORK_PLATFORM_ADDRESS"),
     databasePath: databasePath("DATABASE_PATH"),
   };
 }

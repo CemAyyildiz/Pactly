@@ -16,6 +16,7 @@
   "dependencies": {
     "@hono/node-server": "2.1.1",
     "@stellar/stellar-sdk": "17.1.0",
+    "@trustless-work/escrow-js": "1.0.0-beta.1",
     "better-sqlite3": "13.0.3",
     "drizzle-orm": "0.45.2",
     "hono": "4.13.8",

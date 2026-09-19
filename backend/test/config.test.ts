@@ -37,6 +37,10 @@ function baseEnv(port: number): NodeJS.ProcessEnv {
     PACTLY_AUTH_SIGNING_SECRET: "test-signing-secret-not-for-production-use",
     ESCROW_CONTRACT_ID: "",
     PACTLY_ADMIN_WALLETS: "",
+    TRUSTLESS_WORK_API_URL: "",
+    TRUSTLESS_WORK_API_KEY: "",
+    TRUSTLESS_WORK_PLATFORM_ID: "",
+    TRUSTLESS_WORK_PLATFORM_ADDRESS: "",
     DATABASE_PATH: "./data/pactly.db",
   };
 }

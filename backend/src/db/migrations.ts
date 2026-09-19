@@ -62,6 +62,7 @@ const STATEMENTS: readonly string[] = [
     cancel_deadline INTEGER NOT NULL,
     escrow_state TEXT,
     balance_state TEXT NOT NULL DEFAULT 'unpaid',
+    escrow_contract_id TEXT,
     created_at INTEGER NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS reviews (
@@ -97,6 +98,28 @@ const STATEMENTS: readonly string[] = [
     is_anomaly INTEGER NOT NULL DEFAULT 0,
     processed_at INTEGER NOT NULL,
     PRIMARY KEY (booking_id, event_type)
+  )`,
+  `CREATE TABLE IF NOT EXISTS escrow_processed_events (
+    booking_id TEXT NOT NULL,
+    contract_id TEXT NOT NULL,
+    lifecycle_action TEXT NOT NULL,
+    amount TEXT NOT NULL,
+    ledger_seq TEXT NOT NULL,
+    is_anomaly INTEGER NOT NULL DEFAULT 0,
+    processed_at INTEGER NOT NULL,
+    PRIMARY KEY (contract_id, lifecycle_action)
+  )`,
+  `CREATE TABLE IF NOT EXISTS escrow_reconciler_watermarks (
+    contract_id TEXT PRIMARY KEY,
+    last_ledger_seq TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS escrow_dispute_resolutions (
+    booking_id TEXT PRIMARY KEY,
+    contract_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    tx_hash TEXT NOT NULL,
+    decided_at INTEGER NOT NULL
   )`,
 ];
 

@@ -4,10 +4,15 @@
  * `../chain/event-worker.ts` -- which is what AD-1/AD-3 mean in practice:
  * nothing else may write `escrow_state`.
  */
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, notInArray, or } from "drizzle-orm";
 
 import type { Db, DbOrTx } from "./client.js";
-import { bookings, type BalanceState, type EscrowState } from "./schema.js";
+import { bookings, providerProfiles, type BalanceState, type EscrowState } from "./schema.js";
+
+/** `escrow_state` values the reconciler must never move a booking past --
+ * once here, a booking is excluded from every future reconciliation poll
+ * (AC4's "for bookings whose escrow_state is not terminal"). */
+export const TERMINAL_ESCROW_STATES: readonly EscrowState[] = ["released", "refunded"];
 
 export interface NewBooking {
   id: string;
@@ -76,4 +81,55 @@ export async function updateBalanceState(db: Db, id: string, balanceState: Balan
   if (result.changes === 0) {
     throw new TypeError(`No booking exists with id "${id}"`);
   }
+}
+
+/** `services/booking.ts`'s `lockDeposit` write path (Story 2.6, AD-4/AC4):
+ * persists the escrow's predicted `contractId` the moment the deploy XDR is
+ * built. Touches `escrowContractId` alone. A re-`lockDeposit` while
+ * `escrowState` is still `null` is allowed to overwrite an earlier value
+ * (Design Notes: "Why deploy and fund are separate calls") -- this function
+ * itself does not enforce that; the caller does. Throws if `id` matches no
+ * row, rather than silently writing nothing. */
+export async function updateEscrowContractId(db: Db, id: string, contractId: string): Promise<void> {
+  const result = await db.update(bookings).set({ escrowContractId: contractId }).where(eq(bookings.id, id));
+  if (result.changes === 0) {
+    throw new TypeError(`No booking exists with id "${id}"`);
+  }
+}
+
+/** One booking the reconciler is allowed to poll, plus the provider wallet
+ * its escrow's `receiver`/`serviceProviders`/`releaseSigners` roles must
+ * name (Story 1.8's role map) -- resolved once here so
+ * `reconciler.ts` never re-joins `provider_profiles` itself. */
+export interface ReconcilableBooking {
+  booking: BookingRow;
+  providerAddress: string;
+}
+
+/**
+ * Every booking the reconciler may poll this run (AC4, amended
+ * 2026-09-19): a persisted `escrowContractId` and an `escrowState` that is
+ * not yet terminal (`released`/`refunded`) -- once a booking reaches a
+ * terminal state it is never polled again, which is what keeps a stale or
+ * out-of-order read-model row from ever regressing it (the I/O matrix's
+ * "stale or out-of-order row" guard starts here, at the query itself, not
+ * only in the reconciler's own per-row logic).
+ */
+export async function getReconcilableBookings(db: Db): Promise<ReconcilableBooking[]> {
+  const rows = await db
+    .select({ booking: bookings, providerAddress: providerProfiles.walletAddress })
+    .from(bookings)
+    .innerJoin(providerProfiles, eq(bookings.providerProfileId, providerProfiles.id))
+    .where(
+      and(
+        isNotNull(bookings.escrowContractId),
+        // `escrowState` starts `null` (before the reconciler's first
+        // confirmed transition) and must stay pollable then -- SQL's
+        // three-valued logic means a plain `NOT IN` silently excludes NULL
+        // rows, which would make the very first "funded" transition
+        // unreachable for every booking.
+        or(isNull(bookings.escrowState), notInArray(bookings.escrowState, [...TERMINAL_ESCROW_STATES])),
+      ),
+    );
+  return rows.map((row) => ({ booking: row.booking, providerAddress: row.providerAddress }));
 }

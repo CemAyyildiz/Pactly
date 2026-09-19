@@ -117,6 +117,20 @@ export const bookings = sqliteTable("bookings", {
   /** `null` until the event worker records this booking's first event. */
   escrowState: text("escrow_state", { enum: ESCROW_STATES }),
   balanceState: text("balance_state", { enum: BALANCE_STATES }).notNull().default("unpaid"),
+  /**
+   * Story 2.6: the Trustless Work escrow's predicted `contractId`, persisted
+   * by `services/booking.ts`'s `lockDeposit` the moment the deploy XDR is
+   * built -- before it is ever signed or submitted. This is the anti-forgery
+   * boundary AC4 requires (amended 2026-09-19): the reconciler only ever
+   * polls `contractId`s that appear here, never escrows discovered by their
+   * own self-reported `engagementId` (anyone can deploy an escrow naming any
+   * `engagementId`, so trusting that field alone would let a third party's
+   * escrow move this booking to `locked`). `null` until `lockDeposit` runs;
+   * may be overwritten by a re-`lockDeposit` while `escrowState` is still
+   * `null` (an unsubmitted earlier deploy XDR is harmless -- `fundDeposit`
+   * only ever targets the currently persisted id).
+   */
+  escrowContractId: text("escrow_contract_id"),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -207,3 +221,87 @@ export const processedEvents = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.bookingId, table.eventType] })],
 );
+
+/**
+ * Story 2.6's own reconciler dedupe ledger (amended 2026-09-19): the
+ * reconciler no longer discovers events off `EscrowEvent.kind` (the SDK
+ * defines no fixed vocabulary for it -- see the reconciler's own top doc
+ * comment); it derives a lifecycle transition from an `EscrowSummary`
+ * read-model row's own fields (`status`, `balance`, `snapshot.dispute`,
+ * `snapshot.released`, milestone approvals). The dedupe key changes to
+ * `(contractId, lifecycleAction)` -- a transition either happened for this
+ * escrow or it did not; there is no per-transaction identity on the
+ * read-model row to key on the way `processedEvents.eventType` could.
+ * `lifecycleAction` is one of `EscrowLifecycleAction`
+ * (`../escrow/trustless-work/reconciler.ts`): `funded` | `approved` |
+ * `disputed` | `released` | `resolved` -- `resolved` is kept distinct from
+ * `released` so `getEscrowLifecycle` can tell "the happy path released"
+ * apart from "a dispute was resolved" for Epic 3's finer UX labels
+ * (Design Notes: "Why lifecycle rows are finer than escrow_state").
+ */
+export const escrowProcessedEvents = sqliteTable(
+  "escrow_processed_events",
+  {
+    bookingId: text("booking_id").notNull(),
+    /** The Trustless Work escrow's own identity (a Soroban `C...`) -- half
+     * of the dedupe key. */
+    contractId: text("contract_id").notNull(),
+    lifecycleAction: text("lifecycle_action").notNull(),
+    /** Integer string, smallest unit (AD-7), best-effort from the
+     * read-model row's own `balance` at the time this transition was
+     * derived -- never the SDK's own human-decimal string (see the
+     * reconciler's own amount-conversion note). */
+    amount: text("amount").notNull(),
+    /** The escrow's own `lastLedgerSeq` at the time this transition was
+     * derived, kept as the string it arrives as (Trustless Work's
+     * read-model uses strings for ledger sequence numbers, not a
+     * JS-safe integer) -- traceability only; the watermark that actually
+     * gates re-processing lives in `escrowReconcilerWatermarks` below. */
+    ledgerSeq: text("ledger_seq").notNull(),
+    isAnomaly: integer("is_anomaly", { mode: "boolean" }).notNull().default(false),
+    processedAt: integer("processed_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.contractId, table.lifecycleAction] })],
+);
+
+/**
+ * The reconciler's per-escrow restart watermark (AC4, amended 2026-09-19):
+ * one row per `contractId` this backend has ever polled, holding the
+ * highest `EscrowSummary.lastLedgerSeq` seen for it. Replaces a single
+ * global cursor (Story 2.6's first, pre-amendment attempt) because the
+ * reconciler no longer scans one global event stream -- it polls a
+ * `contractIds` list rebuilt fresh from `bookings.escrow_contract_id` on
+ * every run, and a restart must skip only the escrow rows it has already
+ * looked at, not resume some unrelated single position.
+ */
+export const escrowReconcilerWatermarks = sqliteTable("escrow_reconciler_watermarks", {
+  contractId: text("contract_id").primaryKey(),
+  lastLedgerSeq: text("last_ledger_seq").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const DISPUTE_OUTCOMES = ["refund-client", "pay-provider"] as const;
+export type DisputeOutcome = (typeof DISPUTE_OUTCOMES)[number];
+
+/**
+ * Pactly's own dispute-resolution decision (Design Notes: "Why the
+ * resolution decision is recorded with its txHash"), one row per booking
+ * (at most one dispute resolution per booking, ever -- a booking's deposit
+ * can only be allocated once). Written by `services/booking.ts`'s
+ * `resolveBookingDispute` the moment the unsigned resolve-dispute XDR is
+ * built; read by the reconciler once the chain shows the dispute resolved
+ * and the balance at zero, to learn which of `refunded`/`released` that
+ * evidence actually means -- the read-model shows *that* a dispute
+ * resolved, never *to whom* the money went (AC7: never an outcome a
+ * deadline infers on its own).
+ */
+export const escrowDisputeResolutions = sqliteTable("escrow_dispute_resolutions", {
+  bookingId: text("booking_id").primaryKey(),
+  contractId: text("contract_id").notNull(),
+  outcome: text("outcome", { enum: DISPUTE_OUTCOMES }).notNull(),
+  /** The unsigned resolve-dispute transaction's own hash -- the hash the
+   * signed transaction lands with once submitted, so this row names exactly
+   * the allocation Pactly signed. */
+  txHash: text("tx_hash").notNull(),
+  decidedAt: integer("decided_at").notNull(),
+});
