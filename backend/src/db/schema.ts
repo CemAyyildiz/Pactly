@@ -162,6 +162,37 @@ export const bookings = sqliteTable("bookings", {
    * earlier deploy may already have landed and been funded.
    */
   escrowContractId: text("escrow_contract_id"),
+  /**
+   * Story 3.4: the AD-13 slot hold's own slot (3.1's `availability_slots`).
+   * `null` only for a booking inserted before this column existed (Story
+   * 2.6-era tests and rows) -- every booking `holdSlot` creates from here on
+   * always sets this. This is the join a slot's "is it actively held or
+   * locked" check reads (`getReconcilableBookings`'s sibling,
+   * `insertBookingHoldIfSlotFree`): at most one booking per `slotId` may be
+   * "active" (a non-expired hold, or a non-null `escrowState`) at a time.
+   */
+  slotId: text("slot_id").references(() => availabilitySlots.id),
+  /**
+   * Story 3.4 (AD-13): the hold's own 10-minute expiry, UTC epoch seconds.
+   * `null` for a pre-3.4 booking. Once this passes with `escrowState` still
+   * `null`, the slot is holdable again (the row itself is kept -- see the
+   * story's own Design Notes, "Why expired holds keep their row"). Lock and
+   * fund both refuse once this has passed and `escrowState` is still `null`
+   * (`409 HOLD_EXPIRED`); submit does not check this, since a transaction
+   * the client already signed must still be allowed to land.
+   */
+  holdExpiresAt: integer("hold_expires_at"),
+  /**
+   * Story 3.4: the unsigned deploy XDR `lockDeposit` built for the
+   * currently-persisted `escrowContractId`, stored so a retried `lock` call
+   * (after a declined wallet signature) returns the exact same XDR and
+   * `contractId` rather than building a second, competing escrow for the
+   * same booking (Design Notes: "Why retry reuses the stored deploy XDR").
+   * Cleared only when `lockDeposit` confirms, via `listEscrows`, that the
+   * old `contractId` never actually landed on chain, and rebuilds a fresh
+   * one.
+   */
+  escrowDeployXdr: text("escrow_deploy_xdr"),
   createdAt: integer("created_at").notNull(),
 });
 

@@ -116,6 +116,10 @@ export interface ResolveDisputeInput {
   distributions: ResolveDisputeDistribution[];
 }
 
+export interface SubmitTransactionResult {
+  txHash: string;
+}
+
 export interface EscrowAdapter {
   deploy(input: DeployEscrowInput): Promise<DeployEscrowResult>;
   fund(input: FundEscrowInput): Promise<UnsignedTransaction>;
@@ -126,4 +130,16 @@ export interface EscrowAdapter {
    * see this interface's own top-level doc comment. Never called as a
    * side effect of a deadline passing. */
   resolveDispute(input: ResolveDisputeInput): Promise<UnsignedTransaction>;
+  /**
+   * Story 3.4: submits a transaction the caller's own wallet has already
+   * signed (any of the unsigned XDRs the five methods above returned) over
+   * Trustless Work's own `POST /stellar/send-transaction` -- this backend
+   * never holds a private key, so this is the one method that ever crosses
+   * from "unsigned" to "on chain", and it does so with a transaction this
+   * adapter never built itself, only relayed. `escrow_state` still never
+   * moves here (AD-1): only the reconciler, reading confirmed evidence
+   * back out of Trustless Work's own read model, ever writes it -- this
+   * method's own successful return is not itself that evidence.
+   */
+  submit(signedXdr: string): Promise<SubmitTransactionResult>;
 }

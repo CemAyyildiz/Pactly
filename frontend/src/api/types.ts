@@ -98,3 +98,58 @@ export interface DiscoverFiltersParams {
   maxDepositBps?: number;
   when?: DiscoverAvailability;
 }
+
+// ---------------------------------------------------------------------------
+// Story 3.4: the client booking flow. Mirrors `backend/src/services/
+// booking.ts`'s response shapes exactly, same discipline as the rest of
+// this file.
+// ---------------------------------------------------------------------------
+
+export interface BookingProviderSummary {
+  id: string;
+  displayName: string;
+  title: string;
+}
+
+export interface HoldSlotResponse {
+  bookingId: string;
+  /** UTC epoch seconds. */
+  holdExpiresAt: number;
+  deposit: Money;
+  balance: Money;
+  price: Money;
+  /** UTC epoch seconds. */
+  cancelDeadline: number;
+  provider: BookingProviderSummary;
+}
+
+export interface LockResponse {
+  unsignedXdr: string;
+  contractId: string;
+}
+
+export interface FundResponse {
+  unsignedXdr: string;
+}
+
+export interface SubmitResponse {
+  txHash: string;
+}
+
+export type EscrowLifecycleAction = "funded" | "approved" | "disputed" | "released" | "resolved";
+
+export interface BookingView {
+  id: string;
+  /** `null` until the reconciler confirms it -- the UI only ever shows
+   * "locked" from here, never from a lock/fund/submit response. */
+  escrowState: "locked" | "released" | "refunded" | null;
+  lifecycle: { contractId?: string; action?: EscrowLifecycleAction; outcome?: "refund-client" | "pay-provider" };
+  holdExpiresAt: number | null;
+  contractId: string | null;
+  deposit: Money;
+  balance: Money;
+  price: Money;
+  slotStartsAt: number | null;
+  cancelDeadline: number;
+  provider: BookingProviderSummary;
+}

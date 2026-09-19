@@ -3,6 +3,7 @@ import { Link, Route, Routes } from "react-router";
 import { DiscoverPage } from "./pages/discover/DiscoverPage";
 import { ProviderProfilePage } from "./pages/provider/ProviderProfilePage";
 import { AvailabilityPage } from "./pages/panel/AvailabilityPage";
+import { BookingPage } from "./pages/booking/BookingPage";
 
 /** The minimal top bar every screen shares (Task list): brand, and the
  * escrow-provenance note DESIGN.md/EXPERIENCE.md require to be visible
@@ -28,6 +29,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<DiscoverPage />} />
         <Route path="/providers/:id" element={<ProviderProfilePage />} />
+        <Route path="/book/:providerId" element={<BookingPage />} />
         <Route path="/panel/availability" element={<AvailabilityPage />} />
       </Routes>
     </>

@@ -41,6 +41,20 @@ import {
   updateProviderRules,
   type DiscoverFilters,
 } from "./services/profile.js";
+import {
+  BookingEscrowStateError,
+  BookingHoldExpiredError,
+  BookingNotFoundError,
+  SlotTakenError,
+  SlotUnavailableError,
+  fundDeposit,
+  getBookingForClient,
+  getBookingView,
+  holdSlot,
+  lockDeposit,
+  submitSignedTransaction,
+} from "./services/booking.js";
+import { EscrowApiError, EscrowConfigError, EscrowRequestError } from "./escrow/trustless-work/errors.js";
 
 export interface Variables {
   /** Set by `requirePactlyAuth` once a request's Pactly JWT verifies --
@@ -296,6 +310,159 @@ export function createApp(db: Db): App {
       }
       if (error instanceof InvalidAvailabilitySlotsError) {
         return c.json({ code: "INVALID_SLOTS", message: error.message, details: error.details }, 400);
+      }
+      throw error;
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // Story 3.4: the client booking flow ("Lock with Pactly"). Every route
+  // below requires a Pactly JWT; `lock`/`fund`/`submit`/`GET` all resolve
+  // ownership from the caller's own wallet, never from a body/query field
+  // (same discipline as the Story 3.1 routes above) -- an unknown booking
+  // and someone else's booking give the identical `404 BOOKING_NOT_FOUND`,
+  // so bookings are never enumerable.
+  // ---------------------------------------------------------------------
+
+  /** A Trustless Work failure translated into the route's own envelope --
+   * shared by lock/fund/submit, the three routes that can reach the
+   * adapter. Never a raw body or stack trace (AC5, carried through from
+   * Story 2.6). */
+  function escrowErrorResponse(error: EscrowApiError | EscrowRequestError | EscrowConfigError) {
+    if (error instanceof EscrowApiError) {
+      return { code: "ESCROW_REJECTED", message: "Trustless Work could not process this request.", status: 502 as const };
+    }
+    return { code: "ESCROW_UNAVAILABLE", message: "Trustless Work is unavailable right now. Your deposit is untouched.", status: 503 as const };
+  }
+
+  app.post("/bookings/hold", requirePactlyAuth, async (c) => {
+    const body = await c.req.json().catch(() => undefined);
+    const providerId = typeof body?.providerId === "string" ? body.providerId : undefined;
+    const slotStartsAt = typeof body?.slotStartsAt === "number" ? body.slotStartsAt : undefined;
+    if (!providerId || slotStartsAt === undefined) {
+      return c.json(
+        { code: "invalid_request", message: "providerId and slotStartsAt are required." },
+        400,
+      );
+    }
+    try {
+      const result = await holdSlot(db, {
+        providerProfileId: providerId,
+        clientWalletAddress: c.get("walletAddress"),
+        slotStartsAt,
+      });
+      return c.json(result, 201);
+    } catch (error) {
+      if (error instanceof ProviderNotFoundError) {
+        return c.json({ code: "PROVIDER_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof SlotUnavailableError) {
+        return c.json({ code: "SLOT_UNAVAILABLE", message: error.message }, 409);
+      }
+      if (error instanceof SlotTakenError) {
+        return c.json(
+          { code: "SLOT_TAKEN", message: error.message, details: { sameDaySlots: error.sameDaySlots } },
+          409,
+        );
+      }
+      throw error;
+    }
+  });
+
+  app.post("/bookings/:id/lock", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    try {
+      await getBookingForClient(db, bookingId, c.get("walletAddress"));
+      const result = await lockDeposit(db, bookingId);
+      return c.json({ unsignedXdr: result.deploy.unsignedXdr, contractId: result.contractId });
+    } catch (error) {
+      if (error instanceof BookingNotFoundError) {
+        return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof BookingHoldExpiredError) {
+        return c.json({ code: "HOLD_EXPIRED", message: error.message }, 409);
+      }
+      if (error instanceof BookingEscrowStateError) {
+        return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
+      }
+      if (error instanceof EscrowApiError || error instanceof EscrowRequestError || error instanceof EscrowConfigError) {
+        const response = escrowErrorResponse(error);
+        return c.json({ code: response.code, message: response.message }, response.status);
+      }
+      throw error;
+    }
+  });
+
+  app.post("/bookings/:id/fund", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    try {
+      await getBookingForClient(db, bookingId, c.get("walletAddress"));
+      const result = await fundDeposit(db, bookingId);
+      return c.json({ unsignedXdr: result.unsignedXdr });
+    } catch (error) {
+      if (error instanceof BookingNotFoundError) {
+        return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof BookingHoldExpiredError) {
+        return c.json({ code: "HOLD_EXPIRED", message: error.message }, 409);
+      }
+      if (error instanceof BookingEscrowStateError) {
+        return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
+      }
+      if (error instanceof EscrowApiError || error instanceof EscrowRequestError || error instanceof EscrowConfigError) {
+        const response = escrowErrorResponse(error);
+        return c.json({ code: response.code, message: response.message }, response.status);
+      }
+      throw error;
+    }
+  });
+
+  app.post("/bookings/:id/submit", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    const body = await c.req.json().catch(() => undefined);
+    const signedXdr = typeof body?.signedXdr === "string" ? body.signedXdr : undefined;
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    if (!signedXdr) {
+      return c.json({ code: "invalid_request", message: "signedXdr is required." }, 400);
+    }
+    try {
+      // Submit is allowed after the hold expires (the spec's own "Never"
+      // rule) -- `getBookingForClient` only ever checks existence and
+      // ownership, never the hold's own clock.
+      await getBookingForClient(db, bookingId, c.get("walletAddress"));
+      const result = await submitSignedTransaction(bookingId, signedXdr);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof BookingNotFoundError) {
+        return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof EscrowApiError || error instanceof EscrowRequestError || error instanceof EscrowConfigError) {
+        const response = escrowErrorResponse(error);
+        return c.json({ code: response.code, message: response.message }, response.status);
+      }
+      throw error;
+    }
+  });
+
+  app.get("/bookings/:id", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    try {
+      const view = await getBookingView(db, bookingId, c.get("walletAddress"));
+      return c.json(view);
+    } catch (error) {
+      if (error instanceof BookingNotFoundError) {
+        return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
       }
       throw error;
     }

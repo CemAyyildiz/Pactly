@@ -102,13 +102,14 @@ button {
 }
 
 /* ---------------------------------------------------------------------
- * Buttons -- DESIGN.md Components: button-primary / button-ghost.
- * Black is reserved for the escrow lock action, which this story never
- * renders (no booking here) -- so no `.button-escrow` class exists yet.
+ * Buttons -- DESIGN.md Components: button-primary / button-ghost /
+ * button-escrow. `button-escrow` (Story 3.4) is the only black button in
+ * the product -- used solely for "Lock with Pactly".
  * --------------------------------------------------------------------- */
 
 .button-primary,
-.button-ghost {
+.button-ghost,
+.button-escrow {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -127,7 +128,8 @@ button {
   border: 1.5px solid var(--color-you-ink);
 }
 
-.button-primary:disabled {
+.button-primary:disabled,
+.button-escrow:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -136,6 +138,16 @@ button {
   background: transparent;
   color: var(--color-ink);
   border: 1.5px solid var(--color-ink);
+}
+
+.button-escrow {
+  width: 100%;
+  background: var(--color-escrow);
+  color: var(--color-escrow-text);
+  border: 1.5px solid var(--color-escrow-text);
+  padding: 16px 24px;
+  font-size: var(--text-18);
+  font-weight: 700;
 }
 
 /* ---------------------------------------------------------------------
@@ -1027,4 +1039,301 @@ button {
   height: 44px;
   width: 72px;
   border-radius: var(--radius-sm);
+}
+
+/* ---------------------------------------------------------------------
+ * Booking & payment (Story 3.4) -- DESIGN.md's three lanes: client
+ * (mustard ground), escrow (black), provider (teal ground). >=1024px
+ * three columns side by side; below that they stack, reorder (provider on
+ * top, client's choices in the middle, escrow pinned to the bottom bar),
+ * and the escrow lane is never hidden at any breakpoint.
+ * --------------------------------------------------------------------- */
+
+.booking-page {
+  max-width: 1120px;
+}
+
+.booking-lanes {
+  display: grid;
+  grid-template-columns: 1fr 260px 1fr;
+  border: 1.5px solid var(--color-ink);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+@media (max-width: 1023px) {
+  .booking-lanes {
+    grid-template-columns: 1fr;
+  }
+  .booking-lane--provider {
+    order: 1;
+  }
+  .booking-lane--you {
+    order: 2;
+  }
+  .escrow-lane {
+    order: 3;
+    position: sticky;
+    bottom: 0;
+  }
+}
+
+.booking-lane {
+  padding: var(--space-6);
+}
+
+.booking-lane--you {
+  background: var(--color-you);
+  color: var(--color-you-ink);
+}
+
+.booking-lane--provider {
+  background: var(--color-pro);
+  color: var(--color-pro-text);
+}
+
+.booking-lane__heading {
+  font-family: var(--font-label);
+  font-size: var(--text-12);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin: 0 0 var(--space-4);
+}
+
+.booking-lane__appointment {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: var(--text-32);
+  line-height: 0.9;
+  margin: 0;
+}
+
+.booking-lane__meta {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-14);
+}
+
+.booking-summary {
+  margin-top: var(--space-5);
+  border-top: 1.5px solid rgba(58, 42, 0, 0.35);
+  padding-top: var(--space-4);
+}
+
+.booking-summary__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(58, 42, 0, 0.2);
+  font-size: var(--text-14);
+}
+
+.booking-summary-note {
+  margin-top: var(--space-4);
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.booking-summary-note--pro {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.booking-summary-note b {
+  display: block;
+  font-family: var(--font-label);
+  font-size: var(--text-12);
+  font-weight: 500;
+  margin-bottom: 5px;
+}
+
+.payment-method {
+  margin-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.payment-method__option {
+  border: 1.5px solid var(--color-you-ink);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  font-size: var(--text-14);
+  font-weight: 600;
+}
+
+.payment-method__option--selected {
+  background: var(--color-you-ink);
+  color: var(--color-you);
+}
+
+.payment-method__option--disabled {
+  opacity: 0.6;
+  font-weight: 400;
+  border-style: dashed;
+}
+
+.escrow-lane {
+  background: var(--color-escrow);
+  color: var(--color-escrow-text);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+}
+
+.escrow-lane__label {
+  font-family: var(--font-label);
+  font-size: var(--text-12);
+  letter-spacing: 0.02em;
+  color: #8c8a82;
+  margin: 0;
+}
+
+.escrow-lane__lock {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 1.5px solid #3a3a3a;
+  display: grid;
+  place-items: center;
+}
+
+.escrow-lane__amount {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: var(--text-48);
+  line-height: 0.85;
+  margin: 0;
+}
+
+.escrow-lane__state {
+  margin: 0;
+  font-size: var(--text-14);
+}
+
+.escrow-lane__countdown {
+  margin: 0;
+  font-size: var(--text-14);
+  color: #a9a7a0;
+}
+
+.escrow-lane__notice {
+  margin: 0;
+  font-size: var(--text-14);
+  color: #a9a7a0;
+  max-width: 220px;
+}
+
+.escrow-lane__notice--alert {
+  color: #f0b39d;
+}
+
+.escrow-proof {
+  margin: var(--space-3) 0 0;
+  font-family: var(--font-label);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: #8c8a82;
+  border-top: 1px solid #2a2a2a;
+  padding-top: var(--space-3);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.escrow-proof a {
+  color: var(--color-escrow-text);
+  text-decoration: underline;
+}
+
+.lock-button-group {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.lock-button-group__hint {
+  margin: 0;
+  font-size: var(--text-14);
+  color: #a9a7a0;
+}
+
+.lock-button-group__retry {
+  color: var(--color-escrow-text);
+  border-color: var(--color-escrow-text);
+}
+
+/* Seal -- DESIGN.md's seal-locked, stamped once (never repeated). The
+ * scale-in animation only plays when the viewer has not asked for reduced
+ * motion; otherwise the seal simply appears in its final state
+ * (EXPERIENCE.md's own rule for this exact moment). */
+.seal-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.seal {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: 2px solid var(--color-escrow-text);
+  display: grid;
+  place-items: center;
+  color: var(--color-escrow-text);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .seal-wrap--animated .seal {
+    animation: pactly-seal-stamp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .seal-wrap--animated .seal-wrap__title,
+  .seal-wrap--animated .seal-wrap__subtitle {
+    animation: pactly-fade-in 300ms ease-out 200ms both;
+  }
+}
+
+@keyframes pactly-seal-stamp {
+  from {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes pactly-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.seal-wrap__title {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: var(--text-32);
+  margin: 0;
+}
+
+.seal-wrap__subtitle {
+  margin: 0;
+  font-size: 13.5px;
+  color: #a9a7a0;
+  max-width: 220px;
 }

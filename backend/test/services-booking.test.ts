@@ -14,11 +14,13 @@ import "./testConfigEnv.js";
 import { randomBytes } from "node:crypto";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { eq } from "drizzle-orm";
 import { Keypair, StrKey } from "@stellar/stellar-sdk";
 
 import { BookingEscrowStateError, fundDeposit, lockDeposit, resolveBookingDispute, setBalanceState } from "../src/services/booking.js";
 import { getEscrowDisputeResolution } from "../src/db/escrowDisputeResolutions.js";
 import { getBookingById, updateEscrowContractId, updateEscrowStateSync } from "../src/db/bookings.js";
+import { bookings } from "../src/db/schema.js";
 import { insertEscrowProcessedEventIfNew } from "../src/db/escrowProcessedEvents.js";
 import type { Db } from "../src/db/client.js";
 import type {
@@ -70,6 +72,9 @@ function unreachableEscrowAdapter(): EscrowAdapter {
     },
     resolveDispute: async () => {
       throw new Error("resolveDispute should not have been called");
+    },
+    submit: async () => {
+      throw new Error("submit should not have been called");
     },
   };
 }
@@ -135,7 +140,7 @@ test("lockDeposit throws for an unknown booking id without ever calling the adap
   }
 });
 
-test("lockDeposit refuses to run again once a contractId is already persisted, even before escrow_state is ever set", async () => {
+test("lockDeposit retried within the hold returns the same stored deploy XDR and contractId, without a second deploy call (Story 3.4)", async () => {
   const result = openTestDatabase();
   try {
     const bookingId = await seedBooking(result);
@@ -145,21 +150,97 @@ test("lockDeposit refuses to run again once a contractId is already persisted, e
       ...unreachableEscrowAdapter(),
       deploy: async () => {
         calls += 1;
-        return { contractId: firstContractId, unsignedXdr: "x", txHash: "h" };
+        return { contractId: firstContractId, unsignedXdr: "first-unsigned-xdr", txHash: "h" };
       },
     };
 
-    await lockDeposit(result.db, bookingId, adapter);
+    const first = await lockDeposit(result.db, bookingId, adapter);
     assert.equal(calls, 1);
+    assert.equal(first.contractId, firstContractId);
+    assert.equal(first.deploy.unsignedXdr, "first-unsigned-xdr");
 
-    // A second call must refuse before ever calling the adapter again --
-    // overwriting the persisted contractId here could orphan a deploy (or
-    // fund) that already landed on chain.
-    await assert.rejects(() => lockDeposit(result.db, bookingId, unreachableEscrowAdapter()), BookingEscrowStateError);
-    assert.equal(calls, 1, "the adapter must not be called again");
+    // A retry (a declined wallet signature, or a lost response) must return
+    // the exact same escrow and XDR, never deploy a second, competing one.
+    const second = await lockDeposit(result.db, bookingId, unreachableEscrowAdapter());
+    assert.equal(calls, 1, "the adapter's deploy must not be called again");
+    assert.equal(second.contractId, firstContractId);
+    assert.equal(second.deploy.unsignedXdr, "first-unsigned-xdr");
 
     const booking = await getBookingById(result.db, bookingId);
-    assert.equal(booking?.escrowContractId, firstContractId, "the original contractId must survive the refused second call");
+    assert.equal(booking?.escrowContractId, firstContractId, "the original contractId must survive the retried call");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("lockDeposit rebuilds a fresh deploy when a persisted contractId has no stored XDR and does not exist on chain (abandoned-deploy recovery)", async () => {
+  const result = openTestDatabase();
+  try {
+    const bookingId = await seedBooking(result);
+    const abandonedContractId = fakeContractId();
+    // Simulates a pre-3.4 row (or a legacy call site): a contractId
+    // persisted with no stored deploy XDR to retry.
+    await updateEscrowContractId(result.db, bookingId, abandonedContractId);
+
+    const freshContractId = fakeContractId();
+    let calls = 0;
+    const adapter: EscrowAdapter = {
+      ...unreachableEscrowAdapter(),
+      deploy: async () => {
+        calls += 1;
+        return { contractId: freshContractId, unsignedXdr: "fresh-unsigned-xdr", txHash: "h2" };
+      },
+    };
+
+    const result2 = await lockDeposit(result.db, bookingId, adapter, {
+      contractExistsOnChain: async (contractId) => {
+        assert.equal(contractId, abandonedContractId);
+        return false;
+      },
+    });
+    assert.equal(calls, 1, "a fresh deploy must be built once the old contract is confirmed absent");
+    assert.equal(result2.contractId, freshContractId);
+
+    const booking = await getBookingById(result.db, bookingId);
+    assert.equal(booking?.escrowContractId, freshContractId);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("lockDeposit refuses to rebuild when the persisted contractId (no stored XDR) does exist on chain", async () => {
+  const result = openTestDatabase();
+  try {
+    const bookingId = await seedBooking(result);
+    const contractId = fakeContractId();
+    await updateEscrowContractId(result.db, bookingId, contractId);
+
+    await assert.rejects(
+      () =>
+        lockDeposit(result.db, bookingId, unreachableEscrowAdapter(), {
+          contractExistsOnChain: async () => true,
+        }),
+      BookingEscrowStateError,
+    );
+
+    const booking = await getBookingById(result.db, bookingId);
+    assert.equal(booking?.escrowContractId, contractId, "the contractId must survive the refusal");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("lockDeposit refuses once the hold has expired with escrow_state still null", async () => {
+  const result = openTestDatabase();
+  try {
+    const bookingId = await seedBooking(result);
+    const past = Math.floor(Date.now() / 1000) - 1;
+    await result.db.update(bookings).set({ holdExpiresAt: past }).where(eq(bookings.id, bookingId));
+
+    await assert.rejects(
+      () => lockDeposit(result.db, bookingId, unreachableEscrowAdapter(), { now: past + 1 }),
+      (error: unknown) => error instanceof Error && error.name === "BookingHoldExpiredError",
+    );
   } finally {
     closeDatabase(result);
   }

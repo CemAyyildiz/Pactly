@@ -70,6 +70,9 @@ const STATEMENTS: readonly string[] = [
     escrow_state TEXT,
     balance_state TEXT NOT NULL DEFAULT 'unpaid',
     escrow_contract_id TEXT,
+    slot_id TEXT REFERENCES availability_slots(id),
+    hold_expires_at INTEGER,
+    escrow_deploy_xdr TEXT,
     created_at INTEGER NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS reviews (
@@ -168,5 +171,17 @@ export function runMigrations(sqlite: Database): void {
   }
   if (!hasColumn(sqlite, "provider_profiles", "location")) {
     sqlite.exec(`ALTER TABLE provider_profiles ADD COLUMN location TEXT NOT NULL DEFAULT ''`);
+  }
+  // Story 3.4: the AD-13 slot hold's own columns -- nullable, since a
+  // database created before this story has `bookings` rows that never had a
+  // slot or a hold expiry (and never will retroactively).
+  if (!hasColumn(sqlite, "bookings", "slot_id")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN slot_id TEXT REFERENCES availability_slots(id)`);
+  }
+  if (!hasColumn(sqlite, "bookings", "hold_expires_at")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN hold_expires_at INTEGER`);
+  }
+  if (!hasColumn(sqlite, "bookings", "escrow_deploy_xdr")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_deploy_xdr TEXT`);
   }
 }

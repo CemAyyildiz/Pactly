@@ -2,12 +2,17 @@
  * for provider/category data. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { apiGet, apiPut } from "./client";
+import { apiGet, apiPost, apiPut, ApiError } from "./client";
 import type {
+  BookingView,
   CategoriesResponse,
   DiscoverFiltersParams,
+  FundResponse,
+  HoldSlotResponse,
+  LockResponse,
   ProviderProfile,
   ProvidersResponse,
+  SubmitResponse,
   SuggestResponse,
 } from "./types";
 import type { Session } from "../wallet";
@@ -122,5 +127,85 @@ export function useUpdateProviderAvailability(session: Session | undefined) {
     onSuccess: (profile) => {
       queryClient.setQueryData(OWN_PROVIDER_KEY(session?.walletAddress), profile);
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Story 3.4: the client booking flow. `BookingPage.tsx` drives lock/fund/
+// submit imperatively (each step waits on a wallet signature before the
+// next call is even built), so those three are plain async functions, not
+// mutations -- only the hold and the polling read need TanStack Query's own
+// caching/retry behavior.
+// ---------------------------------------------------------------------------
+
+export interface HoldSlotInput {
+  providerId: string;
+  slotStartsAt: number;
+}
+
+export function useHoldSlot(session: Session | undefined) {
+  return useMutation({
+    mutationFn: (input: HoldSlotInput) => apiPost<HoldSlotResponse>("/bookings/hold", input, session?.token),
+  });
+}
+
+export function lockDeposit(bookingId: string, session: Session): Promise<LockResponse> {
+  return apiPost<LockResponse>(`/bookings/${bookingId}/lock`, {}, session.token);
+}
+
+export function fundDeposit(bookingId: string, session: Session): Promise<FundResponse> {
+  return apiPost<FundResponse>(`/bookings/${bookingId}/fund`, {}, session.token);
+}
+
+export function submitSignedTransaction(bookingId: string, signedXdr: string, session: Session): Promise<SubmitResponse> {
+  return apiPost<SubmitResponse>(`/bookings/${bookingId}/submit`, { signedXdr }, session.token);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * `fundDeposit`, retried a few times on `ESCROW_REJECTED`/`ESCROW_UNAVAILABLE`
+ * -- the Design Notes' own documented alternative to polling for "the
+ * deploy is visible": Trustless Work's build-fund step can only succeed
+ * once the just-submitted deploy transaction has actually landed on
+ * Soroban (a few seconds after submission, not instant), and nothing in
+ * the read API surfaces a finer-grained "deployed but not yet funded"
+ * signal (the reconciler's own lifecycle only ever starts at "funded").
+ * Any other failure (a genuine `BOOKING_STATE`, a network drop) is
+ * rethrown immediately, unretried.
+ */
+export async function fundDepositWithRetry(bookingId: string, session: Session, attempts = 5, delayMs = 2500): Promise<FundResponse> {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fundDeposit(bookingId, session);
+    } catch (error) {
+      const retryable = error instanceof ApiError && (error.code === "ESCROW_REJECTED" || error.code === "ESCROW_UNAVAILABLE");
+      if (!retryable || attempt === attempts) {
+        throw error;
+      }
+      await sleep(delayMs);
+    }
+  }
+  // Unreachable -- the loop above always returns or throws.
+  throw new Error("fundDepositWithRetry: exhausted attempts without returning or throwing");
+}
+
+/** `GET /bookings/:id`, polled while the booking hasn't reached a terminal
+ * `escrowState` yet -- the one place the UI learns "locked" actually
+ * happened (never from a submit response, per the spec's own "Always"
+ * rule). `refetchInterval` stays a short constant rather than a prop:
+ * every caller of this hook wants the same "poll until reconciled"
+ * behavior. */
+const BOOKING_POLL_INTERVAL_MS = 2000;
+
+export function useBooking(bookingId: string | undefined, session: Session | undefined, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: ["bookings", bookingId],
+    queryFn: () => apiGet<BookingView>(`/bookings/${bookingId}`, session?.token),
+    enabled: Boolean(bookingId && session) && (options.enabled ?? true),
+    retry: false,
+    refetchInterval: (query) => (query.state.data?.escrowState ? false : BOOKING_POLL_INTERVAL_MS),
   });
 }

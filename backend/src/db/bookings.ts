@@ -4,7 +4,7 @@
  * `../chain/event-worker.ts` -- which is what AD-1/AD-3 mean in practice:
  * nothing else may write `escrow_state`.
  */
-import { and, eq, isNotNull, isNull, notInArray, or } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 
 import type { Db, DbOrTx } from "./client.js";
 import { bookings, providerProfiles, type BalanceState, type EscrowState } from "./schema.js";
@@ -23,6 +23,12 @@ export interface NewBooking {
   balanceAmount?: string;
   cancelDeadline: number;
   balanceState?: BalanceState;
+  /** Story 3.4 (AD-13): the slot this booking holds. `undefined` only for a
+   * pre-3.4 caller (existing tests) -- a real hold always sets this. */
+  slotId?: string;
+  /** Story 3.4 (AD-13): the hold's own expiry, UTC epoch seconds.
+   * `undefined` only for a pre-3.4 caller. */
+  holdExpiresAt?: number;
   createdAt: number;
 }
 
@@ -32,7 +38,13 @@ export type BookingRow = typeof bookings.$inferSelect;
  * backend's hold generates the id and this row exists so the event worker
  * has something to mirror state onto once the chain confirms it. Never
  * sets `escrowState`; it starts `null` and stays that way until the event
- * worker processes this booking's first event. */
+ * worker processes this booking's first event.
+ *
+ * Story 3.4: a real slot hold never calls this directly -- it goes through
+ * {@link insertBookingHoldIfSlotFree}, whose own single `INSERT ... SELECT
+ * ... WHERE NOT EXISTS` statement is what actually enforces "at most one
+ * active booking per slot" in SQL. This function stays the plain,
+ * unconditional insert existing tests (and `seed/demo.ts`) already rely on. */
 export async function insertBooking(db: Db, values: NewBooking): Promise<void> {
   await db.insert(bookings).values({
     id: values.id,
@@ -43,8 +55,49 @@ export async function insertBooking(db: Db, values: NewBooking): Promise<void> {
     balanceAmount: values.balanceAmount ?? "0",
     cancelDeadline: values.cancelDeadline,
     balanceState: values.balanceState ?? "unpaid",
+    slotId: values.slotId,
+    holdExpiresAt: values.holdExpiresAt,
     createdAt: values.createdAt,
   });
+}
+
+/**
+ * The AD-13 slot hold's own write path (Story 3.4): a single `INSERT ...
+ * SELECT ... WHERE NOT EXISTS` statement, so "a slot has at most one active
+ * booking" (the spec's own "Always" rule) is enforced by SQLite itself, in
+ * one atomic statement, never by a separate JS-level check-then-insert that
+ * a second concurrent caller could interleave with. "Active" means a
+ * non-expired hold (`hold_expires_at > now`) or a booking whose
+ * `escrow_state` is already non-null (a locked/released/refunded booking
+ * never frees its slot merely because its own hold's clock ran out).
+ *
+ * Returns `true` when the row was actually inserted (the slot was free),
+ * `false` when another active booking already holds this exact `slotId` --
+ * the caller (`services/booking.ts`'s `holdSlot`) turns a `false` into the
+ * `409 SLOT_TAKEN` response, never a raw constraint error.
+ */
+export async function insertBookingHoldIfSlotFree(
+  db: Db,
+  values: NewBooking & { slotId: string; holdExpiresAt: number },
+  now: number,
+): Promise<boolean> {
+  const result = db.run(sql`
+    INSERT INTO bookings (
+      id, provider_profile_id, client_wallet_address, token_address,
+      deposit_amount, balance_amount, cancel_deadline, slot_id, hold_expires_at,
+      balance_state, created_at
+    )
+    SELECT
+      ${values.id}, ${values.providerProfileId}, ${values.clientWalletAddress}, ${values.tokenAddress},
+      ${values.depositAmount}, ${values.balanceAmount ?? "0"}, ${values.cancelDeadline}, ${values.slotId}, ${values.holdExpiresAt},
+      ${values.balanceState ?? "unpaid"}, ${values.createdAt}
+    WHERE NOT EXISTS (
+      SELECT 1 FROM bookings existing
+      WHERE existing.slot_id = ${values.slotId}
+        AND (existing.escrow_state IS NOT NULL OR existing.hold_expires_at > ${now})
+    )
+  `);
+  return result.changes > 0;
 }
 
 export async function getBookingById(db: Db, id: string): Promise<BookingRow | undefined> {
@@ -123,16 +176,83 @@ export async function updateBalanceState(db: Db, id: string, balanceState: Balan
  * have already ruled out the first two cases with a more specific error;
  * this is the defense against the same race in the small window between
  * that check and this write. */
-export async function updateEscrowContractId(db: Db, id: string, contractId: string): Promise<void> {
+export async function updateEscrowContractId(
+  db: Db,
+  id: string,
+  contractId: string,
+  /** Story 3.4: the unsigned deploy XDR built for this same `contractId`,
+   * stored alongside it (same guarded write, same atomicity) so a retried
+   * `lockDeposit` can return the identical XDR rather than deploying a
+   * second, competing escrow (Design Notes: "Why retry reuses the stored
+   * deploy XDR"). `undefined` for a caller that has no XDR to store (kept
+   * optional so every pre-3.4 call site -- and every test that seeds an
+   * "abandoned deploy with nothing stored" row -- still compiles). */
+  unsignedXdr?: string,
+): Promise<void> {
   const result = await db
     .update(bookings)
-    .set({ escrowContractId: contractId })
+    .set({ escrowContractId: contractId, escrowDeployXdr: unsignedXdr ?? null })
     .where(and(eq(bookings.id, id), isNull(bookings.escrowState), isNull(bookings.escrowContractId)));
   if (result.changes === 0) {
     throw new TypeError(
       `Could not persist escrowContractId for booking "${id}": it does not exist, or already has an escrow_state or a contractId`,
     );
   }
+}
+
+/**
+ * Clears a persisted `contractId` (and its stored deploy XDR, if any) so
+ * `lockDeposit` can rebuild a fresh deploy for an abandoned escrow --
+ * Story 2.6 deferred this recovery to Epic 3 (Design Notes: "Why retry
+ * reuses the stored deploy XDR"). Conditioned on the row still naming the
+ * exact `contractId` the caller already confirmed (via `listEscrows`) is
+ * not actually on chain, and on `escrow_state` still being `null` -- a
+ * concurrent write that already moved this booking on (a real fund landing,
+ * the reconciler confirming it) must never be clobbered by a stale "it's
+ * not on chain" read. Returns `false` on that race rather than throwing --
+ * the caller re-reads the booking and proceeds from its current state.
+ */
+export async function clearAbandonedEscrowContractId(db: Db, id: string, expectedContractId: string): Promise<boolean> {
+  const result = await db
+    .update(bookings)
+    .set({ escrowContractId: null, escrowDeployXdr: null })
+    .where(and(eq(bookings.id, id), eq(bookings.escrowContractId, expectedContractId), isNull(bookings.escrowState)));
+  return result.changes > 0;
+}
+
+/**
+ * Story 3.4's hold-expiry tick (`runner.ts`): every booking whose hold has
+ * expired with an escrow deploy still in flight (`escrowContractId` set,
+ * `escrowState` still `null`) *and* whose slot has since been re-held by a
+ * different active booking -- the double-sale risk the story's own Design
+ * Notes name ("A slot freed from an expired hold whose escrow later
+ * reconciles as funded is logged as an anomaly"). Both rows are left
+ * exactly as they are; this is a read-only detector for the runner to log,
+ * never a writer.
+ */
+export interface PotentialDoubleSale {
+  bookingId: string;
+  contractId: string;
+  slotId: string;
+}
+
+export function listPotentialDoubleSales(db: Db, now: number): PotentialDoubleSale[] {
+  const rows = db.all<{ booking_id: string; contract_id: string; slot_id: string }>(sql`
+    SELECT b.id AS booking_id, b.escrow_contract_id AS contract_id, b.slot_id AS slot_id
+    FROM bookings b
+    WHERE b.escrow_state IS NULL
+      AND b.escrow_contract_id IS NOT NULL
+      AND b.slot_id IS NOT NULL
+      AND b.hold_expires_at IS NOT NULL
+      AND b.hold_expires_at < ${now}
+      AND EXISTS (
+        SELECT 1 FROM bookings other
+        WHERE other.slot_id = b.slot_id
+          AND other.id != b.id
+          AND (other.escrow_state IS NOT NULL OR other.hold_expires_at > ${now})
+      )
+  `);
+  return rows.map((row) => ({ bookingId: row.booking_id, contractId: row.contract_id, slotId: row.slot_id }));
 }
 
 /** One booking the reconciler is allowed to poll, plus the provider wallet

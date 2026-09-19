@@ -103,3 +103,25 @@ export async function signIn(): Promise<Session> {
   saveSession(session);
   return session;
 }
+
+/**
+ * Story 3.4: signs an escrow transaction (a deploy or a fund XDR) the
+ * backend already built -- distinct from `signIn`'s own challenge
+ * signature. Reuses whichever wallet module `signIn`'s own `authModal()`
+ * call already selected (the kit remembers it), so this never re-opens the
+ * wallet picker -- only the initial sign-in ever does that, per the "wallet
+ * requested only at payment" rule this call is itself part of.
+ *
+ * Re-throws whatever the kit throws for a declined signature; the caller
+ * (`BookingPage.tsx`) shows that as neutral information, never a warning
+ * (EXPERIENCE.md: "You didn't sign. The slot is still yours for N
+ * minutes.").
+ */
+export async function signXdr(unsignedXdr: string, walletAddress: string): Promise<string> {
+  ensureKitInitialized();
+  const { signedTxXdr } = await StellarWalletsKit.signTransaction(unsignedXdr, {
+    address: walletAddress,
+    networkPassphrase: Networks.TESTNET,
+  });
+  return signedTxXdr;
+}

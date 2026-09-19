@@ -109,6 +109,14 @@ export function ProviderProfilePage() {
             ))
           )}
         </div>
+
+        {selectedSlot !== undefined && (
+          <div style={{ marginTop: "var(--space-6)" }}>
+            <Link to={`/book/${profile.id}?slot=${selectedSlot}`} className="button-primary" style={{ textDecoration: "none" }}>
+              Continue
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );

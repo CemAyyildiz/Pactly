@@ -46,6 +46,7 @@ import {
   type Distribution,
   type FundEscrowPayload,
   type Roles,
+  type SendTransactionResponse,
   type SingleReleaseReleaseFundsPayload,
   type SingleReleaseResolveDisputePayload,
   type SingleReleaseStartDisputePayload,
@@ -61,6 +62,7 @@ import type {
   ReleaseEscrowInput,
   ResolveDisputeInput,
   StartDisputeInput,
+  SubmitTransactionResult,
   UnsignedTransaction,
 } from "../interface.js";
 import { EscrowConfigError, translateTrustlessWorkError } from "./errors.js";
@@ -88,6 +90,10 @@ export interface EscrowCallDeps {
   releaseFunds: (payload: SingleReleaseReleaseFundsPayload) => Promise<BuildTransactionResponse>;
   startDispute: (payload: SingleReleaseStartDisputePayload) => Promise<BuildTransactionResponse>;
   resolveDispute: (payload: SingleReleaseResolveDisputePayload) => Promise<BuildTransactionResponse>;
+  /** Story 3.4: the `sendTransaction` seam -- relays a caller-signed XDR to
+   * Trustless Work's own `POST /stellar/send-transaction`, never building
+   * or signing anything itself. */
+  sendTransaction: (signedXdr: string) => Promise<SendTransactionResponse>;
 }
 
 function defaultDeps(overrides: Partial<EscrowCallDeps>): EscrowCallDeps {
@@ -131,6 +137,7 @@ function defaultDeps(overrides: Partial<EscrowCallDeps>): EscrowCallDeps {
     releaseFunds: overrides.releaseFunds ?? ((payload) => getClient().rest.releaseFunds(payload, ESCROW_TYPE)),
     startDispute: overrides.startDispute ?? ((payload) => getClient().rest.startDispute(payload, ESCROW_TYPE)),
     resolveDispute: overrides.resolveDispute ?? ((payload) => getClient().rest.resolveDispute(payload, ESCROW_TYPE)),
+    sendTransaction: overrides.sendTransaction ?? ((signedXdr) => getClient().rest.sendTransaction(signedXdr)),
   };
 }
 
@@ -364,6 +371,26 @@ export async function resolveDispute(
   return toUnsignedTransaction(response);
 }
 
+/**
+ * Relays a signature the caller's own wallet already produced -- for any of
+ * the five unsigned XDRs the functions above return -- to Trustless Work's
+ * own `POST /stellar/send-transaction`. This is the one adapter function
+ * that ever crosses from "unsigned" to "on chain"; it still never signs
+ * anything itself (the XDR arrives already signed) and its own successful
+ * return is never treated as confirmed escrow evidence (AD-1) -- only the
+ * reconciler's own read of Trustless Work's read model ever writes
+ * `escrow_state` (see `escrow/interface.ts`'s own doc comment on this
+ * method).
+ */
+export async function submit(
+  signedXdr: string,
+  overrides: Partial<EscrowCallDeps> = {},
+): Promise<SubmitTransactionResult> {
+  const deps = defaultDeps(overrides);
+  const response = await callTrustlessWork(() => deps.sendTransaction(signedXdr));
+  return { txHash: response.txHash };
+}
+
 /** Binds every function above to one fixed set of `EscrowCallDeps`
  * overrides, producing a plain {@link EscrowAdapter} -- the shape
  * `services/booking.ts` actually depends on, per `escrow/interface.ts`'s
@@ -380,6 +407,7 @@ export function createEscrowAdapter(overrides: Partial<EscrowCallDeps> = {}): Es
     release: (input) => release(input, overrides),
     startDispute: (input) => startDispute(input, overrides),
     resolveDispute: (input) => resolveDispute(input, overrides),
+    submit: (signedXdr) => submit(signedXdr, overrides),
   };
 }
 

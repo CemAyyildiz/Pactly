@@ -26,6 +26,7 @@ import {
 import {
   listEarliestFutureSlotsByProvider,
   listFutureSlots,
+  listOpenFutureSlots,
   replaceFutureSlots,
   type AvailabilitySlotRow,
 } from "../db/availabilitySlots.js";
@@ -303,10 +304,15 @@ async function loadCategoryOrThrow(db: Db, categoryId: string, notFound: () => E
 }
 
 /** `GET /providers/:id`: an approved profile's public view, with only the
- * next 30 days of future slots (the I/O matrix). An unapproved or unknown
- * id is indistinguishable -- both throw {@link ProviderNotFoundError} --
- * so nothing about an unapproved profile ever leaks (the spec's own
- * "Always" rule). */
+ * next 30 days of future *open* slots (the I/O matrix). An unapproved or
+ * unknown id is indistinguishable -- both throw {@link ProviderNotFoundError}
+ * -- so nothing about an unapproved profile ever leaks (the spec's own
+ * "Always" rule). Story 3.4: a slot that currently carries an active
+ * booking (a non-expired hold, or a locked escrow) is excluded here --
+ * `listOpenFutureSlots`, not `listFutureSlots` -- so a client is never shown
+ * a slot they cannot actually hold; this is also how "the slot then shows
+ * as taken on the profile" (spec Acceptance Criteria) is satisfied once a
+ * lock lands. */
 export async function getPublicProviderProfile(
   db: Db,
   id: string,
@@ -317,7 +323,7 @@ export async function getPublicProviderProfile(
     throw new ProviderNotFoundError();
   }
   const category = await loadCategoryOrThrow(db, profile.categoryId, () => new ProviderNotFoundError());
-  const slots = await listFutureSlots(db, profile.id, { now, withinSeconds: PUBLIC_SLOTS_WINDOW_SECONDS });
+  const slots = await listOpenFutureSlots(db, profile.id, { now, withinSeconds: PUBLIC_SLOTS_WINDOW_SECONDS });
   return buildProviderProfileView(profile, category, slots);
 }
 

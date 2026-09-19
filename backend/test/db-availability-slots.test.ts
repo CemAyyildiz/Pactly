@@ -7,8 +7,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { listEarliestFutureSlotsByProvider, listFutureSlots, replaceFutureSlots } from "../src/db/availabilitySlots.js";
-import { closeDatabase, openTestDatabase, seedProviderProfile } from "./helpers.js";
+import {
+  getSlotByProviderAndStart,
+  listEarliestFutureSlotsByProvider,
+  listFutureSlots,
+  listOpenFutureSlots,
+  listOpenSlotsInRange,
+  replaceFutureSlots,
+} from "../src/db/availabilitySlots.js";
+import { insertBookingHoldIfSlotFree } from "../src/db/bookings.js";
+import { closeDatabase, openTestDatabase, randomBookingId, seedProviderProfile } from "./helpers.js";
 
 const DAY = 24 * 60 * 60;
 
@@ -122,6 +130,51 @@ test("listEarliestFutureSlotsByProvider caps each provider at the given limit, a
   }
 });
 
+/** Seeds one booking that actively holds `slotId` -- a real hold via
+ * {@link insertBookingHoldIfSlotFree}, the same write path `holdSlot`
+ * (`services/booking.ts`) uses, so these tests exercise the exact
+ * "active booking" definition {@link listOpenFutureSlots} and
+ * {@link replaceFutureSlots} both read. */
+async function holdSlotForTest(
+  result: Awaited<ReturnType<typeof openTestDatabase>>,
+  providerProfileId: string,
+  slotId: string,
+  now: number,
+): Promise<void> {
+  const inserted = await insertBookingHoldIfSlotFree(
+    result.db,
+    {
+      id: randomBookingId(),
+      providerProfileId,
+      clientWalletAddress: "GCLIENTTEST00000000000000000000000000000000000000",
+      tokenAddress: "CTOKENTEST0000000000000000000000000000000000000000",
+      depositAmount: "1000000",
+      cancelDeadline: now + 3600,
+      slotId,
+      holdExpiresAt: now + 600,
+      createdAt: Date.now(),
+    },
+    now,
+  );
+  assert.equal(inserted, true, "test setup: the slot must have been free to hold");
+}
+
+test("listOpenFutureSlots excludes a slot that currently carries an active booking", async () => {
+  const result = openTestDatabase();
+  try {
+    const providerProfileId = await seedProviderProfile(result);
+    const now = 1_000_000;
+    await replaceFutureSlots(result.db, providerProfileId, [now + 900, now + 1800], now);
+    const [openSlot, heldSlot] = await listFutureSlots(result.db, providerProfileId, { now });
+    await holdSlotForTest(result, providerProfileId, heldSlot!.id, now);
+
+    const openSlots = await listOpenFutureSlots(result.db, providerProfileId, { now });
+    assert.deepEqual(openSlots.map((slot) => slot.startsAt), [openSlot!.startsAt]);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
 test("listEarliestFutureSlotsByProvider omits a provider with no future slots (and past slots are never counted)", async () => {
   const result = openTestDatabase();
   try {
@@ -141,11 +194,90 @@ test("listEarliestFutureSlotsByProvider omits a provider with no future slots (a
   }
 });
 
+test("listOpenSlotsInRange returns only open slots within the half-open range", async () => {
+  const result = openTestDatabase();
+  try {
+    const providerProfileId = await seedProviderProfile(result);
+    const now = 1_000_000;
+    const dayStart = now + DAY; // a day boundary strictly in the future of `now`
+    await replaceFutureSlots(result.db, providerProfileId, [dayStart + 3600, dayStart + 7200, dayStart + DAY + 900], now);
+
+    const inRange = await listOpenSlotsInRange(result.db, providerProfileId, dayStart, dayStart + DAY, now);
+    assert.deepEqual(inRange, [dayStart + 3600, dayStart + 7200]);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
 test("listEarliestFutureSlotsByProvider returns an empty map for an empty id list", async () => {
   const result = openTestDatabase();
   try {
     const byProvider = await listEarliestFutureSlotsByProvider(result.db, []);
     assert.equal(byProvider.size, 0);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("getSlotByProviderAndStart finds the exact slot, and nothing for an unknown start time", async () => {
+  const result = openTestDatabase();
+  try {
+    const providerProfileId = await seedProviderProfile(result);
+    const now = 1_000_000;
+    await replaceFutureSlots(result.db, providerProfileId, [now + 900], now);
+
+    const found = await getSlotByProviderAndStart(result.db, providerProfileId, now + 900);
+    assert.equal(found?.startsAt, now + 900);
+    const notFound = await getSlotByProviderAndStart(result.db, providerProfileId, now + 999);
+    assert.equal(notFound, undefined);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("replaceFutureSlots never deletes a slot that carries an active booking, even when the new set omits it (Story 3.4)", async () => {
+  const result = openTestDatabase();
+  try {
+    const providerProfileId = await seedProviderProfile(result);
+    const now = 1_000_000;
+    await replaceFutureSlots(result.db, providerProfileId, [now + 900, now + 1800], now);
+    const beforeSlots = await listFutureSlots(result.db, providerProfileId, { now });
+    const heldSlot = beforeSlots.find((slot) => slot.startsAt === now + 900)!;
+    await holdSlotForTest(result, providerProfileId, heldSlot.id, now);
+
+    // The provider's rules panel has no notion of bookings -- it resubmits
+    // a set that completely omits the held slot's start time.
+    await replaceFutureSlots(result.db, providerProfileId, [now + 3600], now);
+
+    const afterSlots = await listFutureSlots(result.db, providerProfileId, { now });
+    assert.deepEqual(
+      afterSlots.map((slot) => slot.startsAt).sort((a, b) => a - b),
+      [now + 900, now + 3600],
+      "the held slot must survive, alongside the newly saved one",
+    );
+    assert.equal(
+      afterSlots.find((slot) => slot.startsAt === now + 900)?.id,
+      heldSlot.id,
+      "the held slot's own row (and id) must be the original one, never a fresh insert",
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("replaceFutureSlots does not fail when the caller's new set still includes an already-held slot's start time", async () => {
+  const result = openTestDatabase();
+  try {
+    const providerProfileId = await seedProviderProfile(result);
+    const now = 1_000_000;
+    await replaceFutureSlots(result.db, providerProfileId, [now + 900], now);
+    const [heldSlot] = await listFutureSlots(result.db, providerProfileId, { now });
+    await holdSlotForTest(result, providerProfileId, heldSlot!.id, now);
+
+    await replaceFutureSlots(result.db, providerProfileId, [now + 900, now + 1800], now);
+
+    const afterSlots = await listFutureSlots(result.db, providerProfileId, { now });
+    assert.deepEqual(afterSlots.map((slot) => slot.startsAt).sort((a, b) => a - b), [now + 900, now + 1800]);
   } finally {
     closeDatabase(result);
   }

@@ -108,6 +108,26 @@ npm run dev                    # backend + frontend together
 - A provider profile shows the deposit pill (amount + free-cancellation window, always together) and upcoming slots grouped by day.
 - <http://localhost:5173/panel/availability> — sign in with a Stellar wallet (Freighter or any wallet Stellar Wallets Kit supports) to set price, deposit rate, cancellation window and open slots. Set `SEED_PROVIDER_WALLET=G...` (your own wallet's public key) before running `seed:demo` to get an approved profile you can sign in as and edit.
 
+### Try a booking
+
+Story 3.4 adds the "Lock with Pactly" flow: holding a slot, deploying and funding a Trustless Work escrow, and watching the deposit reconcile to `locked`. This needs real testnet infrastructure the backend and frontend alone don't create for you:
+
+1. **A Stellar testnet wallet** (e.g. [Freighter](https://www.freighter.app/)) holding some testnet XLM (for fees) and the anchor's testnet USDC (a trustline plus a balance). `npm run --silent setup:testnet` (see [`scripts/README.md`](scripts/README.md)) funds three demo accounts this way through Friendbot and the anchor at `ANCHOR_HOME_DOMAIN`; import one of the printed secret keys into your wallet, or add the same trustline/balance to your own testnet account by hand.
+2. **The Trustless Work environment variables** — `TRUSTLESS_WORK_API_URL`, `TRUSTLESS_WORK_API_KEY`, `TRUSTLESS_WORK_PLATFORM_ID` and `TRUSTLESS_WORK_PLATFORM_ADDRESS` in `.env` (see `.env.example`'s own notes on which host to use). Until these are filled in, `POST /bookings/:id/lock`/`/fund`/`/submit` all refuse up front with `503 ESCROW_UNAVAILABLE` — the rest of the flow (holding a slot, seeing it disappear from the profile once locked) works either way.
+
+Once both are in place:
+
+```bash
+npm run -w backend seed:demo
+npm run dev
+```
+
+- Open a seeded provider's profile, pick a slot, and tap **Continue** — this opens `/book/:providerId?slot=...`, the booking screen.
+- Review the summary (provider, appointment, deposit, free-cancellation deadline), then tap **Connect wallet and hold**. The wallet is asked for here, not before (discovery and profile browsing never require one).
+- Tap **Lock with Pactly**. Two wallet prompts follow in turn — "Create your escrow", then "Lock your deposit" — each explained in plain language before it happens (never a bare signature request).
+- The screen reads "Locking with Pactly…" until the reconciler confirms the deposit on chain; only then does the seal stamp and "You're set." appear, with the escrow proof (contract id, linking to the testnet explorer) beneath it. The slot then shows as taken on the provider's profile.
+- Declining a wallet prompt is never an error: the slot stays held for the rest of its 10-minute window, and **Lock with Pactly** can be tapped again.
+
 ### Other commands
 
 ```bash

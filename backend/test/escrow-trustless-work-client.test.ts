@@ -27,7 +27,7 @@ import {
   type SingleReleaseStartDisputePayload,
 } from "@trustless-work/escrow-js";
 
-import { approve, deploy, fund, release, resolveDispute, startDispute, type EscrowCallDeps } from "../src/escrow/trustless-work/client.js";
+import { approve, deploy, fund, release, resolveDispute, startDispute, submit, type EscrowCallDeps } from "../src/escrow/trustless-work/client.js";
 import { EscrowApiError, EscrowConfigError, EscrowRequestError } from "../src/escrow/trustless-work/errors.js";
 import type {
   ApproveEscrowInput,
@@ -369,4 +369,39 @@ test("Trustless Work being unreachable (network/timeout) is translated to a type
       return true;
     },
   );
+});
+
+test("submit relays a client-signed XDR to sendTransaction and returns its txHash (Story 3.4)", async () => {
+  let captured: string | undefined;
+  const deps: Partial<EscrowCallDeps> = {
+    ...unreachableStages(),
+    sendTransaction: async (signedXdr) => {
+      captured = signedXdr;
+      return { txHash: "submitted-tx-hash", ledger: 42 };
+    },
+  };
+  const result = await submit("client-signed-xdr-blob", deps);
+  assert.equal(result.txHash, "submitted-tx-hash");
+  assert.equal(captured, "client-signed-xdr-blob");
+});
+
+test("submit translates a Trustless Work API refusal the same way every other mutate call does", async () => {
+  const problem: ApiProblemDetails = {
+    type: "https://trustlesswork.dev/errors/invalid-transaction",
+    title: "Invalid transaction",
+    status: 422,
+    code: "INVALID_TRANSACTION",
+    detail: "the submitted XDR could not be applied",
+  };
+  const deps: Partial<EscrowCallDeps> = {
+    ...unreachableStages(),
+    sendTransaction: async () => {
+      throw new TrustlessWorkApiError(problem);
+    },
+  };
+  await assert.rejects(() => submit("bad-xdr", deps), (error: unknown) => {
+    assert.ok(error instanceof EscrowApiError);
+    assert.equal(error.code, "INVALID_TRANSACTION");
+    return true;
+  });
 });

@@ -136,3 +136,36 @@ deferred: []
 **Manual checks:**
 - Two browser sessions hold the same slot → the second sees "slot taken" with the day's other slots.
 - A full lock on testnet with a funded Freighter wallet → seal appears only after reconciliation; the explorer link opens the contract. (Needs the user's wallet; performed by the user.)
+
+## Auto Run Result
+
+Status: implemented, not yet reviewed.
+
+**Summary:** The AD-13 slot hold (`holdSlot`), the three owner-only escrow steps (deploy, fund, submit), the booking read route, and the reconciler/hold-expiry runner, plus the Booking & payment frontend screen ("Lock with Pactly").
+
+**Backend:**
+- `db/schema.ts`, `migrations.ts`: `bookings.slot_id`, `.hold_expires_at`, `.escrow_deploy_xdr` (guarded ALTER for existing databases).
+- `db/bookings.ts`: `insertBookingHoldIfSlotFree` (one atomic `INSERT ... SELECT ... WHERE NOT EXISTS` -- SQL, not a read-then-write), `clearAbandonedEscrowContractId`, `listPotentialDoubleSales`; `updateEscrowContractId` now also stores the deploy XDR.
+- `db/availabilitySlots.ts`: `listOpenFutureSlots`/`listOpenSlotsInRange` (exclude actively held/locked slots), `getSlotByProviderAndStart`/`getSlotById`; `replaceFutureSlots` now preserves a slot with an active booking even when the caller's set omits it.
+- `anchor/usdc.ts` (new): resolves and caches the anchor's USDC asset and SAC contract id from `stellar.toml`, mirroring `scripts/src/toml.ts`.
+- `escrow/interface.ts`, `escrow/trustless-work/client.ts`: `submit(signedXdr)` over the SDK's `rest.sendTransaction`.
+- `services/booking.ts`: `holdSlot`, `getBookingForClient`, `getBookingView`, `submitSignedTransaction`, `expireHolds`; `lockDeposit` now supports retry (same stored XDR) and abandoned-deploy recovery (chain-checked rebuild); `lockDeposit`/`fundDeposit` both refuse `409 HOLD_EXPIRED`.
+- `runner.ts` (new) + `index.ts`: the reconciler (15s) and hold-expiry (30s) ticks, each isolated per tick, started only in `index.ts`.
+- Five routes on `app.ts`: `POST /bookings/hold`, `POST /bookings/:id/lock`, `POST /bookings/:id/fund`, `POST /bookings/:id/submit`, `GET /bookings/:id`.
+
+**Frontend:**
+- `pages/booking/BookingPage.tsx` (new): the full flow -- summary, connect wallet + hold, Lock with Pactly (lock → sign → submit → retry-fund-until-landable → sign → submit), poll until `locked`, seal. Handles slot-taken alternatives, the hold countdown, wallet rejection (neutral, resumable), and hold expiry.
+- `components/EscrowLane.tsx`, `LockButton.tsx`, `Seal.tsx`, `EscrowProof.tsx` (new).
+- `wallet/index.ts`: `signXdr` (reuses the already-selected wallet module; never re-opens the picker).
+- `ProviderProfilePage.tsx`: a selected slot's "Continue" action into `/book/:providerId?slot=`.
+- Motion is implemented in CSS (`prefers-reduced-motion: no-preference` gated), not Framer Motion -- that package isn't installed in this workspace and this story did not add it, to avoid an unreviewed new dependency; the behavior (seal stamps only once reconciled, skipped under reduced motion) is the same either way.
+
+**A documented design decision (Design Notes gap):** the reconciler's own lifecycle never derives a "deployed but not yet funded" state (its first possible transition, `funded`, itself requires `balance >= deposit`), so there is no backend-observable signal for "poll until the deploy is visible" as literally written. The frontend instead retries `fundDeposit` a few times on `ESCROW_REJECTED`/`ESCROW_UNAVAILABLE` (`fundDepositWithRetry`) -- the Design Notes' own documented alternative ("or a short retry of `fund` succeeds").
+
+**Verification:** `npm run -w backend typecheck && test && build` clean, 263/263 backend tests passing (35 new/changed for this story). `npm run -w frontend typecheck && build` clean. `npm run -w scripts test` unaffected (69/69). Manually verified against the real backend and the real anchor (`tr-mock-anchor.fly.dev`): seeded a real hold, confirmed amounts are derived from the provider profile and the real USDC SAC contract id, confirmed a locked slot disappears from the public profile, confirmed the not-owner/unknown-booking 404 and the `503 ESCROW_UNAVAILABLE` mapping when Trustless Work is unconfigured. Not run: a real lock against a live Trustless Work API key (none exists in this session, same constraint Story 2.6 recorded), and interactive browser QA of the React flow (no browser available in this environment).
+
+**Remaining risks:**
+- The `holdSlot`→`lock`/`fund`→`submit` sequence has never been exercised end to end against a real Trustless Work API key; the fund-retry heuristic's timing (5 attempts, 2.5s apart) is a reasonable guess, not measured against real Soroban finality under load.
+- "Same day" for `SLOT_TAKEN`'s alternatives is computed in UTC, not the client's own timezone (the backend has no notion of it) -- for a viewer far from UTC this can occasionally omit or include a slot a strict local-day reading would not.
+- The hold-expiry tick is a read-only anomaly *detector* (logs a double-sale risk); it never mutates a row itself -- the actual slot-freeing is implicit at the next `holdSlot` call's own atomic insert. This matches the spec's "row is kept" rule but means no alert reaches anyone but the process log.
+- No frontend test runner exists in this workspace (Epic 3's own accepted gap); the booking flow's correctness rests on the backend's test suite plus this session's manual HTTP verification, not on an automated UI test.
