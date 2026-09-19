@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yön 2 — Obsidyen · Pactly</title>
+<style>
+/* YÖN 2 — OBSİDYEN
+   bg        #08090B  zemin
+   surface   #0F1115  kart
+   raised    #151820
+   line      rgba(255,255,255,.08)
+   text      #ECEEF2
+   muted     #8A909C
+   signal    #6EF2C0  kilit / onay (nane)
+   signalDim rgba(110,242,192,.12)
+   glow      #7C6CFF  arka plan ışığı (mor, çok düşük opaklık)
+   amber     #F5B85A  uyarı
+   Font: system-ui (SF Pro) sıkı harf aralığı · sayılar tabular · hash'ler mono
+   Radius: 14px kart, 10px kontrol · Kenarlar: 1px iç ışık */
+:root{--bg:#08090B;--surface:#0F1115;--raised:#151820;--line:rgba(255,255,255,.08);--text:#ECEEF2;--muted:#8A909C;--signal:#6EF2C0;--signalDim:rgba(110,242,192,.12);--glow:#7C6CFF;--amber:#F5B85A;
+--sans:system-ui,-apple-system,"Segoe UI",sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
+*{box-sizing:border-box;margin:0}
+body{background:#030304;font-family:var(--sans);color:var(--text);padding:40px 24px 80px;-webkit-font-smoothing:antialiased}
+.intro{max-width:1240px;margin:0 auto 28px;display:flex;gap:40px;align-items:flex-end;flex-wrap:wrap}
+.intro h1{font-weight:600;font-size:44px;letter-spacing:-.04em}
+.intro .tag{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--signal);margin-bottom:10px}
+.intro p{max-width:560px;color:var(--muted);line-height:1.6;font-size:15px}
+.stage{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:1fr 340px;gap:32px;align-items:start}
+@media(max-width:1100px){.stage{grid-template-columns:1fr}}
+.browser{background:var(--bg);border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.07);position:relative;box-shadow:0 40px 120px -40px rgba(124,108,255,.35)}
+.browser::before{content:"";position:absolute;width:720px;height:520px;right:-160px;top:-200px;background:radial-gradient(closest-side,rgba(124,108,255,.22),transparent);pointer-events:none}
+.browser::after{content:"";position:absolute;width:520px;height:420px;left:-120px;bottom:-220px;background:radial-gradient(closest-side,rgba(110,242,192,.10),transparent);pointer-events:none}
+.chrome{height:38px;display:flex;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid var(--line)}
+.chrome i{width:11px;height:11px;border-radius:50%;background:#23262D}
+.chrome span{margin-left:18px;font-size:12px;color:var(--muted);background:#111318;padding:4px 14px;border-radius:6px;border:1px solid var(--line)}
+nav{display:flex;justify-content:space-between;align-items:center;padding:18px 40px;position:relative;z-index:1}
+.logo{display:flex;align-items:center;gap:10px;font-weight:600;font-size:17px;letter-spacing:-.02em}
+.mark{width:22px;height:22px;border-radius:7px;background:conic-gradient(from 200deg,#6EF2C0,#7C6CFF,#6EF2C0);box-shadow:0 0 18px rgba(110,242,192,.35)}
+.net{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;color:var(--muted);border:1px solid var(--line);padding:6px 11px;border-radius:999px;background:rgba(255,255,255,.02)}
+.pulse{width:7px;height:7px;border-radius:50%;background:var(--signal);box-shadow:0 0 0 0 rgba(110,242,192,.6);animation:p 2.4s infinite}
+@keyframes p{70%{box-shadow:0 0 0 7px rgba(110,242,192,0)}100%{box-shadow:0 0 0 0 rgba(110,242,192,0)}}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none}}
+.page{display:grid;grid-template-columns:1.2fr 1fr;gap:28px;padding:20px 40px 40px;position:relative;z-index:1}
+.card{background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.01));border:1px solid var(--line);border-radius:14px;padding:24px;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+.card+.card{margin-top:16px}
+.label{font-size:12px;color:var(--muted);margin-bottom:14px;display:flex;justify-content:space-between}
+.pro{display:flex;gap:16px;align-items:center}
+.avatar{width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,#2A2F3A,#171A21);border:1px solid rgba(255,255,255,.1);display:grid;place-items:center;font-weight:600;color:#C9CDD6}
+.pro h2{font-size:22px;font-weight:600;letter-spacing:-.025em}
+.pro p{color:var(--muted);font-size:13.5px;margin-top:3px;white-space:nowrap}
+.verified{margin-left:auto;white-space:nowrap;font-family:var(--mono);font-size:11px;color:var(--signal);background:var(--signalDim);padding:5px 9px;border-radius:6px}
+.days{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px}
+.day{padding:10px 0;text-align:center;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.015)}
+.day small{display:block;font-size:11px;color:var(--muted)}
+.day strong{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.day.on{background:var(--text);color:#0A0B0D;border-color:var(--text)}
+.day.on small{color:#4A4F59}
+.slots{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.slot{padding:10px 0;text-align:center;border-radius:10px;font-size:13.5px;border:1px solid var(--line);font-variant-numeric:tabular-nums}
+.slot.on{border-color:rgba(110,242,192,.55);background:var(--signalDim);color:var(--signal);box-shadow:0 0 24px -6px rgba(110,242,192,.45)}
+.slot.off{color:#454A54;border-style:dashed}
+.rule{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.r{border-radius:10px;padding:14px;border:1px solid var(--line);background:rgba(255,255,255,.015)}
+.r .k{font-family:var(--mono);font-size:11px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.r.ok .k{color:var(--signal)}.r.no .k{color:var(--amber)}
+.r p{font-size:13px;color:#C3C7CF;line-height:1.5}
+.r b{color:var(--text);font-weight:600}
+.code{margin-top:12px;font-family:var(--mono);font-size:11.5px;color:var(--muted);background:#0A0C10;border:1px solid var(--line);border-radius:8px;padding:10px 12px;line-height:1.7}
+.code .c{color:#5C6270}.code .v{color:var(--signal)}.code .s{color:#B7A9FF}
+.checkout{position:relative}
+.checkout .card{padding:26px;border-color:rgba(255,255,255,.1)}
+.big{display:flex;align-items:baseline;gap:10px;margin:4px 0 4px}
+.big strong{font-size:52px;font-weight:600;letter-spacing:-.045em;font-variant-numeric:tabular-nums}
+.big span{color:var(--muted);font-size:18px}
+.approx{font-family:var(--mono);font-size:12px;color:var(--muted);margin-bottom:22px}
+.approx b{color:var(--text);font-weight:500}
+.row{display:flex;justify-content:space-between;font-size:13.5px;padding:10px 0;border-top:1px solid var(--line);color:var(--muted);font-variant-numeric:tabular-nums}
+.row b{color:var(--text);font-weight:500}
+.seg{display:grid;grid-template-columns:1fr 1fr;background:#0A0C10;border:1px solid var(--line);border-radius:11px;padding:4px;margin:20px 0 18px}
+.seg div{text-align:center;padding:10px;border-radius:8px;font-size:13px;color:var(--muted)}
+.seg .on{background:var(--raised);color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 1px 2px rgba(0,0,0,.5)}
+.cta{position:relative;width:100%;border:0;border-radius:11px;padding:16px;font-size:15px;font-weight:600;color:#04120C;background:linear-gradient(180deg,#8BF7D0,#56E3AE);box-shadow:0 10px 40px -10px rgba(110,242,192,.6),inset 0 1px 0 rgba(255,255,255,.6);display:flex;justify-content:center;gap:9px;align-items:center;letter-spacing:-.01em}
+.foot{margin-top:16px;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted)}
+.foot a{font-family:var(--mono);color:var(--text);text-decoration:none;border-bottom:1px solid rgba(255,255,255,.2)}
+/* phone */
+.phonewrap{position:sticky;top:24px}
+.phonewrap .label{color:#6B717C}
+.phone{width:340px;background:#1B1D22;border-radius:50px;padding:11px;box-shadow:0 0 0 1px #2A2D34,0 40px 100px -30px rgba(110,242,192,.25)}
+.screen{background:var(--bg);border-radius:40px;overflow:hidden;min-height:680px;padding:60px 22px 26px;position:relative}
+.screen::before{content:"";position:absolute;inset:-80px -80px auto;height:360px;background:radial-gradient(closest-side,rgba(110,242,192,.18),transparent)}
+.notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:112px;height:31px;background:#000;border-radius:20px}
+.ring{position:relative;width:120px;height:120px;margin:10px auto 22px;display:grid;place-items:center}
+.ring::before{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(var(--signal) 0 33%,rgba(255,255,255,.07) 33% 100%);-webkit-mask:radial-gradient(circle,transparent 55px,#000 56px);mask:radial-gradient(circle,transparent 55px,#000 56px)}
+.ring .in{width:84px;height:84px;border-radius:50%;background:var(--signalDim);border:1px solid rgba(110,242,192,.35);display:grid;place-items:center;box-shadow:0 0 40px -6px rgba(110,242,192,.5)}
+.screen h2{text-align:center;font-size:26px;font-weight:600;letter-spacing:-.03em;position:relative}
+.screen .sub{text-align:center;color:var(--muted);font-size:13.5px;margin-top:6px;font-variant-numeric:tabular-nums;position:relative}
+.feed{margin-top:26px;position:relative}
+.ev{display:grid;grid-template-columns:18px 1fr auto;gap:10px;align-items:center;padding:12px 14px;border:1px solid var(--line);background:rgba(255,255,255,.02);border-radius:12px;margin-bottom:8px;font-size:13px}
+.ev .i{width:8px;height:8px;border-radius:50%;background:#3A3F48;justify-self:center}
+.ev.done .i{background:var(--signal);box-shadow:0 0 10px var(--signal)}
+.ev small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}
+.ev code{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.ev.done code{color:var(--signal)}
+.btn2{position:relative;margin-top:14px;width:100%;padding:14px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);color:var(--text);font-size:14px;font-weight:500}
+</style>
+</head>
+<body>
+<header class="intro">
+  <div>
+    <div class="tag">// tasarım yönü 2 / 4</div>
+    <h1>Obsidyen</h1>
+  </div>
+  <p>Linear, Vercel ya da Stripe'ın gece modu gibi, hassas ve teknolojik. Koyu zemin, derinlikte hafif bir ışık, nane yeşili bir "kilitli" sinyali. Blockchain'i saklamaz, bir özellik gibi gösterir: canlı ağ göstergesi, sözleşme kuralları kod gibi okunur. Hareket ışık ve nabız üzerinden anlatılır.</p>
+</header>
+
+<div class="stage">
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><span>pactly.app/elif-aydin</span></div>
+    <nav>
+      <div class="logo"><div class="mark"></div>Pactly</div>
+      <div class="net"><span class="pulse"></span>Stellar · emanet sözleşmesi aktif</div>
+    </nav>
+    <div class="page">
+      <div>
+        <div class="card">
+          <div class="pro">
+            <div class="avatar">EA</div>
+            <div><h2>Dr. Elif Aydın</h2><p>Klinik Psikolog · Online · 50 dk</p></div>
+            <span class="verified">✓ doğrulanmış</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label"><span>Zaman seç</span><span>Eylül 2026 · GMT+3</span></div>
+          <div class="days">
+            <div class="day"><small>Çar</small><strong>16</strong></div>
+            <div class="day"><small>Per</small><strong>17</strong></div>
+            <div class="day on"><small>Cum</small><strong>18</strong></div>
+            <div class="day"><small>Cmt</small><strong>19</strong></div>
+            <div class="day"><small>Pzt</small><strong>21</strong></div>
+          </div>
+          <div class="slots">
+            <div class="slot">10:00</div><div class="slot off">11:30</div><div class="slot on">14:00</div><div class="slot">15:30</div><div class="slot off">17:00</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label"><span>Kapora kuralları</span><span>zincirde uygulanır</span></div>
+          <div class="rule">
+            <div class="r ok"><div class="k">● 17 Eyl 14:00 öncesi</div><p>İptal edersen <b>600 TL'nin tamamı</b> otomatik olarak cüzdanına iade edilir.</p></div>
+            <div class="r no"><div class="k">● sonrası / katılmama</div><p>Kapora <b>Dr. Aydın'a</b> geçer. Kimse bu kararı elle değiştiremez.</p></div>
+          </div>
+          <div class="code"><span class="c">// Pactly Escrow · CDLZ…7KQ4</span><br>if <span class="s">now</span> ≤ cancel_deadline → <span class="v">refund(client)</span><br>else → <span class="v">release(professional)</span></div>
+        </div>
+      </div>
+
+      <div class="checkout">
+        <div class="card">
+          <div class="label"><span>Bugün kilitlenecek kapora</span><span>%30</span></div>
+          <div class="big"><strong>600,00</strong><span>TL</span></div>
+          <div class="approx">≈ <b>14,35 USDC</b> · 1 USDC = 41,82 TL · fark %0,5</div>
+          <div class="row"><span>Görüşme ücreti</span><b>2.000,00 TL</b></div>
+          <div class="row"><span>Görüşmede ödenecek</span><b>1.400,00 TL</b></div>
+          <div class="seg"><div>TL · havale</div><div class="on">Cüzdan · USDC</div></div>
+          <button class="cta">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+            Kaporayı kilitle
+          </button>
+          <div class="foot"><span>Pactly bu tutara erişemez.</span><a href="#">stellar.expert ↗</a></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phonewrap">
+    <div class="label"><span>Durum · ödeme sonrası, mobil</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="ring"><div class="in">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#6EF2C0" stroke-width="1.8"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+      </div></div>
+      <h2>Kapora kilitlendi</h2>
+      <p class="sub">600,00 TL · 14,35 USDC · 1/3 adım</p>
+      <div class="feed">
+        <div class="ev done"><span class="i"></span><div>Emanete alındı<small>Bugün 18:42</small></div><code>a3f9…c21e</code></div>
+        <div class="ev"><span class="i"></span><div>Ücretsiz iptal bitişi<small>17 Eyl · 14:00</small></div><code>deadline</code></div>
+        <div class="ev"><span class="i"></span><div>Görüşme · Dr. Aydın<small>18 Eyl · 14:00</small></div><code>release</code></div>
+      </div>
+      <button class="btn2">İşlemi Stellar Expert'te gör ↗</button>
+    </div></div>
+  </div>
+</div>
+</body>
+</html>

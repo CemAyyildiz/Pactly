@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yön 1 — Özel Banka · Pactly</title>
+<style>
+/* YÖN 1 — ÖZEL BANKA
+   bg        #F4EFE6  fildişi zemin
+   surface   #FFFDF8  kart
+   ink       #1A1714  ana metin
+   muted     #6E665B  ikincil metin
+   line      #E2D9C8  ince çizgi
+   brass     #8A6A2F  vurgu (pirinç)
+   brassSoft #F1E8D6
+   vault     #2E5A47  kilit / güven (koyu yeşil)
+   vaultSoft #E4EDE7
+   Display: ui-serif (New York / Iowan / Georgia) · Body: system-ui
+   Radius: 6px · Gölge: neredeyse yok, hairline çizgiler */
+:root{--bg:#F4EFE6;--surface:#FFFDF8;--ink:#1A1714;--muted:#6E665B;--line:#E2D9C8;--brass:#8A6A2F;--brassSoft:#F1E8D6;--vault:#2E5A47;--vaultSoft:#E4EDE7;
+--serif:ui-serif,"New York","Iowan Old Style",Georgia,serif;--sans:system-ui,-apple-system,"Segoe UI",sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
+*{box-sizing:border-box;margin:0}
+body{background:#D9D1C3;font-family:var(--sans);color:var(--ink);padding:40px 24px 80px}
+.intro{max-width:1240px;margin:0 auto 28px;display:flex;gap:40px;align-items:flex-end;flex-wrap:wrap}
+.intro h1{font-family:var(--serif);font-weight:400;font-size:44px;letter-spacing:-.02em}
+.intro .tag{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--brass);margin-bottom:8px}
+.intro p{max-width:560px;color:#4A443C;line-height:1.6;font-size:15px}
+.stage{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:1fr 340px;gap:32px;align-items:start}
+@media(max-width:1100px){.stage{grid-template-columns:1fr}}
+.browser{background:var(--bg);border-radius:12px;overflow:hidden;box-shadow:0 30px 80px -30px rgba(40,30,15,.45)}
+.chrome{height:38px;background:#E9E2D5;display:flex;align-items:center;gap:7px;padding:0 14px}
+.chrome i{width:11px;height:11px;border-radius:50%;background:#CFC5B3}
+.chrome span{margin-left:18px;font-size:12px;color:var(--muted);background:#F4EFE6;padding:4px 14px;border-radius:5px}
+nav{display:flex;justify-content:space-between;align-items:center;padding:22px 48px;border-bottom:1px solid var(--line)}
+.logo{font-family:var(--serif);font-size:24px;letter-spacing:-.01em}
+.logo b{font-weight:400;color:var(--brass)}
+.chip{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--vault);border:1px solid #C9D9CF;background:var(--vaultSoft);padding:6px 12px;border-radius:999px}
+.page{display:grid;grid-template-columns:1.25fr 1fr;gap:56px;padding:48px}
+.eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:14px}
+.pro{display:flex;gap:18px;align-items:center;padding-bottom:32px;border-bottom:1px solid var(--line)}
+.avatar{width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#CDB68A,#8A6A2F);color:#FFFDF8;display:grid;place-items:center;font-family:var(--serif);font-size:24px}
+.pro h2{font-family:var(--serif);font-weight:400;font-size:30px;letter-spacing:-.01em}
+.pro p{color:var(--muted);font-size:14px;margin-top:4px}
+section{padding:28px 0;border-bottom:1px solid var(--line)}
+.days{display:flex;gap:10px}
+.day{flex:1;text-align:center;padding:14px 0;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+.day small{display:block;font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+.day strong{font-family:var(--serif);font-weight:400;font-size:24px}
+.day.on{border-color:var(--ink);background:var(--ink);color:var(--surface)}
+.day.on small{color:#BFB6A6}
+.slots{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:4px}
+.slot{padding:12px 0;text-align:center;border:1px solid var(--line);border-radius:6px;font-size:14px;background:var(--surface);font-variant-numeric:tabular-nums}
+.slot.on{border-color:var(--brass);box-shadow:inset 0 0 0 1px var(--brass);color:var(--brass);font-weight:600}
+.slot.off{color:#B9B0A1;text-decoration:line-through;background:transparent}
+.policy{display:grid;grid-template-columns:auto 1fr;gap:16px 18px;margin-top:6px}
+.tl{position:relative;display:flex;flex-direction:column;align-items:center}
+.dot{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--ink);background:var(--surface)}
+.dot.f{background:var(--ink)}
+.bar{width:1px;flex:1;background:var(--line);min-height:36px}
+.policy h4{font-family:var(--serif);font-weight:400;font-size:17px}
+.policy p{font-size:13.5px;color:var(--muted);line-height:1.55;margin-top:3px}
+.policy em{font-style:normal;color:var(--vault);font-weight:600}
+.policy .warn{color:var(--brass);font-weight:600}
+aside.checkout{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:32px;align-self:start;position:relative}
+.checkout h3{font-family:var(--serif);font-weight:400;font-size:22px;margin-bottom:22px}
+.row{display:flex;justify-content:space-between;font-size:14px;padding:9px 0;color:var(--muted);font-variant-numeric:tabular-nums}
+.row b{color:var(--ink);font-weight:500}
+.total{display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--line);margin-top:10px;padding-top:18px}
+.total span{font-size:13px;color:var(--muted)}
+.total strong{white-space:nowrap;font-family:var(--serif);font-weight:400;font-size:40px;letter-spacing:-.02em;font-variant-numeric:lining-nums}
+.methods{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:24px 0 12px}
+.m{border:1px solid var(--line);border-radius:6px;padding:14px;font-size:13px}
+.m b{display:block;font-size:14px;font-weight:600;margin-bottom:3px}
+.m span{color:var(--muted)}
+.m.on{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.rate{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums;margin-bottom:22px}
+.rate b{color:var(--ink);font-weight:600}
+.cta{display:flex;justify-content:center;align-items:center;gap:10px;width:100%;background:var(--ink);color:#FFFDF8;border:0;border-radius:6px;padding:17px;font-size:15px;font-weight:500;letter-spacing:.01em}
+.vault{margin-top:22px;background:var(--vaultSoft);border:1px solid #CFDFD5;border-radius:6px;padding:16px;display:flex;gap:12px}
+.vault svg{flex:none;color:var(--vault)}
+.vault p{font-size:13px;line-height:1.5;color:#2F4A3E}
+.vault a{display:inline-flex;gap:5px;align-items:center;margin-top:8px;font-family:var(--mono);font-size:12px;color:var(--vault);text-decoration:none;border-bottom:1px solid #A9C3B5}
+/* phone */
+.phonewrap{position:sticky;top:24px}
+.phonewrap .eyebrow{color:#5E574C}
+.phone{width:340px;background:#1A1714;border-radius:48px;padding:12px;box-shadow:0 30px 80px -30px rgba(40,30,15,.55)}
+.screen{background:var(--bg);border-radius:37px;overflow:hidden;min-height:680px;padding:56px 24px 28px;position:relative}
+.notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:110px;height:30px;background:#1A1714;border-radius:20px}
+.seal{width:92px;height:92px;margin:18px auto 22px;border-radius:50%;border:1px solid #BCD0C4;display:grid;place-items:center;background:var(--vaultSoft);position:relative}
+.seal::after{content:"";position:absolute;inset:-9px;border-radius:50%;border:1px solid var(--line);animation:breathe 3.2s ease-in-out infinite}
+@keyframes breathe{50%{inset:-15px;opacity:.3}}
+@media (prefers-reduced-motion:reduce){.seal::after{animation:none}}
+.screen h2{font-family:var(--serif);font-weight:400;text-align:center;font-size:30px;letter-spacing:-.01em}
+.screen .sub{text-align:center;color:var(--muted);font-size:14px;margin-top:6px;font-variant-numeric:tabular-nums}
+.steps{margin:30px 0 22px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:18px}
+.st{display:flex;gap:12px;align-items:flex-start;padding:8px 0}
+.st .d{width:20px;height:20px;border-radius:50%;border:1px solid var(--line);flex:none;display:grid;place-items:center;margin-top:1px}
+.st.done .d{background:var(--vault);border-color:var(--vault);color:#fff}
+.st b{font-size:14px;font-weight:600;display:block}
+.st span{font-size:12.5px;color:var(--muted)}
+.hash{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;color:var(--muted);padding:0 4px 20px}
+.hash a{color:var(--vault);text-decoration:none}
+.ghost{width:100%;border:1px solid var(--ink);background:transparent;color:var(--ink);border-radius:6px;padding:15px;font-size:14px}
+</style>
+</head>
+<body>
+<header class="intro">
+  <div>
+    <div class="tag">Tasarım yönü 1 / 4</div>
+    <h1>Özel Banka</h1>
+  </div>
+  <p>Bir özel bankacılık ya da noter ofisinin sakin ağırlığı. Fildişi zemin, serif başlıklar, ince çizgiler, pirinç rengi vurgu. Güveni gösterişle değil, özenle anlatır. "Kilitli kapora" koyu yeşil bir mühür gibi durur. Yavaş ve seyrek hareket kullanır.</p>
+</header>
+
+<div class="stage">
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><span>pactly.app/elif-aydin</span></div>
+    <nav>
+      <div class="logo">Pact<b>ly</b></div>
+      <div class="chip">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+        Kapora Stellar üzerinde emanette
+      </div>
+    </nav>
+    <div class="page">
+      <div>
+        <div class="pro">
+          <div class="avatar">EA</div>
+          <div>
+            <h2>Dr. Elif Aydın</h2>
+            <p>Klinik Psikolog · Online görüşme · 50 dakika</p>
+          </div>
+        </div>
+        <section>
+          <div class="eyebrow">Tarih</div>
+          <div class="days">
+            <div class="day"><small>Çar</small><strong>16</strong></div>
+            <div class="day"><small>Per</small><strong>17</strong></div>
+            <div class="day on"><small>Cum</small><strong>18</strong></div>
+            <div class="day"><small>Cmt</small><strong>19</strong></div>
+            <div class="day"><small>Pzt</small><strong>21</strong></div>
+          </div>
+        </section>
+        <section>
+          <div class="eyebrow">Saat · Cuma, 18 Eylül</div>
+          <div class="slots">
+            <div class="slot">10:00</div><div class="slot off">11:30</div><div class="slot on">14:00</div><div class="slot">15:30</div><div class="slot off">17:00</div>
+          </div>
+        </section>
+        <section style="border-bottom:0">
+          <div class="eyebrow">İptal politikası</div>
+          <div class="policy">
+            <div class="tl"><div class="dot f"></div><div class="bar"></div></div>
+            <div><h4>Bugün — kapora kilitlenir</h4><p>600 TL tarafsız bir akıllı sözleşmeye geçer. Ne Pactly ne de Dr. Aydın bu tutara dokunabilir.</p></div>
+            <div class="tl"><div class="dot"></div><div class="bar"></div></div>
+            <div><h4>17 Eylül, 14:00'e kadar</h4><p>Bu saate kadar iptal edersen kaporanın <em>tamamı sana iade edilir.</em></p></div>
+            <div class="tl"><div class="dot"></div></div>
+            <div><h4>18 Eylül, 14:00 — görüşme</h4><p>Görüşme gerçekleşince kapora Dr. Aydın'a geçer. Geç iptal ya da katılmama durumunda <span class="warn">kapora iade edilmez.</span></p></div>
+          </div>
+        </section>
+      </div>
+
+      <aside class="checkout">
+        <h3>Rezervasyon özeti</h3>
+        <div class="row"><span>Görüşme ücreti</span><b>2.000,00 TL</b></div>
+        <div class="row"><span>Kapora oranı</span><b>%30</b></div>
+        <div class="row"><span>Kalan tutar</span><b>1.400,00 TL</b></div>
+        <div class="total"><span>Bugün kilitlenecek</span><strong>600,00 TL</strong></div>
+        <div class="methods">
+          <div class="m"><b>Türk Lirası</b><span>Banka havalesi</span></div>
+          <div class="m on"><b>Cüzdan</b><span>USDC · Stellar</span></div>
+        </div>
+        <div class="rate">≈ <b>14,35 USDC</b> · 1 USDC = 41,82 TL · %0,5 fark dahil</div>
+        <button class="cta">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          Kaporayı emanete kilitle
+        </button>
+        <div class="vault">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>
+          <div>
+            <p>Kaporan Pactly'nin hesabına girmez. Kurallarını herkesin görebildiği bir Stellar sözleşmesinde, görüşme sonuçlanana kadar kilitli kalır.</p>
+            <a href="#">Sözleşme CDLZ…7KQ4
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <div class="phonewrap">
+    <div class="eyebrow">Durum · ödeme sonrası, mobil</div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="seal">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#2E5A47" stroke-width="1.5"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15.5" r="1.2" fill="#2E5A47"/></svg>
+      </div>
+      <h2>Kaporan emanette</h2>
+      <p class="sub">600,00 TL · 14,35 USDC</p>
+      <div class="steps">
+        <div class="st done"><div class="d"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M5 12l5 5 9-10"/></svg></div><div><b>Kilitlendi</b><span>Bugün, 18:42</span></div></div>
+        <div class="st"><div class="d"></div><div><b>Ücretsiz iptal süresi</b><span>17 Eylül 14:00'e kadar</span></div></div>
+        <div class="st"><div class="d"></div><div><b>Görüşme · Dr. Elif Aydın</b><span>Cuma, 18 Eylül · 14:00</span></div></div>
+      </div>
+      <div class="hash"><span>İşlem a3f9…c21e</span><a href="#">Stellar Expert ↗</a></div>
+      <button class="ghost">Takvime ekle</button>
+    </div></div>
+  </div>
+</div>
+</body>
+</html>

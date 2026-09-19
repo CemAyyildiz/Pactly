@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pact B — Mühür · Pactly</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Martian+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* PACT B — MÜHÜR
+   Fikir: söz, mühürle kesinleşir. Marka işareti dönen yazılı yuvarlak bir mühür. Afiş gibi özgüvenli, grafik bir dil.
+   plum      #2B0F26  ana koyu (patlıcan) — metin ve koyu bloklar
+   blush     #F5E9E4  zemin (pembe-kemik)
+   blush2    #EBD5CC  ikincil zemin
+   vermilion #EF4520  mühür / aksiyon
+   lilac     #B9A7F2  ikinci vurgu (uygun saat, bilgi)
+   muted     #7D6570
+   Display: Archivo geniş (wdth 125, 800–900) · Body: Archivo normal · Etiket: Martian Mono
+   Radius: 999px hap veya 0 — arası yok · Gölge yok, renk bloklarıyla derinlik */
+:root{--plum:#2B0F26;--blush:#F5E9E4;--blush2:#EBD5CC;--ver:#EF4520;--lilac:#B9A7F2;--muted:#7D6570;
+--sans:"Archivo",system-ui,sans-serif;--mono:"Martian Mono",ui-monospace,monospace}
+*{box-sizing:border-box;margin:0}
+body{background:var(--plum);font-family:var(--sans);color:var(--plum);padding:44px 24px 90px}
+.intro{max-width:1260px;margin:0 auto 30px;display:flex;gap:44px;align-items:flex-end;flex-wrap:wrap;color:var(--blush)}
+.intro .tag{font-family:var(--mono);font-size:11px;color:var(--lilac);margin-bottom:10px}
+.intro h1{font-stretch:125%;font-weight:900;font-size:60px;line-height:.9;letter-spacing:-.02em;text-transform:uppercase}
+.intro p{max-width:600px;font-size:15px;line-height:1.6;color:#D8C5CF}
+.stage{max-width:1260px;margin:0 auto;display:grid;grid-template-columns:1fr 340px;gap:34px;align-items:start}
+@media(max-width:1120px){.stage{grid-template-columns:1fr}}
+.browser{background:var(--blush);overflow:hidden;border-radius:18px}
+.chrome{height:36px;background:var(--blush2);display:flex;align-items:center;gap:6px;padding:0 14px}
+.chrome i{width:10px;height:10px;border-radius:50%;background:#D3B8AD}
+.chrome span{margin-left:14px;font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+nav{display:flex;align-items:center;gap:24px;padding:18px 36px}
+.brand{display:flex;align-items:center;gap:10px;font-stretch:125%;font-weight:900;font-size:22px;text-transform:uppercase;letter-spacing:-.01em}
+.mini{width:30px;height:30px;border-radius:50%;background:var(--ver);display:grid;place-items:center;color:var(--blush);font-weight:900;font-size:14px;font-stretch:125%}
+.search{flex:1;max-width:520px;display:flex;align-items:center;gap:10px;background:#fff;border-radius:999px;padding:11px 18px;font-size:14px;color:var(--muted)}
+.cats{display:flex;gap:6px;margin-left:auto}
+.cats span{font-size:13px;font-weight:600;padding:8px 14px;border-radius:999px;border:1.5px solid var(--plum)}
+.cats span.on{background:var(--plum);color:var(--blush)}
+.hero{display:grid;grid-template-columns:1fr auto;align-items:end;padding:18px 36px 26px;gap:24px;border-bottom:1.5px solid var(--plum)}
+.hero .kick{font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:12px;display:flex;gap:14px}
+.hero .kick b{color:var(--plum);font-weight:500;background:var(--lilac);padding:2px 8px;border-radius:999px}
+.hero h2{font-stretch:125%;font-weight:850;font-size:62px;line-height:.88;letter-spacing:-.03em;text-transform:uppercase}
+.hero h2 span{color:var(--ver)}
+.hero p{margin-top:14px;font-size:15px;color:#5A4652}
+.emblem{width:150px;height:150px;position:relative;margin-bottom:-4px}
+.emblem svg{position:absolute;inset:0;animation:spin 30s linear infinite}
+.emblem .c{position:absolute;inset:32px;border-radius:50%;background:var(--ver);display:grid;place-items:center;color:var(--blush);text-align:center;font-stretch:125%;font-weight:900;font-size:13px;line-height:1.05;text-transform:uppercase}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.emblem svg,.big svg{animation:none}}
+.grid{display:grid;grid-template-columns:1.25fr 1fr}
+.col{padding:28px 36px}
+.col+.col{background:var(--plum);color:var(--blush)}
+.lbl{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-bottom:14px;display:flex;justify-content:space-between}
+.col+.col .lbl{color:#B79FAE}
+.days{display:flex;gap:8px;margin-bottom:12px}
+.day{flex:1;border-radius:999px;border:1.5px solid var(--plum);padding:10px 0;text-align:center;font-weight:700;font-size:14px}
+.day small{font-weight:500;color:var(--muted);margin-right:4px}
+.day.on{background:var(--plum);color:var(--blush)}.day.on small{color:#B79FAE}
+.tickets{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.t{border-radius:14px;padding:12px 14px;background:#fff;position:relative;font-variant-numeric:tabular-nums}
+.t b{font-stretch:112%;font-weight:800;font-size:22px;display:block}
+.t small{font-size:12px;color:var(--muted)}
+.t.x{background:transparent;border:1.5px dashed #CDB3A9;color:#BFA59B}.t.x small{color:#BFA59B}
+.t.on{background:var(--lilac)}
+.t.on::after{content:"SEÇİLDİ";position:absolute;bottom:12px;right:12px;font-family:var(--mono);font-size:9px}
+.rules{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:22px}
+.rule{border-radius:14px;padding:14px;font-size:13.5px;line-height:1.45}
+.rule b{display:block;font-stretch:112%;font-weight:800;font-size:15px;margin-bottom:4px;text-transform:uppercase}
+.rule.ok{background:#fff}.rule.no{background:var(--blush2)}
+.rule.no b{color:var(--ver)}
+.big{display:flex;align-items:center;gap:20px}
+.num{font-stretch:125%;font-weight:900;font-size:92px;line-height:.85;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.num small{font-size:26px;letter-spacing:0}
+.big svg{animation:spin 30s linear infinite reverse}
+.sub{font-size:13.5px;color:#D8C5CF;margin:14px 0 20px;line-height:1.5}
+.sub b{color:var(--blush)}
+.pay{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px}
+.pay div{border:1.5px solid #6B4A60;border-radius:999px;padding:12px 16px;font-size:13.5px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.pay div small{font-family:var(--mono);font-size:9.5px;font-weight:400;color:#B79FAE}
+.pay .on{border-color:var(--lilac);background:rgba(185,167,242,.14)}
+.cta{width:100%;border:0;border-radius:999px;background:var(--ver);color:var(--blush);padding:20px 24px;font-family:var(--sans);font-stretch:112%;font-size:17px;font-weight:800;text-transform:uppercase;letter-spacing:.01em;display:flex;justify-content:space-between;align-items:center}
+.cta i{font-style:normal;width:34px;height:34px;border-radius:50%;background:var(--blush);color:var(--ver);display:grid;place-items:center}
+.trust{margin-top:18px;display:grid;grid-template-columns:auto 1fr;gap:12px;font-size:12.5px;color:#D8C5CF;line-height:1.5;border-top:1px solid #4A2A42;padding-top:16px}
+.trust code{font-family:var(--mono);font-size:10.5px;color:var(--lilac)}
+/* phone */
+.phonewrap{position:sticky;top:24px}
+.phonewrap h4{font-family:var(--mono);font-size:10.5px;color:var(--lilac);margin-bottom:12px;font-weight:400}
+.phone{width:340px;background:#12060F;border-radius:48px;padding:11px}
+.screen{background:var(--ver);border-radius:38px;overflow:hidden;min-height:690px;position:relative;padding:62px 22px 22px;color:var(--blush)}
+.notch{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:106px;height:30px;background:#12060F;border-radius:20px}
+.pk{font-family:var(--mono);font-size:10px;opacity:.85}
+.ph{font-stretch:100%;font-weight:900;font-size:40px;line-height:.86;letter-spacing:-.035em;text-transform:uppercase;margin-top:12px}
+.seal{width:220px;height:220px;margin:18px auto 8px;position:relative;animation:press .8s cubic-bezier(.3,1.7,.5,1) both}
+.seal svg{position:absolute;inset:0;animation:spin 24s linear infinite}
+.seal .core{position:absolute;inset:44px;border-radius:50%;background:var(--plum);display:grid;place-items:center;text-align:center}
+.seal .core b{display:block;font-stretch:125%;font-weight:900;font-size:34px;letter-spacing:-.03em}
+.seal .core small{font-family:var(--mono);font-size:9px;color:var(--lilac)}
+@keyframes press{0%{transform:scale(1.6) rotate(-20deg);opacity:0}100%{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.seal,.seal svg{animation:none}}
+.card{background:var(--blush);color:var(--plum);border-radius:22px;padding:14px 16px}
+.cr{display:flex;justify-content:space-between;font-size:13px;padding:7px 0;border-bottom:1px solid var(--blush2)}
+.cr:last-child{border-bottom:0}
+.cr span{color:var(--muted)}
+.cr b{font-weight:700}
+.pb{margin-top:10px;background:var(--plum);border-radius:999px;padding:15px;text-align:center;font-stretch:112%;font-weight:800;font-size:14px;text-transform:uppercase}
+</style>
+</head>
+<body>
+<header class="intro">
+  <div>
+    <div class="tag">Pact / yön B</div>
+    <h1>Mühür</h1>
+  </div>
+  <p>Söz mühürle kesinleşir. Marka işareti, üzerinde yazı dönen yuvarlak bir mühür. Dil afiş gibi özgüvenli: geniş ve kalın harfler, patlıcan moru ile zinober kırmızısı, keskin renk blokları. Randevu saatleri bilet gibi seçilir. Kapora kilitlendiğinde tüm ekran mühür rengine döner.</p>
+</header>
+
+<div class="stage">
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><span>pactly.app/uzman/elif-aydin</span></div>
+    <nav>
+      <div class="brand"><span class="mini">P</span>Pactly</div>
+      <div class="search">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        Kiminle söz vermek istersin?
+      </div>
+      <div class="cats"><span class="on">Terapi</span><span>Eğitim</span><span>Danışmanlık</span></div>
+    </nav>
+    <div class="hero">
+      <div>
+        <div class="kick"><b>ONAYLI UZMAN</b><span>38 DOĞRULANMIŞ SEANS · 4,9</span></div>
+        <h2>Dr. Elif Aydın<br><span>ile söz ver.</span></h2>
+        <p>Klinik Psikolog · Online görüşme · 50 dakika · 2.000 TL</p>
+      </div>
+      <div class="emblem">
+        <svg viewBox="0 0 150 150"><defs><path id="e" d="M75,75 m-60,0 a60,60 0 1,1 120,0 a60,60 0 1,1 -120,0"/></defs>
+          <text font-family="Martian Mono, monospace" font-size="10" fill="#2B0F26" letter-spacing="2.6"><textPath href="#e">SÖZ TUTULUR · KAPORA EMANETTE · PACTLY ·</textPath></text></svg>
+        <div class="c">Stellar<br>emanet</div>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="col">
+        <div class="lbl"><span>01 · GÜN VE SAAT</span><span>EYLÜL 2026</span></div>
+        <div class="days">
+          <div class="day"><small>Çar</small>16</div><div class="day"><small>Per</small>17</div><div class="day on"><small>Cum</small>18</div><div class="day"><small>Cmt</small>19</div><div class="day"><small>Pzt</small>21</div>
+        </div>
+        <div class="tickets">
+          <div class="t"><b>10:00</b><small>50 dk</small></div>
+          <div class="t x"><b>11:30</b><small>dolu</small></div>
+          <div class="t on"><b>14:00</b><small>50 dk</small></div>
+          <div class="t"><b>15:30</b><small>50 dk</small></div>
+          <div class="t x"><b>17:00</b><small>dolu</small></div>
+          <div class="t"><b>18:30</b><small>50 dk</small></div>
+        </div>
+        <div class="lbl" style="margin-top:24px"><span>02 · SÖZÜN KURALI</span></div>
+        <div class="rules" style="margin-top:0">
+          <div class="rule ok"><b>17 Eyl 14:00'e kadar</b>Vazgeçersen kaporanın tamamı sana döner.</div>
+          <div class="rule no"><b>Sonrası</b>Gelmezsen ya da geç iptal edersen kapora Dr. Aydın'a geçer.</div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="lbl"><span>03 · KAPORA</span><span>%30</span></div>
+        <div class="big">
+          <div class="num">600<small> TL</small></div>
+        </div>
+        <p class="sub">Kalan <b>1.400 TL</b> görüşmede ödenir. Cüzdanla ≈ <b>14,35 USDC</b> (1 USDC = 41,82 TL)</p>
+        <div class="pay"><div>TL havale <small>SEP-6</small></div><div class="on">Cüzdan <small>USDC</small></div></div>
+        <button class="cta">Sözü mühürle <i>→</i></button>
+        <div class="trust">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B9A7F2" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>
+          <span>Kapora Pactly'ye gitmez. Kuralları herkesin görebildiği Stellar sözleşmesinde bekler.<br><code>CDLZ…7KQ4 ↗</code></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phonewrap">
+    <h4>DURUM · MÜHÜRLENDİ, MOBİL</h4>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="pk">PCT-0918-14 · 15 EYL 18:42</div>
+      <div class="ph">Söz<br>mühürlendi.</div>
+      <div class="seal">
+        <svg viewBox="0 0 220 220"><defs><path id="s" d="M110,110 m-92,0 a92,92 0 1,1 184,0 a92,92 0 1,1 -184,0"/></defs>
+          <circle cx="110" cy="110" r="106" fill="none" stroke="#F5E9E4" stroke-width="2"/>
+          <text font-family="Martian Mono, monospace" font-size="12" fill="#F5E9E4" letter-spacing="3.2"><textPath href="#s">SEN · DR. ELİF AYDIN · 18 EYLÜL 14:00 · EMANETTE ·</textPath></text></svg>
+        <div class="core"><div><b>600 TL</b><small>KİLİTLİ · a3f9…c21e</small></div></div>
+      </div>
+      <div class="card">
+        <div class="cr"><span>Ücretsiz iptal</span><b>17 Eyl 14:00'e kadar</b></div>
+        <div class="cr"><span>Görüşme</span><b>Cuma · 14:00</b></div>
+        <div class="cr"><span>Zincirde doğrula</span><b>stellar.expert ↗</b></div>
+      </div>
+      <div class="pb">Randevularım</div>
+    </div></div>
+  </div>
+</div>
+</body>
+</html>
