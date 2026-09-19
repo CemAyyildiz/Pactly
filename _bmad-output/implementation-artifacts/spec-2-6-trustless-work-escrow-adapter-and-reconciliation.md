@@ -2,15 +2,22 @@
 title: 'Story 2.6 — Trustless Work escrow adapter and reconciliation'
 type: 'feature'
 created: '2026-09-19'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 1
 baseline_revision: '0b91e9866b8f07966d391a62f4ca875228be1c90'
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-1-8-trustless-work-appointment-compatibility.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      toHumanAmount divides a safe integer by 1e7 as a float; very large amounts may land one stroop off.
+    evidence: |-
+      Unverified. Needs a live Trustless Work call that deploys a large, non-round amount (for example 1234567890123456 smallest units) and reads the escrow's amount back.
+    location: >-
+      backend/src/escrow/trustless-work/client.ts toHumanAmount
+    severity: medium (unverified)
 ---
 
 <intent-contract>
@@ -110,6 +117,12 @@ deferred: []
 - **Ek (aynı gün, Discover v2 / EXPERIENCE.md hizalaması):** `approved` türetmesi ve `getEscrowLifecycle` okuma helper'ı eklendi; UX'in "Ready to release" / "In resolution" / "Resolved" etiketleri ve escrow kanıtı buna dayanıyor.
 - **KEEP (korunacaklar):** `escrow/interface.ts` sınırı ve `services/`'in TW tipi import etmemesi; adaptörün altı çağrısı, `EscrowCallDeps` seam'leri, rol haritası testi (admin = platform adresi, gerekçesiyle); `toHumanAmount`'un pozitif/güvenli aralık reddi; `errors.ts`'nin üç tipli hatası ve SDK'nın `toTrustlessWorkError` normalizer'ını kullanması; better-sqlite3 senkron transaction deseni (dedupe insert + state write atomik); `chain/`'e dokunulmaması; config'deki 4 değişkenin adları ve `.env.example` notları (`beta.api` uyarısı dahil); ayrı tablolar kararı; mevcut testlerin başarı yolu kapsamı.
 
+### 2026-09-19 — 2. review turunun tasarım kararları (kullanıcının devrettiği yetki)
+- **Tetikleyen:** B2/E13/E14, B3/I7, E6.
+- **Değiştirilen:** (1) `lockDeposit`, bir `contractId` kaydedildikten sonra yeniden deploy etmez. Terk edilmiş bir deploy'u kurtarma yolu (önceki kontratın zincirde olmadığını doğrulayıp temizlemek) Epic 3'e ertelendi. (2) Pactly'nin uyuşmazlık kararı rezervasyon terminal olana kadar atomik olarak değiştirilebilir; karar ancak son kayıtlı eylem `disputed` iken verilebilir. (3) `resolved`, bakiyenin 0 olmasına bakmadan `snapshot.dispute.resolved`'dan türetilir; bakiye sıfır değilse log düşülür.
+- **Kaçınılan bilinen kötü durum:** Fonlanmış escrow'un öksüz kalması; imzalanmayan bir karar XDR'ının rezervasyonu kilitlemesi; üçüncü tarafın fazla fonlamasıyla çözümün hiç görülmemesi.
+- **KEEP:** İlk implementasyonun tamamı; değişiklikler yalnızca patch listesiyle sınırlı.
+
 ## Review Triage Log
 
 ### 2026-09-19 — Review pass
@@ -175,6 +188,64 @@ deferred: []
   - `[false]` `[reject]` E23 = E4.
 - intent_gap dalı: deneme [spec-2-6-attempt-1.patch](spec-2-6-attempt-1.patch) olarak kaydedildi. **Kod geri alınamadı:** çalışma ağacını geri alma komutu izin sınıflandırıcısı tarafından reddedildi ("Irreversible Local Destruction"). Kod, patch ile aynı içerikte ve commit edilmemiş hâlde ağaçta duruyor.
 
+### 2026-09-19 — Review pass (2. tur, review_loop_iteration 1)
+- verdicts: 53 bulgu — high 9, medium 22, low 12, false 8, maybe-false 2
+- Katmanlar: Blind Hunter (B1–B14), Verification Gap (V1–V6), Intent Alignment (I1–I10), Edge Case Hunter (E1–E23). intent_gap ve bad_spec yok; tasarım düzeyindeki kararlar kullanıcının devrettiği yetkiyle verildi (Spec Change Log).
+- findings:
+  - `[high]` `[patch]` B1 approved/disputed dalları bakiye kontrolü yapmıyor, fonlanmamış escrow `locked` oluyor — iki dala `balance >= deposit` şartı.
+  - `[high]` `[patch]` B2 `lockDeposit` yeniden çalışınca zincire inmiş bir deploy'un contractId'sinin üzerine yazıyor, depozito öksüz kalır — contractId varsa ret + koşullu UPDATE.
+  - `[medium]` `[patch]` B3 Karar XDR kurulurken kaydediliyor ve değiştirilemiyor, imzalanmayan XDR rezervasyonu kilitler — karar, terminal olmayan durumda atomik upsert ile değiştirilebilir.
+  - `[medium]` `[patch]` B4 Watermark anomali sonuçlarında da ilerliyor — anomali çıktısında watermark ilerletilmiyor.
+  - `[medium]` `[patch]` B5 Bozuk tek satır (BigInt SyntaxError, eksik roles) tüm batch'i durduruyor — satır bazında anomali.
+  - `[high]` `[patch]` B6 Mevcut veritabanlarına `escrow_contract_id` kolonu eklenmiyor (yerel `backend/data/pactly.db` ile doğrulandı) — PRAGMA korumalı ALTER TABLE + test.
+  - `[false]` `[reject]` B7 Sağlayıcı cüzdanı değişince yanlış adres — `backend/src` içinde provider cüzdanını güncelleyen bir yol yok.
+  - `[maybe-false]` `[defer]` B8 `toHumanAmount` float bölmesi 16 basamaklı tutarlarda bir stroop kaydırabilir — TW'nin sayıyı nasıl ölçeklediği canlı anahtarla görülmeli; doğruysa medium.
+  - `[low]` `[reject]` B9 İki rezervasyon aynı contractId'yi paylaşabilir / profil silinirse innerJoin düşürür — contractId deploy salt'ından benzersiz türüyor, profil silme yolu yok; guard karmaşıklık katar.
+  - `[low]` `[reject]` B10 approve/release/startDispute için servis sarmalayıcı yok — intent "This story stops at the adapter and the reconciler" diyor; Epic 3/4.
+  - `[medium]` `[patch]` B11 Eşzamanlı iki karar kaydı ham SQLite hatası veriyor, adaptör kontrolden önce çağrılıyor — kontrol adaptörden önce, kayıt atomik.
+  - `[low]` `[patch]` B12 `TERMINAL_ESCROW_STATES` iki kez tanımlı — tek kaynak. `defaultReadDeps` tekrarı ve attribution header'ı: günlük kullanımda zarar yok, reddedildi.
+  - `[medium]` `[patch]` B13 Sayfalama ilerlemeyen cursor'da sonsuz döngüye girer — ilerlemeyen cursor'da `EscrowRequestError`.
+  - `[low]` `[patch]` B14 Yorumlar review bulgu ID'lerine ve "final report"a atıf yapıyor; `.env.example`'da URL önerisi yok — atıflar kısıtın kendisiyle değiştirildi, iki aday host yazıldı.
+  - `[high]` `[patch]` V1 = B6.
+  - `[medium]` `[patch]` V2 `fetchOwnedEscrows` testi chunk'lamayı ve cursor'ın iletilmesini göremiyor — fake cursor'a göre cevap veriyor, 51+ id testi.
+  - `[medium]` `[patch]` V3 Boş URL testi boş anahtar kontrolünün arkasında maskeleniyor; `realListEscrows` reddi testsiz — test sıkılaştırıldı, iki ret testi.
+  - `[medium]` `[patch]` V4 = B11.
+  - `[medium]` `[patch]` V5 = B4.
+  - `[low]` `[patch]` V6 = B12 + `refunded` için terminal-dışlama testi.
+  - `[false]` `[reject]` I1 İmzacı Keypair yerine adres — intent adaptörün anahtar tutmasını yasaklıyor; adres, çağıranın çözdüğü imzacı kimliği.
+  - `[false]` `[reject]` I2 Tutarın 10^7'ye bölünmesi — SDK README'si payload'ların insan birimi olduğunu söylüyor; spec'in KEEP listesinde.
+  - `[false]` `[reject]` I3 XDR testleri sadece aktarımı sınıyor — XDR'ı TW kuruyor, yerelde doğrulanacak bir yapı yok.
+  - `[low]` `[reject]` I4 = B10.
+  - `[medium]` `[patch]` I5 = B4.
+  - `[low]` `[reject]` I6 Anomaliler yalnızca log + sayaç — matrisin hata sütunu "Logged, batch continues" diyor.
+  - `[medium]` `[patch]` I7 = B3.
+  - `[false]` `[reject]` I8 Servis `defaultEscrowAdapter` değerini import ediyor — intent vendor *tiplerini* yasaklıyor; varsayılan kablolama bir tip bağımlılığı değil.
+  - `[false]` `[reject]` I9 Config reddi lazy client'ta — hâlâ ağdan önce; maskelenen test V3'te düzeltildi.
+  - `[low]` `[patch]` I10 `resolveDispute` yorumu "in time" zaman şartı ekliyor — cümle zaman şartı olmadan yeniden yazıldı.
+  - `[medium]` `[patch]` E1 Aynı kontrat için bir batch'te iki satır terminal durumu geriletebilir — SQL'de koşullu yazma.
+  - `[medium]` `[patch]` E2 = E1.
+  - `[medium]` `[patch]` E3 = B5.
+  - `[medium]` `[patch]` E4 = B4.
+  - `[high]` `[patch]` E5 = B1.
+  - `[medium]` `[patch]` E6 Fazla fonlanan escrow çözüldükten sonra bakiye 0 olmuyor, `resolved` türemiyor — `resolved` yalnızca `dispute.resolved`'dan türetiliyor.
+  - `[false]` `[reject]` E7 Kayıtlı kararın contractId'si satırınkinden farklı olabilir — karar yalnızca `locked` iken kaydedilir, `locked` sonrası contractId değişemez.
+  - `[high]` `[patch]` E8 Rol kontrolü eksik: müşteri aynı salt ile kendini resolver/release signer yapabilir — tüm roller ve approvalsTarget kontrol ediliyor.
+  - `[medium]` `[patch]` E9 Trustline contractId boşsa token kontrolü atlanıyor — `asset.contractId` yedeği, ikisi de uymazsa mismatch.
+  - `[medium]` `[patch]` E10 = B13.
+  - `[low]` `[reject]` E11 = B9.
+  - `[false]` `[reject]` E12 Provider profili eksikse innerJoin düşürür — profil silme yolu yok.
+  - `[high]` `[patch]` E13 = B2.
+  - `[medium]` `[patch]` E14 lockDeposit kontrolü ile yazma arası yarış — koşullu UPDATE (B2 grubu).
+  - `[low]` `[reject]` E15 fundDeposit iki kez — eşzamanlı iki fund XDR aynı sequence number'ı taşır, yalnızca biri iner; ikincisi müşterinin bilinçli ikinci imzası.
+  - `[medium]` `[patch]` E16 = B11.
+  - `[medium]` `[patch]` E17 = B11.
+  - `[high]` `[patch]` E18 = B6.
+  - `[maybe-false]` `[reject]` E19 1 stroop → JSON'da 1e-7 — depozito alt sınırı 50 TRY, bu büyüklük hiç oluşmaz; doğru olsa bile low.
+  - `[low]` `[patch]` E20 Başında sıfır olan tutar mismatch sayılıyor — BigInt karşılaştırma.
+  - `[medium]` `[patch]` E21 = E1.
+  - `[high]` `[patch]` E22 = E8.
+  - `[low]` `[patch]` E23 = B14.
+
 ## Design Notes
 
 - **Why this is one story and not two, despite the size.** The adapter (AC1/2/5) and the reconciler (AC3/4) share one boundary: `services/booking.ts` needs both to exist before `lockDeposit` can move off `chain/`, and the reconciler's dedupe/cursor shape is a near-direct retarget of code Story 2.5 already wrote and reviewed, not new design. Splitting would leave a story that "adds an adapter nothing calls" or "reconciles events nothing produces" — worse than one bounded story that reuses proven shapes throughout.
@@ -182,10 +253,10 @@ deferred: []
 - **Why the protocol-version choice (V1 REST vs. V2 SDK) is recorded rather than resolved by testing.** No live key exists to test either. The V2 SDK is the only path with real, machine-checked types available right now; building the array-shaped roles the SDK's types demand, with exactly one address per array slot, costs nothing today and loses nothing if the operator's actual account turns out to be V1-scoped — the interface layer (`escrow/interface.ts`) is what absorbs that risk, not `services/`.
 - **Why the dispute-resolver concession is written into the constraints, not left implicit.** AD-2 requires it named explicitly wherever Pactly itself signs. This is the story where that signature first appears in code, so it is the story where the doc comments must say so plainly.
 
-- **Lifecycle derivation table (amended 2026-09-19).** Evaluated in this order for each row of a persisted `contractId`, after the row is checked against its booking (`engagementId` = booking id, `snapshot.roles.approvers` = [client], `receiver` = provider wallet, `snapshot.amount` = deposit, `snapshot.trustline.contractId` = token when present; any mismatch → anomaly): (1) `snapshot.dispute.resolved` and `balance` = 0 → `resolved` → the recorded Pactly decision (`refund-client` → `refunded`, `pay-provider` → `released`), or an anomaly when none is recorded; (2) `status: "released"` or `snapshot.released` → `released`; (3) `snapshot.dispute.isDisputed` → `disputed` → `locked`; (3b) milestone 0 approvals reached → `approved` → `locked`; (4) `status: "active"` and `balance` >= deposit → `funded` → `locked`; otherwise no transition. Read amounts are human-decimal strings (SDK README); the reconciler converts them to smallest units with exact string arithmetic (at most 7 decimals, otherwise an anomaly), never floats.
+- **Lifecycle derivation table (amended 2026-09-19).** Evaluated in this order for each row of a persisted `contractId`, after the row is checked against its booking (`engagementId` = booking id, `snapshot.roles.approvers` = [client], `receiver` = provider wallet, `snapshot.amount` = deposit, `snapshot.trustline.contractId` = token when present; any mismatch → anomaly): (1) `snapshot.dispute.resolved` → `resolved` (a non-zero balance is logged, not blocking) → the recorded Pactly decision (`refund-client` → `refunded`, `pay-provider` → `released`), or an anomaly when none is recorded; (2) `status: "released"` or `snapshot.released` → `released`; (3) `snapshot.dispute.isDisputed` → `disputed` → `locked`; (3b) milestone 0 approvals reached → `approved` → `locked`; (4) `status: "active"` and `balance` >= deposit → `funded` → `locked`; otherwise no transition. Read amounts are human-decimal strings (SDK README); the reconciler converts them to smallest units with exact string arithmetic (at most 7 decimals, otherwise an anomaly), never floats.
 - **Why dispute resolution is always one full-amount distribution.** Pactly's cancellation rule (decided 2026-09-18): professional cancels → full refund to the client; client cancels before `cancel_deadline` → full refund; client cancels after it or does not show → full deposit to the professional. There is no split outcome, so `resolveBookingDispute` takes `outcome: "refund-client" | "pay-provider"` and builds one distribution of the whole deposit. The adapter's own `resolveDispute` still validates any list it is given (non-empty, positive amounts, unique addresses).
 - **Why the resolution decision is recorded with its `txHash`.** The read model shows *that* a dispute was resolved, not *to whom* the money went. The unsigned transaction's hash is the hash the signed transaction lands with, so the recorded `(bookingId, contractId, outcome, txHash)` names exactly the allocation Pactly signed. The reconciler still only moves `escrow_state` once the chain shows the dispute resolved and the balance at zero, so chain evidence remains the trigger.
-- **Why deploy and fund are separate calls.** Building a fund transaction against a contract that is not yet on chain is unverified, and both transactions would share the client's sequence number. `lockDeposit` builds and persists the deploy; `fundDeposit` is called after the deploy lands. A re-deploy is allowed while `escrow_state` is still `null` (it overwrites the persisted `contractId`); an unsubmitted earlier deploy XDR is harmless because fund only ever targets the persisted id.
+- **Why deploy and fund are separate calls.** Building a fund transaction against a contract that is not yet on chain is unverified, and both transactions would share the client's sequence number. `lockDeposit` builds and persists the deploy; `fundDeposit` is called after the deploy lands. Once a `contractId` is persisted, `lockDeposit` refuses to deploy again, because an earlier deploy may already have landed and been funded. Recovering an abandoned deploy (confirming the old contract is not on chain, then clearing it) belongs to Epic 3.
 
 - **Why lifecycle rows are finer than `escrow_state` (Discover v2 / EXPERIENCE.md alignment).** The UX spine's state labels are Funded · Appointment completed · Awaiting approval · Ready to release · Released · In resolution · Resolved, and the escrow proof shows the contract/transaction record. `escrow_state` keeps its three values (AD-1); the finer label comes from the recorded `(contractId, lifecycleAction)` rows plus the persisted `contractId`, exposed through `getEscrowLifecycle` so Epic 3 never re-derives it. "Appointment completed" (provider changes milestone status) is not built here: the adapter has no `changeMilestoneStatus` call in this story.
 
@@ -204,19 +275,26 @@ deferred: []
 
 ## Auto Run Result
 
-Status: blocked
-Blocking condition: intent gap
+Status: done
 
-**Uygulanan değişiklik (commit edilmedi):** Vendor-neutral `EscrowAdapter` arayüzü, Trustless Work adaptörü (deploy/fund/approve/release/startDispute/resolveDispute, tutar dönüşümü, tipli hatalar), cursor'lı ve idempotent reconciler, iki yeni tablo (`escrow_reconciler_state`, `escrow_processed_events`), `lockDeposit`'in adaptöre taşınması, 4 yeni config değişkeni. Deneme: [spec-2-6-attempt-1.patch](spec-2-6-attempt-1.patch).
+**Geçmiş:** İlk deneme intent_gap ile durdu ([spec-2-6-attempt-1.patch](spec-2-6-attempt-1.patch)). Kullanıcı kararları devretti, spec düzeltildi (Spec Change Log), yeniden implemente edildi, ikinci review turunun düzeltmeleri uygulandı.
 
-**Doğrulama:** `npm run -w backend typecheck` temiz, `test` 131/131, `build` temiz; kök `npm test` (cargo 62, scripts 69) temiz. Manuel grep kontrolleri geçti. Matris denetimi: 14 satırın hepsi geçen bir testle karşılanıyor.
+**Özet:** Vendor-neutral `EscrowAdapter` sınırı ve Trustless Work implementasyonu (unsigned XDR döndüren altı çağrı, tipli hatalar, ağdan önce config ve tutar redleri). `lockDeposit` deploy edip `contractId`'yi kaydediyor, `fundDeposit` yalnızca o kontratı hedefliyor, `resolveBookingDispute` iptal edene göre tam tutarı tek tarafa yönlendiriyor ve kararı kaydediyor. Reconciler yalnızca Pactly'nin kaydettiği kontratları sorguluyor, durumu escrow read-model'inden türetiyor, her satırı rezervasyonla (tüm roller, tutar, token) karşılaştırıyor, `(contractId, lifecycleAction)` ile dedupe ediyor, escrow başına watermark tutuyor, terminal durumu SQL'de koruyor. `getEscrowLifecycle` UX durum etiketlerini besliyor.
 
-**Review:** 54 bulgu (high 7, medium 29, low 9, false 4, maybe-false 5). İki intent_gap grubu yüzünden patch/defer uygulanmadı. Reddedilenler: B12, E18 (low, karmaşıklık katıyor), I9, E4, E11, E23 (false). Takip review önerisi: false (bu geçişte patch uygulanmadı).
+**Değişen dosyalar:**
+- `backend/src/escrow/interface.ts`: vendor-neutral adaptör tipi.
+- `backend/src/escrow/trustless-work/client.ts`, `errors.ts`: adaptör, tutar dönüşümü, hata çevirisi.
+- `backend/src/escrow/trustless-work/reconciler.ts`: read-model reconciler, `getEscrowLifecycle`.
+- `backend/src/services/booking.ts`: `lockDeposit`, `fundDeposit`, `resolveBookingDispute`.
+- `backend/src/db/schema.ts`, `migrations.ts`, `bookings.ts`: `escrow_contract_id` (mevcut DB'ler için ALTER dahil), yeni tablolar, koşullu yazmalar.
+- `backend/src/db/escrowProcessedEvents.ts`, `escrowReconcilerWatermarks.ts`, `escrowDisputeResolutions.ts`: reconciler kayıtları.
+- `backend/src/config.ts`, `.env.example`: dört Trustless Work değişkeni.
+- `backend/test/*`: client, reconciler, servis ve migration testleri.
 
-**Açık sorular (kullanıcının kararı):**
-1. **Kanıt sözlüğü:** Trustless Work olay türlerinin adları SDK'da tanımlı değil. Reconciler olay `kind`'ı yerine escrow'un kendi `status`'u (`active|released|disputed`) ve bakiye alanlarından mı durum türetsin, yoksa Story 1.8'in canlı AC'leri çalıştırılıp gerçek tür adları görülene kadar mı beklensin?
-2. **Uyuşmazlık çözümü → `escrow_state`:** Tümü müşteriye → `refunded`, tümü sağlayıcıya → `released`. Bölüşüm (ör. geç iptal) hangi duruma eşlenir? Sıfır pay (tümü tek tarafa) `resolveDispute`'ta izinli olmalı mı?
-3. **Kanıtın rezervasyona bağlanması:** `lockDeposit` sırasında tahmini `contractId` rezervasyona kaydedilip kanıt yalnızca o kontrattan kabul edilsin mi (şema değişikliği, önerilen), yoksa escrow koşulları (roller/tutar/token) rezervasyonla mı eşleştirilsin?
-4. **(maybe-false, high)** `fund` XDR'ı deploy zincire inmeden kurulabilir mi? Kurulamıyorsa `lockDeposit` iki adıma bölünmeli.
+**Review:** 2. tur 53 bulgu (high 9, medium 22, low 12, false 8, maybe-false 2). Patch: 9 high, 22 medium, 6 low. Defer: B8 (float yuvarlaması, doğrulanmamış medium). Reddedilenler: B7, I1, I2, I3, I8, I9, E7, E12 (false); B9, B10, I4, I6, E11, E15 (low, gerekçeleri triage kaydında); E19 (maybe-false, low). 1. tur kaydı yukarıda.
 
-**Kalan riskler:** Kod geri alınamadığı için çalışma ağacı kirli. Doğrulanmış medium patch'ler (okuma-tutarı birimi, durum gerilemesi, olay sayfalama, boş config reddi, reconciler hata çevirisi, `clientAddress` kontrolü, `realFetchEscrowEvidence` testleri) sorular cevaplanınca uygulanacak.
+**Takip review önerisi:** `true` (9 high patch). Somut risk: rol eşleştirmesi ve `lockDeposit`/karar kaydı değişiklikleri para yolunda ve bir sonraki review turundan geçmedi. Kullanıcının 2026-09-19 kuralı gereği takip turu çalıştırılmadı.
+
+**Doğrulama:** `npm run -w backend typecheck` ve `build` temiz, `test` 177/177 (3 koşu), kök `npm test` temiz (cargo 62, scripts 69). Manuel: `chain.createBooking` çağrısı yok; `escrow/trustless-work/` içinde range check'siz `Number(` yok; review ID atıfı kalmadı. Gerçek Trustless Work çağrısı yapılmadı.
+
+**Kalan riskler:** Canlı anahtarla hiç çalıştırılmadı: gerçek read-model alan değerleri, `dev.api` ile `beta.api` hangisi, tutar ölçeklemesi (B8) Story 1.8'in canlı AC'lerinde doğrulanmalı. Terk edilmiş deploy'u kurtarma yolu Epic 3'te. Reconciler'ı çalıştıran uzun ömürlü döngü henüz bağlanmadı.
