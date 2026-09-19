@@ -6,6 +6,14 @@
  * symbol into a string").
  */
 
+/** Review follow-up: the one copy of this sentence, shared by
+ * `pages/booking/BookingPage.tsx` (the deposit's own payment-method choice)
+ * and `components/BookingActions.tsx` (the balance's "Pay balance" step) --
+ * both name the same gap (Story 2.4/PRD 3.4 AC4, SEP-6 local-currency
+ * payment is not built), so they must say it identically rather than risk
+ * drifting into two different wordings of the same fact. */
+export const LOCAL_CURRENCY_UNAVAILABLE_NOTE = "Local currency — not available yet. Pay with a Stellar wallet holding USDC instead.";
+
 /** USDC on Stellar: 7 decimal places, matching `backend/src/services/
  * profile.ts`'s `computeDepositAmount`. */
 const SMALLEST_UNIT_DECIMALS = 7;

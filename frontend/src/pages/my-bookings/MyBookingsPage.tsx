@@ -130,7 +130,7 @@ export function MyBookingsPage() {
               contractId={booking.contractId}
               balancePaymentTxHash={booking.balancePaymentTxHash}
               session={session}
-              onActionSubmitted={() => void bookingsQuery.refetch()}
+              onActionSubmitted={() => bookingsQuery.refetch()}
               onUnauthorized={handleSignOut}
             />
           ))}
@@ -159,7 +159,7 @@ export function MyBookingsPage() {
                 contractId={booking.contractId}
                 balancePaymentTxHash={booking.balancePaymentTxHash}
                 session={session}
-                onActionSubmitted={() => void bookingsQuery.refetch()}
+                onActionSubmitted={() => bookingsQuery.refetch()}
                 onUnauthorized={handleSignOut}
               />
             ))}

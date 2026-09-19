@@ -43,6 +43,7 @@ import {
 } from "./services/profile.js";
 import {
   BookingActionPendingError,
+  BalanceAlreadySettledError,
   BookingEscrowStateError,
   BookingHoldExpiredError,
   BookingNotFoundError,
@@ -814,6 +815,10 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
       if (error instanceof BookingEscrowStateError) {
         return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
       }
+      if (error instanceof PaymentFailedError || error instanceof PaymentUnavailableError) {
+        const response = paymentErrorResponse(error);
+        return c.json({ code: response.code, message: response.message }, response.status);
+      }
       throw error;
     }
   });
@@ -841,6 +846,12 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
       if (error instanceof XdrMismatchError) {
         return c.json({ code: "XDR_MISMATCH", message: error.message }, 409);
       }
+      if (error instanceof BookingEscrowStateError) {
+        return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
+      }
+      if (error instanceof BalanceAlreadySettledError) {
+        return c.json({ code: "BALANCE_ALREADY_SETTLED", message: error.message }, 409);
+      }
       if (error instanceof PaymentFailedError || error instanceof PaymentUnavailableError) {
         const response = paymentErrorResponse(error);
         return c.json({ code: response.code, message: response.message }, response.status);
@@ -865,6 +876,9 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
     } catch (error) {
       if (error instanceof BookingNotFoundError) {
         return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof NothingToPayError) {
+        return c.json({ code: "NOTHING_TO_PAY", message: error.message }, 409);
       }
       if (error instanceof BookingEscrowStateError) {
         return c.json({ code: "BOOKING_STATE", message: error.message }, 409);

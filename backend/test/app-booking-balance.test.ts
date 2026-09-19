@@ -123,9 +123,14 @@ test("POST /bookings/:id/balance/submit gives 409 XDR_MISMATCH for a signed enve
   try {
     const { bookingId, clientWalletAddress } = await seedLockedBooking(result);
     const app = createApp(result.db, { buildBalancePaymentDeps: { resolveUsdcAsset: FAKE_USDC_DEPS.resolveUsdcAsset, getAccount: getAccountStub } });
+    const headers = await authHeader(clientWalletAddress);
+    // A built hash must exist for `submit` to reach its own hash-match
+    // check at all (otherwise it refuses `BOOKING_STATE` first, per the
+    // review follow-up: "and a built hash exists").
+    await app.request(`/bookings/${bookingId}/balance/pay`, { method: "POST", headers });
     const response = await app.request(`/bookings/${bookingId}/balance/submit`, {
       method: "POST",
-      headers: await authHeader(clientWalletAddress),
+      headers,
       body: JSON.stringify({ signedXdr: "not-a-real-envelope" }),
     });
     assert.equal(response.status, 409);
@@ -170,6 +175,131 @@ test("POST /bookings/:id/balance/submit confirms paid_platform, and both GET /bo
     const item = listBody.bookings.find((b) => b.id === bookingId);
     assert.equal(item?.balanceState, "paid_platform");
     assert.equal(item?.balancePaymentTxHash, "cafef00d");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("POST /bookings/:id/balance/submit's confirmed payment also shows up on GET /me/provider/bookings", async () => {
+  const result = openTestDatabase();
+  try {
+    const { bookingId, clientWalletAddress, providerWalletAddress } = await seedLockedBooking(result);
+    const app = createApp(result.db, {
+      buildBalancePaymentDeps: { resolveUsdcAsset: FAKE_USDC_DEPS.resolveUsdcAsset, getAccount: getAccountStub },
+      submitBalancePaymentDeps: {
+        sendTransaction: async () => ({ status: "PENDING", hash: "providerbeef" }) as rpc.Api.SendTransactionResponse,
+        waitForTransaction: async () => ({ status: rpc.Api.GetTransactionStatus.SUCCESS }) as rpc.Api.GetTransactionResponse,
+      },
+    });
+    const clientHeaders = await authHeader(clientWalletAddress);
+    const payResponse = await app.request(`/bookings/${bookingId}/balance/pay`, { method: "POST", headers: clientHeaders });
+    const { unsignedXdr } = (await payResponse.json()) as { unsignedXdr: string };
+    await app.request(`/bookings/${bookingId}/balance/submit`, {
+      method: "POST",
+      headers: clientHeaders,
+      body: JSON.stringify({ signedXdr: unsignedXdr }),
+    });
+
+    const providerListResponse = await app.request("/me/provider/bookings", { headers: await authHeader(providerWalletAddress) });
+    const body = (await providerListResponse.json()) as {
+      bookings: Array<{ id: string; balanceState: string; balancePaymentTxHash: string | null }>;
+    };
+    const item = body.bookings.find((b) => b.id === bookingId);
+    assert.equal(item?.balanceState, "paid_platform");
+    assert.equal(item?.balancePaymentTxHash, "providerbeef");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("POST /bookings/:id/balance/pay gives 503 PAYMENT_UNAVAILABLE when resolving the USDC asset fails", async () => {
+  const result = openTestDatabase();
+  try {
+    const { bookingId, clientWalletAddress } = await seedLockedBooking(result);
+    const app = createApp(result.db, {
+      buildBalancePaymentDeps: {
+        resolveUsdcAsset: async () => {
+          throw new Error("anchor unreachable");
+        },
+        getAccount: getAccountStub,
+      },
+    });
+    const response = await app.request(`/bookings/${bookingId}/balance/pay`, { method: "POST", headers: await authHeader(clientWalletAddress) });
+    assert.equal(response.status, 503);
+    const body = (await response.json()) as { code: string };
+    assert.equal(body.code, "PAYMENT_UNAVAILABLE");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("POST /bookings/:id/balance/pay gives 503 PAYMENT_UNAVAILABLE when loading the client's account fails", async () => {
+  const result = openTestDatabase();
+  try {
+    const { bookingId, clientWalletAddress } = await seedLockedBooking(result);
+    const app = createApp(result.db, {
+      buildBalancePaymentDeps: {
+        resolveUsdcAsset: FAKE_USDC_DEPS.resolveUsdcAsset,
+        getAccount: async () => {
+          throw new Error("RPC unreachable");
+        },
+      },
+    });
+    const response = await app.request(`/bookings/${bookingId}/balance/pay`, { method: "POST", headers: await authHeader(clientWalletAddress) });
+    assert.equal(response.status, 503);
+    const body = (await response.json()) as { code: string };
+    assert.equal(body.code, "PAYMENT_UNAVAILABLE");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("POST /bookings/:id/balance/submit gives 400 when signedXdr is missing", async () => {
+  const result = openTestDatabase();
+  try {
+    const { bookingId, clientWalletAddress } = await seedLockedBooking(result);
+    const app = createApp(result.db);
+    const response = await app.request(`/bookings/${bookingId}/balance/submit`, {
+      method: "POST",
+      headers: await authHeader(clientWalletAddress),
+      body: JSON.stringify({}),
+    });
+    assert.equal(response.status, 400);
+    const body = (await response.json()) as { code: string };
+    assert.equal(body.code, "invalid_request");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("POST /bookings/:id/balance/submit gives 404 for an unknown booking id", async () => {
+  const result = openTestDatabase();
+  try {
+    const app = createApp(result.db);
+    const response = await app.request(`/bookings/${"0".repeat(32)}/balance/submit`, {
+      method: "POST",
+      headers: await authHeader(Keypair.random().publicKey()),
+      body: JSON.stringify({ signedXdr: "anything" }),
+    });
+    assert.equal(response.status, 404);
+    const body = (await response.json()) as { code: string };
+    assert.equal(body.code, "BOOKING_NOT_FOUND");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("POST /bookings/:id/balance/mark-cash gives 404 for an unknown booking id", async () => {
+  const result = openTestDatabase();
+  try {
+    const app = createApp(result.db);
+    const response = await app.request(`/bookings/${"0".repeat(32)}/balance/mark-cash`, {
+      method: "POST",
+      headers: await authHeader(Keypair.random().publicKey()),
+    });
+    assert.equal(response.status, 404);
+    const body = (await response.json()) as { code: string };
+    assert.equal(body.code, "BOOKING_NOT_FOUND");
   } finally {
     closeDatabase(result);
   }

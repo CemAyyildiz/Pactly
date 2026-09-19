@@ -10,11 +10,13 @@
  * `PAYMENT_UNAVAILABLE`).
  */
 import "./testConfigEnv.js";
+import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Account, Keypair, Operation, TransactionBuilder, rpc } from "@stellar/stellar-sdk";
 
 import {
+  BalanceAlreadySettledError,
   BookingEscrowStateError,
   BookingNotFoundError,
   NothingToPayError,
@@ -23,11 +25,11 @@ import {
   markBalancePaidCash,
   submitBalancePayment,
 } from "../src/services/booking.js";
-import { insertBooking, getBookingById, updateEscrowContractId, updateEscrowStateSync } from "../src/db/bookings.js";
+import { insertBooking, getBookingById, updateEscrowContractId, updateEscrowState, updateEscrowStateSync } from "../src/db/bookings.js";
 import { availabilitySlots } from "../src/db/schema.js";
 import { PaymentFailedError, PaymentUnavailableError } from "../src/payments/errors.js";
 import type { SubmitBalancePaymentResult } from "../src/payments/stellar.js";
-import { closeDatabase, openTestDatabase, seedBooking, seedProviderProfile } from "./helpers.js";
+import { closeDatabase, openTestDatabase, randomBookingId, seedBooking, seedProviderProfile } from "./helpers.js";
 
 const FAKE_USDC = { code: "USDC", issuer: Keypair.random().publicKey(), contractId: "CFAKEUSDC0000000000000000000000000000000000000000" };
 const resolveUsdc = async () => FAKE_USDC;
@@ -36,6 +38,11 @@ function fakeContractId(): string {
   return "CFAKECONTRACT0000000000000000000000000000000000000";
 }
 
+/** Every balance-payment precondition ({@link requireBalancePayable} in
+ * `services/booking.ts`) needs a real, future-dated slot on the booking --
+ * review follow-up: a booking with no `slotId` at all is now refused
+ * outright, so every fixture here needs one, unlike `seedBooking`'s own
+ * plain default (no slot). */
 async function seedLockedBookingWithBalance(
   result: Awaited<ReturnType<typeof openTestDatabase>>,
   options: {
@@ -43,16 +50,26 @@ async function seedLockedBookingWithBalance(
     providerWalletAddress?: string;
     balanceAmount?: string;
     cancelDeadline?: number;
+    slotStartsAt?: number;
   } = {},
 ): Promise<{ bookingId: string; clientWalletAddress: string; providerWalletAddress: string }> {
   const clientWalletAddress = options.clientWalletAddress ?? Keypair.random().publicKey();
   const providerWalletAddress = options.providerWalletAddress ?? Keypair.random().publicKey();
   const providerProfileId = await seedProviderProfile(result, { walletAddress: providerWalletAddress });
-  const bookingId = await seedBooking(result, {
+  const slotStartsAt = options.slotStartsAt ?? Math.floor(Date.now() / 1000) + 3600;
+  const slotId = randomUUID();
+  await result.db.insert(availabilitySlots).values({ id: slotId, providerProfileId, startsAt: slotStartsAt, createdAt: Date.now() });
+  const bookingId = randomBookingId();
+  await insertBooking(result.db, {
+    id: bookingId,
     providerProfileId,
     clientWalletAddress,
+    tokenAddress: "CFAKETOKEN000000000000000000000000000000000000000",
+    depositAmount: "1000000",
     balanceAmount: options.balanceAmount ?? "14000000000",
     cancelDeadline: options.cancelDeadline ?? Math.floor(Date.now() / 1000) + 3600,
+    slotId,
+    createdAt: Date.now(),
   });
   await updateEscrowContractId(result.db, bookingId, fakeContractId());
   updateEscrowStateSync(result.db, bookingId, "locked");
@@ -60,6 +77,19 @@ async function seedLockedBookingWithBalance(
 }
 
 const getAccountStub = async (publicKey: string) => new Account(publicKey, "0");
+
+/** A `getAccount` stub whose sequence number advances on every call --
+ * unlike {@link getAccountStub}'s fixed `"0"`, needed only where a test
+ * must force two separate `buildBalancePayment` calls to actually produce
+ * two different envelopes (and so two different hashes) to be meaningful. */
+function makeIncrementingGetAccountStub(): (publicKey: string) => Promise<Account> {
+  let sequence = 0;
+  return async (publicKey: string) => {
+    const account = new Account(publicKey, String(sequence));
+    sequence += 1;
+    return account;
+  };
+}
 
 test("buildBalancePayment builds an unsigned payment for the client's own locked, unpaid booking", async () => {
   const result = openTestDatabase();
@@ -303,6 +333,131 @@ test("markBalancePaidCash refuses BookingEscrowStateError once the balance is al
     const { bookingId, providerWalletAddress } = await seedLockedBookingWithBalance(result);
     await markBalancePaidCash(result.db, bookingId, providerWalletAddress);
     await assert.rejects(() => markBalancePaidCash(result.db, bookingId, providerWalletAddress), BookingEscrowStateError);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("markBalancePaidCash refuses NothingToPayError for a zero balance", async () => {
+  const result = openTestDatabase();
+  try {
+    const { bookingId, providerWalletAddress } = await seedLockedBookingWithBalance(result, { balanceAmount: "0" });
+    await assert.rejects(() => markBalancePaidCash(result.db, bookingId, providerWalletAddress), NothingToPayError);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("markBalancePaidCash is allowed while escrowState is released (not only locked)", async () => {
+  const result = openTestDatabase();
+  try {
+    const { bookingId, providerWalletAddress } = await seedLockedBookingWithBalance(result);
+    await updateEscrowState(result.db, bookingId, "released");
+    await markBalancePaidCash(result.db, bookingId, providerWalletAddress);
+    const row = await getBookingById(result.db, bookingId);
+    assert.equal(row?.balanceState, "paid_cash");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("markBalancePaidCash refuses BookingEscrowStateError once escrowState is refunded", async () => {
+  const result = openTestDatabase();
+  try {
+    const { bookingId, providerWalletAddress } = await seedLockedBookingWithBalance(result);
+    await updateEscrowState(result.db, bookingId, "refunded");
+    await assert.rejects(() => markBalancePaidCash(result.db, bookingId, providerWalletAddress), BookingEscrowStateError);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("markBalancePaidCash clears a previously-built platform-payment hash so it can never be relayed afterwards", async () => {
+  const result = openTestDatabase();
+  try {
+    const { bookingId, clientWalletAddress, providerWalletAddress } = await seedLockedBookingWithBalance(result);
+    await buildBalancePayment(result.db, bookingId, clientWalletAddress, { resolveUsdcAsset: resolveUsdc, getAccount: getAccountStub });
+    const beforeCash = await getBookingById(result.db, bookingId);
+    assert.ok(beforeCash?.balancePaymentBuiltHash);
+
+    await markBalancePaidCash(result.db, bookingId, providerWalletAddress);
+
+    const row = await getBookingById(result.db, bookingId);
+    assert.equal(row?.balanceState, "paid_cash");
+    assert.equal(row?.balancePaymentBuiltHash, null);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("submitBalancePayment's write landing on a row already paid_cash leaves it untouched and reports BalanceAlreadySettledError", async () => {
+  const result = openTestDatabase();
+  try {
+    const { bookingId, clientWalletAddress, providerWalletAddress } = await seedLockedBookingWithBalance(result);
+    const built = await buildBalancePayment(result.db, bookingId, clientWalletAddress, {
+      resolveUsdcAsset: resolveUsdc,
+      getAccount: getAccountStub,
+    });
+
+    // Simulates the exact race `BalanceAlreadySettledError` exists for:
+    // `submitBalancePayment`'s own re-check passes (the row is still
+    // "unpaid" at that point), the transaction is sent, and only *while*
+    // it is confirming on chain does the provider's own cash mark land --
+    // so by the time this call tries to record its own result, the row is
+    // already "paid_cash".
+    await assert.rejects(
+      () =>
+        submitBalancePayment(result.db, bookingId, clientWalletAddress, built.unsignedXdr, {
+          sendTransaction: async () => ({ status: "PENDING", hash: "settledbeef" }) as rpc.Api.SendTransactionResponse,
+          waitForTransaction: async () => {
+            await markBalancePaidCash(result.db, bookingId, providerWalletAddress);
+            return { status: rpc.Api.GetTransactionStatus.SUCCESS } as rpc.Api.GetTransactionResponse;
+          },
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof BalanceAlreadySettledError);
+        assert.equal(error.bookingId, bookingId);
+        assert.equal(error.txHash, "settledbeef");
+        return true;
+      },
+    );
+
+    const row = await getBookingById(result.db, bookingId);
+    assert.equal(row?.balanceState, "paid_cash", "the cash mark that won the race must remain, never overwritten by the late platform payment");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("build twice then submit the second envelope succeeds; the first envelope now fails XDR_MISMATCH", async () => {
+  const result = openTestDatabase();
+  try {
+    const { bookingId, clientWalletAddress } = await seedLockedBookingWithBalance(result);
+    const getAccount = makeIncrementingGetAccountStub();
+    const firstBuild = await buildBalancePayment(result.db, bookingId, clientWalletAddress, {
+      resolveUsdcAsset: resolveUsdc,
+      getAccount,
+    });
+    const secondBuild = await buildBalancePayment(result.db, bookingId, clientWalletAddress, {
+      resolveUsdcAsset: resolveUsdc,
+      getAccount,
+    });
+    assert.notEqual(firstBuild.unsignedXdr, secondBuild.unsignedXdr, "a second build against a different account sequence must differ");
+
+    // The first (now-stale) envelope must be refused.
+    await assert.rejects(
+      () => submitBalancePayment(result.db, bookingId, clientWalletAddress, firstBuild.unsignedXdr, {}),
+      XdrMismatchError,
+    );
+
+    // The second (current) envelope must still be relayable.
+    const submitted = await submitBalancePayment(result.db, bookingId, clientWalletAddress, secondBuild.unsignedXdr, {
+      sendTransaction: async () => ({ status: "PENDING", hash: "retrybeef" }) as rpc.Api.SendTransactionResponse,
+      waitForTransaction: async () => ({ status: rpc.Api.GetTransactionStatus.SUCCESS }) as rpc.Api.GetTransactionResponse,
+    });
+    assert.equal(submitted.txHash, "retrybeef");
+    const row = await getBookingById(result.db, bookingId);
+    assert.equal(row?.balanceState, "paid_platform");
   } finally {
     closeDatabase(result);
   }

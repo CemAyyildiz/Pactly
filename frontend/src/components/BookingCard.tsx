@@ -2,7 +2,7 @@ import { BookingActions } from "./BookingActions";
 import { Countdown } from "./Countdown";
 import { StateLabel } from "./StateLabel";
 import { formatMoney } from "../lib/money";
-import { stellarExplorerContractUrl } from "../lib/stellar";
+import { stellarExplorerContractUrl, stellarExplorerTransactionUrl } from "../lib/stellar";
 import { formatSlotDay, formatSlotTime } from "../lib/time";
 import type { Session } from "../wallet";
 import type { BalanceState, BookingLifecycle, Money, PendingActionKind } from "../api/types";
@@ -56,8 +56,8 @@ export interface BookingCardProps {
  * `<td>` instead of a card, without a second copy of this map. */
 export const BALANCE_STATE_LABEL: Record<BalanceState, string> = {
   unpaid: "due before the session",
-  paid_platform: "Paid through Pactly",
-  paid_cash: "Paid in person",
+  paid_platform: "paid through Pactly",
+  paid_cash: "paid in person",
 };
 
 /**
@@ -115,6 +115,16 @@ export function BookingCard({
         </div>
       </dl>
 
+      {/* Review follow-up: lives here, not in `BookingActions`, which
+       * renders nothing once the booking leaves `locked` -- exactly the
+       * state a settled (`released`/`refunded`) booking's own balance
+       * payment needs this link to keep showing in. */}
+      {balanceState === "paid_platform" && balancePaymentTxHash && (
+        <a className="booking-card__explorer-link" href={stellarExplorerTransactionUrl(balancePaymentTxHash)} target="_blank" rel="noreferrer">
+          View balance payment on Stellar Expert
+        </a>
+      )}
+
       <Countdown cancelDeadline={cancelDeadline} />
 
       {contractId && (
@@ -133,7 +143,6 @@ export function BookingCard({
         balance={balance}
         balanceState={balanceState}
         slotStartsAt={slotStartsAt}
-        balancePaymentTxHash={balancePaymentTxHash}
         session={session}
         onActionSubmitted={onActionSubmitted}
         onUnauthorized={onUnauthorized}

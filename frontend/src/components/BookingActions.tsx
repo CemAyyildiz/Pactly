@@ -11,8 +11,7 @@ import {
   submitBalancePayment,
   submitSignedTransaction,
 } from "../api/hooks";
-import { formatMoney } from "../lib/money";
-import { stellarExplorerTransactionUrl } from "../lib/stellar";
+import { LOCAL_CURRENCY_UNAVAILABLE_NOTE, formatMoney } from "../lib/money";
 import { signXdr, type Session } from "../wallet";
 import type { ActionResponse, BalanceState, BookingLifecycle, DisputeReason, Money, PendingActionKind } from "../api/types";
 
@@ -30,20 +29,26 @@ export interface BookingActionsProps {
   pendingAction?: PendingActionKind;
   deposit: Money;
   /** Story 3.7: the balance's own amount and state -- drives "Pay balance"
-   * (client) and "Mark paid in person" (provider). */
+   * (client) and "Mark paid in person" (provider). The balance row's own
+   * "View on Stellar Expert" link lives in `BookingCard.tsx`/`BookingsPage
+   * .tsx` instead of here (review follow-up: this component renders nothing
+   * once the booking leaves `locked`, which is exactly when a settled
+   * booking's own link would need to keep showing). */
   balance: Money;
   balanceState: BalanceState;
   /** UTC epoch seconds -- `null` for a pre-3.4 booking with no slot. Gates
    * "Pay balance": the spec's own "Always" rule, "only before the
    * appointment starts". */
   slotStartsAt: number | null;
-  /** The on-chain transaction hash once paid through Pactly -- drives the
-   * "View on Stellar Expert" link the spec's own "Always" rule requires
-   * ("A Stellar Expert transaction link appears after a platform
-   * payment"). */
-  balancePaymentTxHash: string | null;
   session?: Session;
-  onActionSubmitted?: () => void;
+  /** Called once an action's signed transaction has actually been relayed
+   * (escrow actions), or once a balance action's own final outcome is
+   * known -- the caller's own cue to refetch its list/view. May return the
+   * refetch's own promise (review follow-up: "Pay balance" awaits it after
+   * an ambiguous `PAYMENT_UNAVAILABLE` outcome, so it never re-enables
+   * itself on stale data); a caller that returns nothing still works
+   * exactly as before. */
+  onActionSubmitted?: () => unknown;
   onUnauthorized?: () => void;
 }
 
@@ -92,11 +97,16 @@ type DisputeStep =
   | { kind: "picking-reason" }
   | { kind: "confirming"; reason: DisputeReason; suggestedOutcome: "refund-client" | "pay-provider" | undefined; unsignedXdr: string };
 
-/** Story 3.7's own two balance actions -- kept distinct from `ActionKind`
- * above (escrow actions) since they hit an entirely separate pair of
- * routes (`/balance/pay`+`/balance/submit`, `/balance/mark-cash`), never
- * the escrow submit endpoint. */
-type BalanceActionKind = "pay-balance" | "mark-cash";
+/** Story 3.7's own balance actions -- kept distinct from `ActionKind` above
+ * (escrow actions) since they hit an entirely separate pair of routes
+ * (`/balance/pay`+`/balance/submit`, `/balance/mark-cash`), never the
+ * escrow submit endpoint. `"confirming-balance"` is its own state (review
+ * follow-up) rather than reusing `"pay-balance"` for the whole call: unlike
+ * the escrow actions' own submit (a quick relay the reconciler confirms
+ * later), `submitBalancePayment` itself polls to a final on-chain result,
+ * which can take up to the built transaction's own 5-minute timeout --
+ * "Approve it in your wallet…" would sit there, wrong, for all of it. */
+type BalanceActionKind = "pay-balance" | "confirming-balance" | "mark-cash";
 
 /**
  * The role-correct action buttons for one booking (Story 3.6): "Mark
@@ -122,7 +132,6 @@ export function BookingActions({
   balance,
   balanceState,
   slotStartsAt,
-  balancePaymentTxHash,
   session,
   onActionSubmitted,
   onUnauthorized,
@@ -131,6 +140,12 @@ export function BookingActions({
   const [notice, setNotice] = useState<{ text: string; alert?: boolean } | undefined>(undefined);
   const [disputeStep, setDisputeStep] = useState<DisputeStep>({ kind: "idle" });
   const [confirmingCash, setConfirmingCash] = useState(false);
+  /** Review follow-up (item 8): an ambiguous `PAYMENT_UNAVAILABLE` after the
+   * client already signed means Pactly itself does not yet know whether the
+   * payment landed -- "Pay balance" stays hidden/disabled until a refetch
+   * of this booking confirms it is still `unpaid`, so the client can never
+   * fire a second real payment while the first one's outcome is unknown. */
+  const [verifyingBalance, setVerifyingBalance] = useState(false);
 
   function describeFailure(error: unknown): string {
     if (error instanceof ApiError) {
@@ -237,27 +252,64 @@ export function BookingActions({
    * sign-then-submit shape is otherwise identical. The success notice reads
    * "Paid through Pactly" only once the ledger has actually confirmed
    * (`submitBalancePayment` itself polls to a final result before
-   * resolving), never merely on submission.
+   * resolving), never merely on submission. Split into two `try` blocks
+   * (review follow-up) so only a failure *after* the signature returns --
+   * build, and a declined signature, can never leave money in an unknown
+   * state -- gets the ambiguous-outcome treatment below.
    */
   async function handlePayBalance(): Promise<void> {
     if (!session || busyAction) return;
     setBusyAction("pay-balance");
     setNotice(undefined);
+
+    let unsignedXdr: string;
     try {
-      const built = await buildBalancePayment(id, session);
-      let signedXdr: string;
-      try {
-        signedXdr = await signXdr(built.unsignedXdr, session.walletAddress);
-      } catch {
-        setNotice({ text: "You didn't sign. Nothing changed -- try again whenever you're ready." });
-        return;
+      ({ unsignedXdr } = await buildBalancePayment(id, session));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onUnauthorized?.();
+      } else {
+        setNotice({ text: describeFailure(error), alert: true });
       }
+      setBusyAction(undefined);
+      return;
+    }
+
+    let signedXdr: string;
+    try {
+      signedXdr = await signXdr(unsignedXdr, session.walletAddress);
+    } catch {
+      setNotice({ text: "You didn't sign. Nothing changed -- try again whenever you're ready." });
+      setBusyAction(undefined);
+      return;
+    }
+
+    // The signature is spent from here on -- "Approve it in your wallet…"
+    // no longer applies; the wait is now for the ledger, not the wallet.
+    setBusyAction("confirming-balance");
+    try {
       await submitBalancePayment(id, signedXdr, session);
       setNotice({ text: "Paid through Pactly." });
       onActionSubmitted?.();
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onUnauthorized?.();
+        return;
+      }
+      if (error instanceof ApiError && error.code === "PAYMENT_UNAVAILABLE") {
+        // Review follow-up (item 8): Pactly itself could not confirm
+        // whether this landed -- never claim it failed (it might still
+        // land) and never silently let the client try again on stale data.
+        setNotice({
+          text: "We couldn't confirm whether this payment went through. Checking your balance before you can try again…",
+          alert: true,
+        });
+        setVerifyingBalance(true);
+        try {
+          await onActionSubmitted?.();
+        } finally {
+          setVerifyingBalance(false);
+        }
         return;
       }
       setNotice({ text: describeFailure(error), alert: true });
@@ -298,7 +350,7 @@ export function BookingActions({
   const canDispute = canAct && action !== "disputed" && action !== "released" && action !== "resolved";
   const hasBalanceToPay = balance.amount !== "0";
   const appointmentNotStarted = slotStartsAt === null || slotStartsAt > Math.floor(Date.now() / 1000);
-  const canPayBalance = canAct && viewer === "client" && balanceState === "unpaid" && hasBalanceToPay && appointmentNotStarted;
+  const canPayBalance = canAct && viewer === "client" && balanceState === "unpaid" && hasBalanceToPay && appointmentNotStarted && !verifyingBalance;
   const canMarkCash = canAct && viewer === "provider" && balanceState === "unpaid" && hasBalanceToPay;
   const isBusy = busyAction !== undefined;
 
@@ -370,10 +422,14 @@ export function BookingActions({
 
       {canPayBalance && !confirmingCash && disputeStep.kind === "idle" && (
         <div className="booking-card__balance-actions">
-          <p className="booking-card__balance-note">Local currency — not available yet. Pay with a Stellar wallet holding USDC instead.</p>
+          <p className="booking-card__balance-note">{LOCAL_CURRENCY_UNAVAILABLE_NOTE}</p>
           <div className="booking-card__actions">
             <button type="button" className="button-primary" disabled={isBusy} onClick={() => void handlePayBalance()}>
-              {busyAction === "pay-balance" ? "Approve it in your wallet…" : `Pay balance (${formatMoney(balance.amount, balance.asset)})`}
+              {busyAction === "pay-balance"
+                ? "Approve it in your wallet…"
+                : busyAction === "confirming-balance"
+                  ? "Confirming on chain…"
+                  : `Pay balance (${formatMoney(balance.amount, balance.asset)})`}
             </button>
           </div>
         </div>
@@ -399,12 +455,6 @@ export function BookingActions({
             </button>
           </div>
         </div>
-      )}
-
-      {balanceState === "paid_platform" && balancePaymentTxHash && (
-        <a className="booking-card__explorer-link" href={stellarExplorerTransactionUrl(balancePaymentTxHash)} target="_blank" rel="noreferrer">
-          View balance payment on Stellar Expert
-        </a>
       )}
 
       {disputeStep.kind === "picking-reason" && (

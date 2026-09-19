@@ -463,6 +463,76 @@ test("runMigrations adds Story 3.6's five action tx-hash columns to a bookings t
   }
 });
 
+test("runMigrations adds Story 3.7's two balance-payment columns to a bookings table created before it (ALTER, not a no-op CREATE)", async () => {
+  const sqlite = new Database(":memory:");
+  try {
+    sqlite.pragma("foreign_keys = ON");
+    // The pre-3.7 DDL: Story 3.6's own shape (the five action tx-hash
+    // columns already exist), but neither of Story 3.7's own two columns.
+    sqlite.exec(`CREATE TABLE categories (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, parent_category_id TEXT
+    )`);
+    sqlite.exec(`CREATE TABLE provider_profiles (
+      id TEXT PRIMARY KEY, wallet_address TEXT NOT NULL UNIQUE, category_id TEXT NOT NULL REFERENCES categories(id),
+      display_name TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '', location TEXT NOT NULL DEFAULT '',
+      bio TEXT NOT NULL DEFAULT '', languages TEXT NOT NULL DEFAULT '[]', session_format TEXT NOT NULL,
+      session_length_minutes INTEGER NOT NULL, price_amount TEXT NOT NULL, deposit_rate_bps INTEGER NOT NULL,
+      cancellation_window_hours INTEGER NOT NULL, is_approved INTEGER NOT NULL DEFAULT 0,
+      verified_session_count INTEGER NOT NULL DEFAULT 0, provider_cancellation_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )`);
+    sqlite.exec(`CREATE TABLE availability_slots (
+      id TEXT PRIMARY KEY, provider_profile_id TEXT NOT NULL REFERENCES provider_profiles(id),
+      starts_at INTEGER NOT NULL, withdrawn_at INTEGER, created_at INTEGER NOT NULL,
+      UNIQUE (provider_profile_id, starts_at)
+    )`);
+    sqlite.exec(`CREATE TABLE bookings (
+      id TEXT PRIMARY KEY, provider_profile_id TEXT NOT NULL REFERENCES provider_profiles(id),
+      client_wallet_address TEXT NOT NULL, token_address TEXT NOT NULL, deposit_amount TEXT NOT NULL,
+      balance_amount TEXT NOT NULL DEFAULT '0', cancel_deadline INTEGER NOT NULL, escrow_state TEXT,
+      balance_state TEXT NOT NULL DEFAULT 'unpaid', escrow_contract_id TEXT, slot_id TEXT REFERENCES availability_slots(id),
+      hold_expires_at INTEGER, escrow_deploy_xdr TEXT, escrow_deploy_tx_hash TEXT, escrow_fund_tx_hash TEXT,
+      deploy_submitted_at INTEGER, escrow_complete_tx_hash TEXT, escrow_approve_tx_hash TEXT, escrow_release_tx_hash TEXT,
+      escrow_dispute_tx_hash TEXT, escrow_resolve_tx_hash TEXT, created_at INTEGER NOT NULL
+    )`);
+
+    const categoryId = randomUUID();
+    sqlite.prepare(`INSERT INTO categories (id, name, slug) VALUES (?, 'Consulting', ?)`).run(categoryId, `consulting-${categoryId}`);
+    const providerProfileId = randomUUID();
+    sqlite
+      .prepare(
+        `INSERT INTO provider_profiles
+          (id, wallet_address, category_id, session_format, session_length_minutes, price_amount, deposit_rate_bps, cancellation_window_hours, created_at)
+         VALUES (?, ?, ?, 'video', 50, '10000000', 2000, 24, ?)`,
+      )
+      .run(providerProfileId, `GPROVIDERPRE37${providerProfileId.replace(/-/g, "").toUpperCase()}`, categoryId, Date.now());
+    const bookingId = randomBookingId();
+    sqlite
+      .prepare(
+        `INSERT INTO bookings (id, provider_profile_id, client_wallet_address, token_address, deposit_amount, cancel_deadline, created_at)
+         VALUES (?, ?, 'GCLIENTPRE37', 'CTOKENPRE37', '1000000', ?, ?)`,
+      )
+      .run(bookingId, providerProfileId, Math.floor(Date.now() / 1000) + 3600, Date.now());
+
+    // The migration under test: must add the two missing columns in place,
+    // without touching the row already there.
+    runMigrations(sqlite);
+
+    const columns = sqlite.prepare(`PRAGMA table_info(bookings)`).all() as Array<{ name: string }>;
+    for (const column of ["balance_payment_built_hash", "balance_payment_tx_hash"]) {
+      assert.ok(columns.some((c) => c.name === column), `expected ${column} to exist after migration`);
+    }
+
+    const db = drizzle(sqlite, { schema });
+    const booking = await getBookingById(db, bookingId);
+    assert.equal(booking?.balancePaymentBuiltHash, null);
+    assert.equal(booking?.balancePaymentTxHash, null);
+    assert.equal(booking?.clientWalletAddress, "GCLIENTPRE37", "the pre-existing row must survive the migration");
+  } finally {
+    sqlite.close();
+  }
+});
+
 // The two tests below insert and select through the Drizzle table objects
 // directly, for tables nothing else in the codebase reads or writes yet
 // (provider_applications, reviews -- future stories' job). `migrations.ts`

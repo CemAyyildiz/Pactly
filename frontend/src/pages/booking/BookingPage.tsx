@@ -16,7 +16,7 @@ import { EscrowLane } from "../../components/EscrowLane";
 import { LockButton } from "../../components/LockButton";
 import { ProviderHeader } from "../../components/ProviderHeader";
 import { Seal } from "../../components/Seal";
-import { formatMoney } from "../../lib/money";
+import { LOCAL_CURRENCY_UNAVAILABLE_NOTE, formatMoney } from "../../lib/money";
 import { formatSlotDay, formatSlotTime } from "../../lib/time";
 import { getSession, signIn, signOut, signXdr, type Session } from "../../wallet";
 
@@ -471,7 +471,7 @@ export function BookingPage() {
               <span>Wallet · USDC</span>
             </div>
             <div className="payment-method__option payment-method__option--disabled">
-              <span>Local currency — not available yet. Pay with a Stellar wallet holding USDC instead.</span>
+              <span>{LOCAL_CURRENCY_UNAVAILABLE_NOTE}</span>
             </div>
           </div>
 

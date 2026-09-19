@@ -61,6 +61,7 @@ import {
   listPotentialDoubleSales,
   listConflictingSlotBookings,
   clearUnsubmittedEscrowContractId,
+  markBalancePaidCashIfUnpaid,
   markBalancePaidPlatform,
   recordDeploySubmission,
   setEscrowActionSubmittedAt,
@@ -85,6 +86,7 @@ import {
   type BuildPaymentDeps,
   type SubmitPaymentDeps,
 } from "../payments/stellar.js";
+import { PaymentUnavailableError } from "../payments/errors.js";
 import type { Db } from "../db/client.js";
 import { BALANCE_STATES, type BalanceState, type DisputeOpenerRole, type DisputeOutcome, type DisputeReason } from "../db/schema.js";
 
@@ -1079,18 +1081,51 @@ export class NothingToPayError extends Error {
   }
 }
 
+/** Review follow-up: a platform payment was confirmed on chain
+ * (`submitBalancePaymentTransaction` returned SUCCESS) but
+ * {@link markBalancePaidPlatform}'s own guarded write reported `false` --
+ * the booking's `balanceState` had already moved on (a race with a
+ * concurrent cash mark, or a resubmit of an already-recorded payment) by the
+ * time this call tried to record it. The money moved; this is never shown
+ * as a plain success, and never silently dropped either. */
+export class BalanceAlreadySettledError extends Error {
+  constructor(
+    public readonly bookingId: string,
+    public readonly txHash: string,
+  ) {
+    super(
+      "This payment landed on chain, but Pactly could not record it because the booking's balance was no longer unpaid. " +
+        "Contact support with this transaction so it can be reconciled.",
+    );
+    this.name = "BalanceAlreadySettledError";
+  }
+}
+
 /** Refuses (typed {@link BookingEscrowStateError}) unless the booking is
- * `locked` with `balanceState` still `"unpaid"`, and the appointment has
- * not started yet -- shared by {@link buildBalancePayment} (the client's
- * own precondition) and {@link markBalancePaidCash} (the provider's own,
- * minus the "before it starts" clause, which only ever gates the client's
- * own payment path per the spec's own "Always" rule: "only before the
- * appointment starts"). */
-function requireUnpaidLockedBalance(booking: BookingRow, action: string): void {
+ * `locked` with `balanceState` still `"unpaid"` and has a slot on record
+ * whose appointment has not started yet -- the two preconditions
+ * {@link buildBalancePayment} checks before ever building a transaction,
+ * and {@link submitBalancePayment} re-checks again immediately before ever
+ * relaying anything to the network (review follow-up: state can move
+ * between build and submit, e.g. the provider marking cash paid, or the
+ * appointment's own start time simply passing, while the client is still
+ * mid-flow with a signed envelope in hand). A booking with no `slotId` at
+ * all (a pre-3.4 row with no recorded appointment time) is refused the same
+ * way -- there is no time to check "before the session" against, so this
+ * never assumes it is still safe to pay (review follow-up: the appointment-
+ * started gate previously skipped entirely for such a booking). */
+async function requireBalancePayable(db: Db, booking: BookingRow, now: number, action: string): Promise<void> {
   if (booking.escrowState !== "locked" || booking.balanceState !== "unpaid") {
     throw new BookingEscrowStateError(
       `Booking "${booking.id}" must be locked with an unpaid balance to ${action} ` +
         `(escrowState is "${booking.escrowState}", balanceState is "${booking.balanceState}")`,
+    );
+  }
+  const slot = booking.slotId ? await getSlotById(db, booking.slotId) : undefined;
+  if (!slot || slot.startsAt <= now) {
+    throw new BookingEscrowStateError(
+      `Booking "${booking.id}"'s appointment has already started, or has no scheduled time on record; ` +
+        `the balance can no longer be paid through Pactly`,
     );
   }
 }
@@ -1113,13 +1148,20 @@ export interface BuildBalancePaymentResult {
  * client wallet to the provider's wallet, using the anchor-resolved USDC
  * asset (3.4's resolver) and the booking's own persisted `balanceAmount`,
  * converted with exact string arithmetic (never a float). Refused (typed
- * {@link BookingEscrowStateError}) unless the booking is `locked` with an
- * unpaid balance and the appointment has not started yet ("paid before the
- * session", PRD AC5); refused (typed {@link NothingToPayError}) when the
- * balance is `"0"`. The built transaction's own hash is persisted
+ * {@link BookingEscrowStateError}) via {@link requireBalancePayable} unless
+ * the booking is `locked` with an unpaid balance and a not-yet-started
+ * appointment; refused (typed {@link NothingToPayError}) when the balance is
+ * `"0"`. The built transaction's own hash is persisted
  * (`balancePaymentBuiltHash`) so `submitBalancePayment` can later refuse
  * anything that is not the exact envelope this call built (3.4's own
  * submit-binding rule, extended to this payment).
+ *
+ * Review follow-up: both of this function's own network calls (resolving
+ * the anchor's USDC asset, loading the client's account) are wrapped so a
+ * failure surfaces as a typed {@link PaymentUnavailableError} (the route's
+ * own `503 PAYMENT_UNAVAILABLE`), never an unhandled 500 -- a data-integrity
+ * failure in the amount itself (the SDK's own validation) still escapes as
+ * a plain {@link TypeError}, since retrying that would never help.
  */
 export async function buildBalancePayment(
   db: Db,
@@ -1130,28 +1172,43 @@ export async function buildBalancePayment(
   const now = deps.now ?? Math.floor(Date.now() / 1000);
   const resolveUsdc = deps.resolveUsdcAsset ?? resolveUsdcAsset;
   const booking = await getBookingForClient(db, bookingId, clientWalletAddress);
-  requireUnpaidLockedBalance(booking, "pay it");
-  const slot = booking.slotId ? await getSlotById(db, booking.slotId) : undefined;
-  if (slot && slot.startsAt <= now) {
-    throw new BookingEscrowStateError(
-      `Booking "${bookingId}"'s appointment has already started; the balance can no longer be paid through Pactly`,
-    );
-  }
+  await requireBalancePayable(db, booking, now, "pay it");
   if (booking.balanceAmount === "0") {
     throw new NothingToPayError();
   }
   const providerAddress = await requireProviderAddress(db, booking);
-  const usdc = await resolveUsdc();
-  const built = await buildBalancePaymentTransaction(
-    {
-      sourceAddress: booking.clientWalletAddress,
-      destinationAddress: providerAddress,
-      assetCode: usdc.code,
-      assetIssuer: usdc.issuer,
-      amount: booking.balanceAmount,
-    },
-    deps,
-  );
+
+  let usdc: UsdcAsset;
+  try {
+    usdc = await resolveUsdc();
+  } catch (error) {
+    throw new PaymentUnavailableError(
+      `Could not resolve the anchor's USDC asset to build the balance payment: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  let built: BuildBalancePaymentResult & { txHash: string };
+  try {
+    built = await buildBalancePaymentTransaction(
+      {
+        sourceAddress: booking.clientWalletAddress,
+        destinationAddress: providerAddress,
+        assetCode: usdc.code,
+        assetIssuer: usdc.issuer,
+        amount: booking.balanceAmount,
+      },
+      deps,
+    );
+  } catch (error) {
+    if (error instanceof TypeError) {
+      // A data-integrity failure (a malformed amount) -- retrying against
+      // the network would never help, so this is never disguised as one.
+      throw error;
+    }
+    throw new PaymentUnavailableError(
+      `Could not reach the Stellar network to build the balance payment: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   await setBalancePaymentBuiltHash(db, bookingId, built.txHash);
   return { unsignedXdr: built.unsignedXdr };
 }
@@ -1161,19 +1218,30 @@ export interface SubmitBalancePaymentResult {
 }
 
 /**
- * `POST /bookings/:id/balance/submit`: relays the client's signed "pay the
- * balance" envelope, but only once its own computed hash matches this
- * booking's stored `balancePaymentBuiltHash` (refused, typed
- * {@link XdrMismatchError}, otherwise -- the same submit-binding rule 3.4's
- * escrow submit already enforces). Unlike the escrow submit, this polls all
- * the way to a confirmed ledger result itself (`payments/stellar.ts`'s
- * `submitBalancePaymentTransaction`) and only then writes `balance_state` to
- * `"paid_platform"` -- there is no reconciler for this payment (AD-3: it
- * never touches Trustless Work), so this call's own confirmed result is the
- * evidence, not a later background process's. A `FAILED` ledger result or an
+ * `POST /bookings/:id/balance/submit`: re-validates every one of
+ * {@link buildBalancePayment}'s own preconditions ({@link requireBalancePayable}
+ * -- state can move between build and submit) and that a built hash even
+ * exists, then relays the client's signed envelope, but only once its own
+ * computed hash matches that stored `balancePaymentBuiltHash` (refused,
+ * typed {@link XdrMismatchError}, otherwise -- the same submit-binding rule
+ * 3.4's escrow submit already enforces). Unlike the escrow submit, this
+ * polls all the way to a confirmed ledger result itself (`payments/
+ * stellar.ts`'s `submitBalancePaymentTransaction`) and only then writes
+ * `balance_state` to `"paid_platform"` (and clears the now-spent
+ * `balancePaymentBuiltHash`, so a stale envelope can never be relayed again)
+ * -- there is no reconciler for this payment (AD-3: it never touches
+ * Trustless Work), so this call's own confirmed result is the evidence, not
+ * a later background process's. A `FAILED` ledger result or an
  * unreachable/timed-out RPC surfaces as {@link PaymentFailedError}/
  * {@link PaymentUnavailableError} (`payments/errors.ts`) for the route to
  * map to `502`/`503`; `balance_state` stays `"unpaid"` either way.
+ *
+ * Review follow-up: once the payment has actually landed on chain,
+ * {@link markBalancePaidPlatform}'s own guarded write is never assumed to
+ * have succeeded -- a `false` (the booking's `balanceState` moved on
+ * between the re-check above and this write, e.g. a concurrent cash mark)
+ * is logged with the booking id and the landed `txHash`, and surfaced as a
+ * typed {@link BalanceAlreadySettledError} rather than a silent `200`.
  */
 export async function submitBalancePayment(
   db: Db,
@@ -1181,30 +1249,72 @@ export async function submitBalancePayment(
   clientWalletAddress: string,
   signedXdr: string,
   deps: SubmitPaymentDeps = {},
+  now: number = Math.floor(Date.now() / 1000),
 ): Promise<SubmitBalancePaymentResult> {
   const booking = await getBookingForClient(db, bookingId, clientWalletAddress);
+  await requireBalancePayable(db, booking, now, "pay it");
+  if (!booking.balancePaymentBuiltHash) {
+    throw new BookingEscrowStateError(`Booking "${bookingId}" has no built balance payment to submit; call buildBalancePayment first`);
+  }
   const hash = computeSignedTransactionHash(signedXdr);
-  if (!booking.balancePaymentBuiltHash || booking.balancePaymentBuiltHash.toLowerCase() !== hash) {
+  if (booking.balancePaymentBuiltHash.toLowerCase() !== hash) {
     throw new XdrMismatchError();
   }
   const result = await submitBalancePaymentTransaction(signedXdr, deps);
-  await markBalancePaidPlatform(db, bookingId, result.txHash);
+  const recorded = await markBalancePaidPlatform(db, bookingId, result.txHash);
+  if (!recorded) {
+    console.error(
+      `[balance-payment] booking ${bookingId} confirmed on chain (tx ${result.txHash}) but could not be recorded -- ` +
+        "balance_state was no longer \"unpaid\" by the time the write ran",
+    );
+    throw new BalanceAlreadySettledError(bookingId, result.txHash);
+  }
   return result;
 }
 
 /**
  * `POST /bookings/:id/balance/mark-cash`: the provider's own record that the
  * balance was paid in person -- refused (typed {@link BookingNotFoundError})
- * for anyone but this booking's own provider, and (typed
- * {@link BookingEscrowStateError}) unless the booking is `locked` with an
- * unpaid balance. Never checks the appointment's own start time (unlike
- * {@link buildBalancePayment}) -- a provider can still record a cash payment
- * collected at, or just after, the session itself.
+ * for anyone but this booking's own provider; refused (typed
+ * {@link BookingEscrowStateError}) unless `escrowState` is `"locked"` or
+ * `"released"` (a cash payment can be recorded any time after the deposit
+ * locked, including after release -- only a `"refunded"` booking, or one
+ * never locked at all, refuses); refused (typed {@link NothingToPayError})
+ * for a zero balance, same as {@link buildBalancePayment}. Never checks the
+ * appointment's own start time (unlike the platform-payment path) -- a
+ * provider can still record a cash payment collected at, or just after, the
+ * session itself.
+ *
+ * The write itself ({@link markBalancePaidCashIfUnpaid}) is guarded in SQL
+ * on `balance_state` still being `"unpaid"` at the moment it runs (review
+ * follow-up: this used to write unconditionally, which could clobber a
+ * platform payment that had just confirmed) and clears
+ * `balancePaymentBuiltHash` in the same write, so a client cannot then
+ * relay a previously-built platform-payment envelope to pay the same
+ * balance a second time. A lost race re-reads the booking's current
+ * `balanceState` and refuses with it named, rather than reporting a silent
+ * success.
  */
 export async function markBalancePaidCash(db: Db, bookingId: string, providerWalletAddress: string): Promise<void> {
   const booking = await getBookingForProvider(db, bookingId, providerWalletAddress);
-  requireUnpaidLockedBalance(booking, "mark it paid in cash");
-  await setBalanceState(db, bookingId, "paid_cash");
+  if (booking.escrowState !== "locked" && booking.escrowState !== "released") {
+    throw new BookingEscrowStateError(
+      `Booking "${bookingId}" must be locked or released to mark its balance paid in cash (escrowState is "${booking.escrowState}")`,
+    );
+  }
+  if (booking.balanceState !== "unpaid") {
+    throw new BookingEscrowStateError(`Booking "${bookingId}" balance is already "${booking.balanceState}"; cannot mark it paid in cash again`);
+  }
+  if (booking.balanceAmount === "0") {
+    throw new NothingToPayError();
+  }
+  const recorded = await markBalancePaidCashIfUnpaid(db, bookingId);
+  if (!recorded) {
+    const current = await getBookingById(db, bookingId);
+    throw new BookingEscrowStateError(
+      `Booking "${bookingId}" balance is already "${current?.balanceState ?? "unknown"}"; cannot mark it paid in cash again`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

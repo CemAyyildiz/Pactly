@@ -441,19 +441,42 @@ export async function setBalancePaymentBuiltHash(db: Db, id: string, hash: strin
 
 /**
  * Story 3.7's own write path for "paid through Pactly": moves
- * `balanceState` to `"paid_platform"` and stores the on-chain `txHash`, in
- * one write, conditioned on `balanceState` still being `"unpaid"` (the same
+ * `balanceState` to `"paid_platform"`, stores the on-chain `txHash`, and
+ * clears `balancePaymentBuiltHash` (review follow-up: a spent envelope's
+ * hash must never stay around to be relayed again), all in one write,
+ * conditioned on `balanceState` still being `"unpaid"` (the same
  * defense-in-depth shape as `updateEscrowContractId`'s own guarded write) so
  * a race -- the provider marking cash paid at the same moment a client's
  * platform payment confirms -- can never silently overwrite whichever write
  * landed first. Returns `false` (never throws) when the row was no longer
- * `"unpaid"`; the caller's own service-level check already refused the
- * request before this point in the ordinary case, so this is only the last
- * line of defense against a genuine race. */
+ * `"unpaid"`; the caller (`services/booking.ts`'s `submitBalancePayment`)
+ * treats a `false` here as a real failure (the payment already landed on
+ * chain but could not be recorded), never a silent success, since its own
+ * re-check just before submitting already ruled out the ordinary case. */
 export async function markBalancePaidPlatform(db: Db, id: string, txHash: string): Promise<boolean> {
   const result = await db
     .update(bookings)
-    .set({ balanceState: "paid_platform", balancePaymentTxHash: txHash })
+    .set({ balanceState: "paid_platform", balancePaymentTxHash: txHash, balancePaymentBuiltHash: null })
+    .where(and(eq(bookings.id, id), eq(bookings.balanceState, "unpaid")));
+  return result.changes > 0;
+}
+
+/**
+ * Story 3.7's own write path for "paid in person": moves `balanceState` to
+ * `"paid_cash"` and clears `balancePaymentBuiltHash` in the same write
+ * (review follow-up: a previously-built, never-submitted platform-payment
+ * envelope must never remain relayable once the provider has recorded a
+ * cash payment for the same balance -- that would let the client pay it a
+ * second time), conditioned on `balanceState` still being `"unpaid"` (same
+ * guarded-write shape as {@link markBalancePaidPlatform}, and for the same
+ * reason: this must never clobber a platform payment that confirmed a
+ * moment earlier). Returns `false` (never throws) when the row was no
+ * longer `"unpaid"` -- the caller re-reads and refuses with the row's
+ * actual current state. */
+export async function markBalancePaidCashIfUnpaid(db: Db, id: string): Promise<boolean> {
+  const result = await db
+    .update(bookings)
+    .set({ balanceState: "paid_cash", balancePaymentBuiltHash: null })
     .where(and(eq(bookings.id, id), eq(bookings.balanceState, "unpaid")));
   return result.changes > 0;
 }

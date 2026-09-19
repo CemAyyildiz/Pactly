@@ -8,7 +8,7 @@ import { BookingCard, BALANCE_STATE_LABEL } from "../../components/BookingCard";
 import { Countdown } from "../../components/Countdown";
 import { StateLabel } from "../../components/StateLabel";
 import { formatMoney } from "../../lib/money";
-import { shortenStellarId, stellarExplorerContractUrl } from "../../lib/stellar";
+import { shortenStellarId, stellarExplorerContractUrl, stellarExplorerTransactionUrl } from "../../lib/stellar";
 import { formatSlotDay, formatSlotTime } from "../../lib/time";
 import { getSession, signIn, signOut, type Session } from "../../wallet";
 
@@ -142,6 +142,19 @@ export function BookingsPage() {
                     <td className="tabular-nums">{formatMoney(booking.deposit.amount, booking.deposit.asset)}</td>
                     <td className="tabular-nums">
                       {formatMoney(booking.balance.amount, booking.balance.asset)} · {BALANCE_STATE_LABEL[booking.balanceState]}
+                      {/* Review follow-up: lives in this cell, not
+                       * `BookingActions`'s own Actions column, which renders
+                       * nothing once the booking leaves `locked` -- exactly
+                       * the state a settled booking's own link must keep
+                       * showing in. */}
+                      {booking.balanceState === "paid_platform" && booking.balancePaymentTxHash && (
+                        <>
+                          {" · "}
+                          <a href={stellarExplorerTransactionUrl(booking.balancePaymentTxHash)} target="_blank" rel="noreferrer">
+                            View on Stellar Expert
+                          </a>
+                        </>
+                      )}
                     </td>
                     <td>
                       <StateLabel lifecycle={booking.lifecycle} viewer="provider" />
@@ -167,9 +180,8 @@ export function BookingsPage() {
                         balance={booking.balance}
                         balanceState={booking.balanceState}
                         slotStartsAt={booking.slotStartsAt}
-                        balancePaymentTxHash={booking.balancePaymentTxHash}
                         session={session}
-                        onActionSubmitted={() => void bookingsQuery.refetch()}
+                        onActionSubmitted={() => bookingsQuery.refetch()}
                         onUnauthorized={handleSignOut}
                       />
                     </td>
@@ -198,7 +210,7 @@ export function BookingsPage() {
                 contractId={booking.contractId}
                 balancePaymentTxHash={booking.balancePaymentTxHash}
                 session={session}
-                onActionSubmitted={() => void bookingsQuery.refetch()}
+                onActionSubmitted={() => bookingsQuery.refetch()}
                 onUnauthorized={handleSignOut}
               />
             ))}
@@ -228,7 +240,7 @@ export function BookingsPage() {
                 contractId={booking.contractId}
                 balancePaymentTxHash={booking.balancePaymentTxHash}
                 session={session}
-                onActionSubmitted={() => void bookingsQuery.refetch()}
+                onActionSubmitted={() => bookingsQuery.refetch()}
                 onUnauthorized={handleSignOut}
               />
             ))}

@@ -35,19 +35,30 @@ const SMALLEST_UNIT_DECIMALS = 7;
  * timeout"). */
 const PAYMENT_TIMEOUT_SECONDS = 5 * 60;
 
+/** Stellar's own ceiling for any classic-asset amount: `i64::MAX` stroops
+ * (2^63 - 1). `Operation.payment` would otherwise let the SDK itself throw
+ * an untyped error deep inside its own amount parsing -- refusing here,
+ * before that call, keeps the failure typed and diagnosable the same way
+ * every other amount validation in this codebase already is. */
+const MAX_INT64_STROOPS = 9223372036854775807n;
+
 /**
  * Converts an AD-7 integer smallest-unit string into the decimal string
  * Stellar's classic `Operation.payment` amount expects -- exact string
  * arithmetic (never a float, never a `Number` round trip), matching the I/O
  * matrix's own worked example: `"14000000000"` -> `"1400.0000000"`. Throws
  * a plain {@link TypeError} for anything that is not a non-negative integer
- * string (the matrix's own "Non-integer string: refused" row).
+ * string (the matrix's own "Non-integer string: refused" row), or that
+ * exceeds {@link MAX_INT64_STROOPS}.
  */
 export function smallestUnitToStellarAmount(amount: string): string {
   if (!/^\d+$/.test(amount)) {
     throw new TypeError(`amount must be a non-negative integer string, got "${amount}"`);
   }
   const value = BigInt(amount);
+  if (value > MAX_INT64_STROOPS) {
+    throw new TypeError(`amount exceeds Stellar's own int64 stroop maximum (${MAX_INT64_STROOPS}), got "${amount}"`);
+  }
   const divisor = 10n ** BigInt(SMALLEST_UNIT_DECIMALS);
   const whole = value / divisor;
   const fraction = (value % divisor).toString().padStart(SMALLEST_UNIT_DECIMALS, "0");
@@ -119,20 +130,34 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
 
-const POLL_ATTEMPTS = 10;
-const POLL_DELAY_MS = 1500;
+/** Review follow-up: the built transaction itself carries a 5-minute
+ * timeout (`PAYMENT_TIMEOUT_SECONDS` above), but the old defaults here
+ * (10 attempts, 1.5s apart) gave up after ~13.5s -- long before Soroban
+ * would ever consider the envelope itself expired. Raised so the default
+ * poll window covers the transaction's own full timeout instead of quitting
+ * on it early. */
+export const DEFAULT_POLL_ATTEMPTS = 200;
+export const DEFAULT_POLL_DELAY_MS = 1500;
 
 /** Polls `getTransaction` until it leaves `NOT_FOUND` -- mirrors
  * `chain/client.ts`'s own `pollTransaction`, kept as a separate copy per
- * this story's own "No change to ... chain/" boundary. */
-async function defaultWaitForTransaction(server: rpc.Server, hash: string): Promise<rpc.Api.GetTransactionResponse> {
-  for (let attempt = 1; attempt <= POLL_ATTEMPTS; attempt += 1) {
+ * this story's own "No change to ... chain/" boundary. `attempts`/`delayMs`
+ * are parameters (defaulting to the module's own ceiling above) so a test
+ * can exercise the loop's own NOT_FOUND-retry and timeout branches in
+ * milliseconds rather than minutes. Exported for exactly that reason. */
+export async function defaultWaitForTransaction(
+  server: rpc.Server,
+  hash: string,
+  attempts: number = DEFAULT_POLL_ATTEMPTS,
+  delayMs: number = DEFAULT_POLL_DELAY_MS,
+): Promise<rpc.Api.GetTransactionResponse> {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const result = await server.getTransaction(hash);
     if (result.status !== rpc.Api.GetTransactionStatus.NOT_FOUND) {
       return result;
     }
-    if (attempt < POLL_ATTEMPTS) {
-      await delay(POLL_DELAY_MS);
+    if (attempt < attempts) {
+      await delay(delayMs);
     }
   }
   throw new PaymentUnavailableError(`Timed out waiting for the balance payment transaction ${hash} to confirm.`);
@@ -184,6 +209,12 @@ export async function submitBalancePaymentTransaction(
     throw new PaymentUnavailableError(
       `Could not reach the Stellar network to submit the balance payment: ${error instanceof Error ? error.message : String(error)}`,
     );
+  }
+  if (sendResult.status === "TRY_AGAIN_LATER") {
+    // The RPC endpoint itself asked for a retry (its own mempool/rate-limit
+    // condition) -- this says nothing about the transaction itself being
+    // invalid, so it is never a `PaymentFailedError`.
+    throw new PaymentUnavailableError(`The Stellar network asked to retry the balance payment later (status ${sendResult.status}).`);
   }
   if (sendResult.status !== "PENDING" && sendResult.status !== "DUPLICATE") {
     throw new PaymentFailedError(`The balance payment was rejected before submission (status ${sendResult.status}).`);

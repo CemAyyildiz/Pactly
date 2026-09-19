@@ -13,6 +13,7 @@ import { Account, Asset, Keypair, Operation, Transaction, TransactionBuilder, rp
 
 import {
   buildBalancePaymentTransaction,
+  defaultWaitForTransaction,
   smallestUnitToStellarAmount,
   submitBalancePaymentTransaction,
 } from "../src/payments/stellar.js";
@@ -28,6 +29,11 @@ test("smallestUnitToStellarAmount refuses a non-integer string", () => {
   assert.throws(() => smallestUnitToStellarAmount("14.5"), TypeError);
   assert.throws(() => smallestUnitToStellarAmount("-5"), TypeError);
   assert.throws(() => smallestUnitToStellarAmount("abc"), TypeError);
+});
+
+test("smallestUnitToStellarAmount accepts exactly Stellar's own int64 stroop maximum, and refuses one stroop more", () => {
+  assert.equal(smallestUnitToStellarAmount("9223372036854775807"), "922337203685.4775807");
+  assert.throws(() => smallestUnitToStellarAmount("9223372036854775808"), TypeError);
 });
 
 test("buildBalancePaymentTransaction builds a plain classic payment operation, never a Soroban invocation", async () => {
@@ -142,4 +148,53 @@ test("submitBalancePaymentTransaction refuses PaymentUnavailableError when polli
       }),
     PaymentUnavailableError,
   );
+});
+
+test("submitBalancePaymentTransaction refuses PaymentUnavailableError (never PaymentFailedError) when the RPC endpoint asks to retry later", async () => {
+  await assert.rejects(
+    () =>
+      submitBalancePaymentTransaction(fakeSignedPaymentXdr(), {
+        sendTransaction: async () => ({ status: "TRY_AGAIN_LATER", hash: "deadbeef" }) as rpc.Api.SendTransactionResponse,
+        waitForTransaction: async () => {
+          throw new Error("waitForTransaction should not have been called");
+        },
+      }),
+    PaymentUnavailableError,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// `defaultWaitForTransaction`: exported specifically so its own NOT_FOUND
+// retry loop and timeout are testable in milliseconds, not the real ~5-minute
+// ceiling `submitBalancePaymentTransaction` uses by default.
+// ---------------------------------------------------------------------------
+
+test("defaultWaitForTransaction retries past NOT_FOUND and returns the eventual SUCCESS", async () => {
+  let calls = 0;
+  const fakeServer = {
+    getTransaction: async () => {
+      calls += 1;
+      if (calls < 3) {
+        return { status: rpc.Api.GetTransactionStatus.NOT_FOUND } as rpc.Api.GetTransactionResponse;
+      }
+      return { status: rpc.Api.GetTransactionStatus.SUCCESS } as rpc.Api.GetTransactionResponse;
+    },
+  } as unknown as rpc.Server;
+
+  const result = await defaultWaitForTransaction(fakeServer, "deadbeef", 5, 1);
+  assert.equal(result.status, rpc.Api.GetTransactionStatus.SUCCESS);
+  assert.equal(calls, 3);
+});
+
+test("defaultWaitForTransaction refuses PaymentUnavailableError once every attempt is spent still NOT_FOUND", async () => {
+  let calls = 0;
+  const fakeServer = {
+    getTransaction: async () => {
+      calls += 1;
+      return { status: rpc.Api.GetTransactionStatus.NOT_FOUND } as rpc.Api.GetTransactionResponse;
+    },
+  } as unknown as rpc.Server;
+
+  await assert.rejects(() => defaultWaitForTransaction(fakeServer, "deadbeef", 3, 1), PaymentUnavailableError);
+  assert.equal(calls, 3, "must try exactly `attempts` times, never more, never fewer");
 });
