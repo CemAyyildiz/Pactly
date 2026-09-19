@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { ApiError } from "../../api/client";
@@ -51,6 +51,17 @@ function buildGridDays(now: number): GridDay[] {
   return days;
 }
 
+/** A voice-guide banner for a save failure that carries no field-level
+ * `details` to show instead -- a network failure, or a session that
+ * expired mid-edit (401 from `requirePactlyAuth`, which never sends
+ * `details`). Without this, such a failure showed nothing at all. */
+function saveErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 401) {
+    return "Your session ended. Sign in again.";
+  }
+  return "Connection dropped. Nothing was saved.";
+}
+
 function isBlocked(cell: number, selected: ReadonlySet<number>, sessionSeconds: number): boolean {
   if (selected.has(cell)) {
     return false;
@@ -96,8 +107,18 @@ export function AvailabilityPage() {
   const [cancellationWindowInput, setCancellationWindowInput] = useState("");
   const [selectedSlots, setSelectedSlots] = useState<Set<number>>(new Set());
 
+  // Seeds local form state only the first time a profile loads, or when it
+  // switches to a *different* profile (a new sign-in) -- never on every
+  // refetch. Both mutations already re-fetch/re-cache `profileQuery.data`
+  // on success (see `api/hooks.ts`), and re-seeding both forms from that
+  // response here would silently discard whichever form's edits were not
+  // just saved (e.g. saving rules would blow away unsaved slot picks).
+  // Each save path updates only its own form's state instead, from the
+  // mutation's own response (see `handleSaveRules`/`handleSaveAvailability`).
+  const loadedProfileId = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (profileQuery.data) {
+    if (profileQuery.data && profileQuery.data.id !== loadedProfileId.current) {
+      loadedProfileId.current = profileQuery.data.id;
       setPriceInput(smallestUnitToDecimalInput(profileQuery.data.price.amount));
       setDepositRateBpsInput(String(profileQuery.data.depositRateBps));
       setCancellationWindowInput(String(profileQuery.data.cancellationWindowHours));
@@ -136,6 +157,8 @@ export function AvailabilityPage() {
 
   const rulesErrorDetails =
     updateRules.error instanceof ApiError ? (updateRules.error.details as Record<string, string> | undefined) : undefined;
+  const rulesHasFieldError = Boolean(rulesErrorDetails && Object.keys(rulesErrorDetails).length > 0);
+  const rulesGenericError = updateRules.error && !rulesHasFieldError ? saveErrorMessage(updateRules.error) : undefined;
 
   async function handleSaveRules(event: React.FormEvent): Promise<void> {
     event.preventDefault();
@@ -143,14 +166,19 @@ export function AvailabilityPage() {
       return;
     }
     try {
-      await updateRules.mutateAsync({
+      const saved = await updateRules.mutateAsync({
         priceAmount: priceSmallestUnit,
         depositRateBps,
         cancellationWindowHours,
       });
+      // Only the rules form's own fields -- an unsaved slot selection in
+      // the availability grid below must survive this save untouched.
+      setPriceInput(smallestUnitToDecimalInput(saved.price.amount));
+      setDepositRateBpsInput(String(saved.depositRateBps));
+      setCancellationWindowInput(String(saved.cancellationWindowHours));
     } catch {
-      // Surfaced through `updateRules.error`/`rulesErrorDetails` below --
-      // nothing further to do here.
+      // Surfaced through `updateRules.error`/`rulesErrorDetails`/
+      // `rulesGenericError` below -- nothing further to do here.
     }
   }
 
@@ -170,13 +198,19 @@ export function AvailabilityPage() {
     updateAvailability.error instanceof ApiError
       ? (updateAvailability.error.details as { invalid?: number[]; overlapping?: number[]; count?: string } | undefined)
       : undefined;
+  const availabilityHasFieldError = Boolean(availabilityErrorDetails && Object.keys(availabilityErrorDetails).length > 0);
+  const availabilityGenericError =
+    updateAvailability.error && !availabilityHasFieldError ? saveErrorMessage(updateAvailability.error) : undefined;
 
   async function handleSaveAvailability(): Promise<void> {
     try {
-      await updateAvailability.mutateAsync([...selectedSlots].sort((a, b) => a - b));
+      const saved = await updateAvailability.mutateAsync([...selectedSlots].sort((a, b) => a - b));
+      // Only the slot selection -- an unsaved edit in the rules form above
+      // must survive this save untouched.
+      setSelectedSlots(new Set(saved.slots));
     } catch {
-      // Surfaced through `updateAvailability.error`/`availabilityErrorDetails`
-      // below -- nothing further to do here.
+      // Surfaced through `updateAvailability.error`/`availabilityErrorDetails`/
+      // `availabilityGenericError` below -- nothing further to do here.
     }
   }
 
@@ -249,6 +283,11 @@ export function AvailabilityPage() {
 
       <section className="card" style={{ marginBottom: "var(--space-6)" }}>
         <h2 style={{ fontSize: "var(--text-18)", marginTop: 0 }}>Price and deposit</h2>
+        {rulesGenericError && (
+          <div className="banner banner--alert" role="alert" style={{ marginBottom: "var(--space-4)" }}>
+            {rulesGenericError}
+          </div>
+        )}
         <form onSubmit={handleSaveRules}>
           <div className="field">
             <label htmlFor="price">Session price (USDC)</label>
@@ -304,6 +343,11 @@ export function AvailabilityPage() {
             {availabilityErrorDetails.count && <p>{availabilityErrorDetails.count}</p>}
             {availabilityErrorDetails.invalid && <p>Some times can no longer be saved: they're in the past or too far out.</p>}
             {availabilityErrorDetails.overlapping && <p>Some times overlap another selected slot and were not saved.</p>}
+          </div>
+        )}
+        {availabilityGenericError && (
+          <div className="banner banner--alert" role="alert" style={{ marginBottom: "var(--space-4)" }}>
+            {availabilityGenericError}
           </div>
         )}
         <div className="availability-grid">

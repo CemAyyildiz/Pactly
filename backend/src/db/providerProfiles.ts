@@ -78,11 +78,14 @@ export interface ProviderRulesValues {
   cancellationWindowHours: number;
 }
 
-/** `services/profile.ts`'s `updateProviderRules` write path -- the only
- * place `priceAmount`/`depositRateBps`/`cancellationWindowHours` are
- * updated after a profile is created. Throws if `id` matches no row,
- * rather than silently writing nothing (same discipline as
- * `db/bookings.ts`'s state writers). */
+/** `services/profile.ts`'s `updateProviderRules` write path -- the one
+ * place a signed-in provider's own `priceAmount`/`depositRateBps`/
+ * `cancellationWindowHours` are updated after their profile is created.
+ * The only other writer of these columns is `seed/demo.ts`'s upsert, which
+ * writes its own hardcoded dev-only demo data directly via Drizzle rather
+ * than through this function; a real provider's rules only ever change
+ * through this path. Throws if `id` matches no row, rather than silently
+ * writing nothing (same discipline as `db/bookings.ts`'s state writers). */
 export async function updateProviderProfileRules(db: Db, id: string, values: ProviderRulesValues): Promise<void> {
   const result = await db
     .update(providerProfiles)

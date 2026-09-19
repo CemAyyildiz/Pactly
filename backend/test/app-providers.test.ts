@@ -140,6 +140,38 @@ test("GET /me/provider gives 401 with no token", async () => {
   }
 });
 
+test("GET /me/provider gives 401 for a tampered token, even for a wallet that owns a profile", async () => {
+  const result = openTestDatabase();
+  try {
+    await seedProviderProfile(result, { walletAddress: "GHTTPTAMPERED1" });
+    const app = createApp(result.db);
+    const response = await app.request("/me/provider", { headers: { authorization: "Bearer not.a.realtoken" } });
+    assert.equal(response.status, 401);
+    const body = (await response.json()) as { code: string };
+    assert.equal(typeof body.code, "string");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("GET /me/provider gives 401 for an expired token, even for a wallet that owns a profile", async () => {
+  const result = openTestDatabase();
+  try {
+    const walletAddress = "GHTTPEXPIRED1";
+    await seedProviderProfile(result, { walletAddress });
+    const app = createApp(result.db);
+    // Issued as if two hours ago -- past the token's own one-hour TTL, so
+    // it verifies as expired against the real, current clock below.
+    const expiredToken = await issuePactlyJwt(walletAddress, { now: () => new Date(Date.now() - 2 * 60 * 60 * 1000) });
+    const response = await app.request("/me/provider", { headers: { authorization: `Bearer ${expiredToken}` } });
+    assert.equal(response.status, 401);
+    const body = (await response.json()) as { code: string };
+    assert.equal(typeof body.code, "string");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
 test("PUT /me/provider/rules saves and returns the updated profile with the recomputed deposit", async () => {
   const result = openTestDatabase();
   try {
