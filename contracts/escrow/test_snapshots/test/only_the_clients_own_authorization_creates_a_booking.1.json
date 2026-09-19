@@ -64,7 +64,7 @@
               "function_name": "create_booking",
               "args": [
                 {
-                  "bytes": "ee150249df9e8d637cf12fab14415df7"
+                  "bytes": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
@@ -175,7 +175,7 @@
                     "symbol": "Booking"
                   },
                   {
-                    "bytes": "ee150249df9e8d637cf12fab14415df7"
+                    "bytes": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d"
                   }
                 ]
               },

@@ -55,7 +55,9 @@ impl Fixture {
         let client = Address::generate(&env);
         StellarAssetClient::new(&env, &token).mint(&client, &funding);
 
-        let booking_id = BytesN::<16>::random(&env);
+        // A fixed id, not `BytesN::random`: the test env writes a ledger
+        // snapshot per test, and a random id would rewrite it on every run.
+        let booking_id = BytesN::from_array(&env, &[0x1d; 16]);
         let professional = Address::generate(&env);
 
         Self {
