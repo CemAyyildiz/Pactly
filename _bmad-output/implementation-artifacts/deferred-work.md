@@ -10,6 +10,10 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-3-locking-the-deposit.md`
   summary: Make the two Story 1.2 tests that use `BytesN::random` use a fixed booking id, so `cargo test` stops rewriting their committed snapshots.
   evidence: `booking_round_trips_through_the_storage_helper` and `writes_extend_the_persistent_ttl_to_the_bump_window` rewrite their snapshot on every run, so `git status` is never clean after a test run. One-line change each, but it belongs to 1.2's files.
-- source_spec: `_bmad-output/implementation-artifacts/spec-1-5-resolving-a-cancellation.md`
-  summary: Hard precondition for Epic 2/4 — a professional must have a live USDC trustline before they can be approved or take bookings.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-5-cancelling-and-settling-a-booking.md`
+  summary: Hard precondition for Epic 2/4 — both parties must have a live USDC trustline before a booking is created: the professional before approval, the client before they can lock a deposit.
   evidence: The escrow's payout traps if the recipient cannot receive the token (no trustline, authorization off, clawback), and after the deadline both `release` and the no-show path target the professional, so the deposit would be permanently stuck. Soroban cannot check a trustline cheaply, and an admin recovery path would break AD-2. The professional already needs the trustline for SEP-6 withdraw (Story 2.3), so making it a gate on provider approval (Epic 4) removes the failure mode entirely. Decided 2026-09-18.
+  Widened 2026-09-18 after Story 1.5: two of the four settlement paths now pay the *client*, so the
+  same trap applies to the client's trustline — and `cancel_by_professional`, the professional's only
+  way to call a booking off, becomes uncallable if the client cannot receive. The client already needs
+  the trustline to lock the deposit in the first place, so the gate belongs at booking creation.

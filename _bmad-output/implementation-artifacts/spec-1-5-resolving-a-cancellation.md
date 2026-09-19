@@ -12,6 +12,13 @@ warnings: ['oversized']
 deferred: []
 ---
 
+> **SUPERSEDED.** This spec describes the clock-only settlement model that was rejected on
+> 2026-09-18. The live spec is
+> [spec-1-5-cancelling-and-settling-a-booking.md](spec-1-5-cancelling-and-settling-a-booking.md),
+> where the outcome follows the signer rather than the ledger clock. Kept as the record of
+> why the model changed; do not implement from it.
+
+
 <intent-contract>
 
 ## Intent
