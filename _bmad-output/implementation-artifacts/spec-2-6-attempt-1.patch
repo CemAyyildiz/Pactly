@@ -1,0 +1,2196 @@
+diff --git a/.env.example b/.env.example
+index dd7dde9..e96933c 100644
+--- a/.env.example
++++ b/.env.example
+@@ -37,6 +37,29 @@ ESCROW_CONTRACT_ID=
+ # Must be present; may be empty.
+ PACTLY_ADMIN_WALLETS=
+ 
++# Trustless Work escrow adapter (Story 2.6, AD-8). The installed
++# @trustless-work/escrow-js@1.0.0-beta.1 package's own `development`/
++# `mainNet` constant currently points at https://beta.api.trustlesswork.com
++# -- not the dev.api.trustlesswork.com this story's own spec assumed before
++# the real package was installed and read; see Story 2.6's final report.
++# May stay empty until Story 1.8's blocked live ACs are unblocked with a
++# real operator key -- the adapter refuses before any network access when
++# this is empty, same discipline as ESCROW_CONTRACT_ID above.
++TRUSTLESS_WORK_API_URL=
++# x-api-key header value for the Trustless Work API. Empty until a real
++# operator key exists.
++TRUSTLESS_WORK_API_KEY=
++# Attribution header value (X-TW-Platform) identifying Pactly to Trustless
++# Work; provided by the operator's TW account, not invented here. May be
++# empty.
++TRUSTLESS_WORK_PLATFORM_ID=
++# Pactly's own Stellar account (G...) used for every Trustless Work role
++# Pactly itself holds: platform, dispute resolver, and (Story 2.6's own
++# admin-role decision) admin. Signing itself is out of this story's scope
++# -- only the address is needed to build unsigned XDR naming Pactly
++# correctly. May be empty.
++TRUSTLESS_WORK_PLATFORM_ADDRESS=
++
+ # Testnet demo accounts `npm run setup:testnet` funds and prints (secret
+ # keys, S...). Not read by the backend; keep them here so a re-run reuses
+ # the same accounts instead of generating new ones. Empty until that command
+diff --git a/backend/package.json b/backend/package.json
+index 98b3901..ed9bb09 100644
+--- a/backend/package.json
++++ b/backend/package.json
+@@ -16,6 +16,7 @@
+   "dependencies": {
+     "@hono/node-server": "2.1.1",
+     "@stellar/stellar-sdk": "17.1.0",
++    "@trustless-work/escrow-js": "1.0.0-beta.1",
+     "better-sqlite3": "13.0.3",
+     "drizzle-orm": "0.45.2",
+     "hono": "4.13.8",
+diff --git a/backend/src/config.ts b/backend/src/config.ts
+index 453cc4c..88c4d41 100644
+--- a/backend/src/config.ts
++++ b/backend/src/config.ts
+@@ -101,6 +101,25 @@ export interface Config {
+   escrowContractId: string;
+   /** Stellar account ids granted the `admin` role (AD-12). */
+   adminWallets: string[];
++  /** Trustless Work's Core v2 API base URL (Story 2.6). Empty until Story
++   * 1.8's blocked live ACs are unblocked with a real operator key -- the
++   * adapter refuses before any network access when this is empty, same
++   * discipline as `escrowContractId` above. */
++  trustlessWorkApiUrl: string;
++  /** `x-api-key` header value for the Trustless Work API. Empty until a
++   * real operator key exists. */
++  trustlessWorkApiKey: string;
++  /** Attribution header value (`X-TW-Platform`) identifying Pactly to
++   * Trustless Work -- provided by the operator's TW account, not invented
++   * here. May be empty (the adapter omits the header rather than sending
++   * one that is blank). */
++  trustlessWorkPlatformId: string;
++  /** Pactly's own Stellar account (G...) used for every Trustless Work
++   * role Pactly itself holds: platform, dispute resolver, and (Story 2.6's
++   * own admin-role decision -- see `escrow/trustless-work/client.ts`)
++   * admin. Signing itself is out of this story's scope; only the address
++   * is needed to build unsigned XDR naming Pactly correctly. */
++  trustlessWorkPlatformAddress: string;
+   /** Absolute path; a relative DATABASE_PATH is resolved against backend/. */
+   databasePath: string;
+ }
+@@ -115,6 +134,10 @@ function loadConfig(): Config {
+     pactlyAuthSigningSecret: secret("PACTLY_AUTH_SIGNING_SECRET", 32),
+     escrowContractId: declared("ESCROW_CONTRACT_ID"),
+     adminWallets: list("PACTLY_ADMIN_WALLETS"),
++    trustlessWorkApiUrl: declared("TRUSTLESS_WORK_API_URL"),
++    trustlessWorkApiKey: declared("TRUSTLESS_WORK_API_KEY"),
++    trustlessWorkPlatformId: declared("TRUSTLESS_WORK_PLATFORM_ID"),
++    trustlessWorkPlatformAddress: declared("TRUSTLESS_WORK_PLATFORM_ADDRESS"),
+     databasePath: databasePath("DATABASE_PATH"),
+   };
+ }
+diff --git a/backend/src/db/migrations.ts b/backend/src/db/migrations.ts
+index 1e2edfa..0c42141 100644
+--- a/backend/src/db/migrations.ts
++++ b/backend/src/db/migrations.ts
+@@ -98,6 +98,22 @@ const STATEMENTS: readonly string[] = [
+     processed_at INTEGER NOT NULL,
+     PRIMARY KEY (booking_id, event_type)
+   )`,
++  `CREATE TABLE IF NOT EXISTS escrow_reconciler_state (
++    id INTEGER PRIMARY KEY,
++    cursor TEXT,
++    updated_at INTEGER NOT NULL
++  )`,
++  `CREATE TABLE IF NOT EXISTS escrow_processed_events (
++    booking_id TEXT NOT NULL,
++    transaction_hash TEXT NOT NULL,
++    lifecycle_action TEXT NOT NULL,
++    amount TEXT NOT NULL,
++    contract_id TEXT NOT NULL,
++    ledger_seq TEXT NOT NULL,
++    is_anomaly INTEGER NOT NULL DEFAULT 0,
++    processed_at INTEGER NOT NULL,
++    PRIMARY KEY (transaction_hash, lifecycle_action)
++  )`,
+ ];
+ 
+ /** Applies every `CREATE TABLE IF NOT EXISTS` statement, in order (later
+diff --git a/backend/src/db/schema.ts b/backend/src/db/schema.ts
+index 8351d3f..2113f3b 100644
+--- a/backend/src/db/schema.ts
++++ b/backend/src/db/schema.ts
+@@ -207,3 +207,60 @@ export const processedEvents = sqliteTable(
+   },
+   (table) => [primaryKey({ columns: [table.bookingId, table.eventType] })],
+ );
++
++/**
++ * Story 2.6's own reconciler bookkeeping -- deliberately a *separate* table
++ * from `event_worker_state` above, not a shared one. `chain/`'s worker is
++ * dead code no process calls (Story 2.6's Code Map), but it stays in the
++ * tree with its own tests still passing against its own table; giving the
++ * Trustless Work reconciler a second, independent single-row cursor table
++ * means neither worker's restart/replay behavior can ever be coupled to
++ * the other's, now or if `chain/`'s worker were ever revived. Same shape
++ * and the same singleton-row convention (`id` always `1`) as
++ * `event_worker_state`.
++ */
++export const escrowReconcilerState = sqliteTable("escrow_reconciler_state", {
++  id: integer("id").primaryKey(),
++  cursor: text("cursor"),
++  updatedAt: integer("updated_at").notNull(),
++});
++
++/**
++ * The reconciler's own dedupe ledger -- Story 2.6's retarget of
++ * `processedEvents` above, with the dedupe key the spec requires:
++ * `(transactionHash, lifecycleAction)` instead of `(bookingId, eventType)`,
++ * since a Trustless Work escrow's events are keyed by the transaction that
++ * produced them, not by a single RPC event id. `lifecycleAction` is one of
++ * `EscrowLifecycleAction` (`../escrow/trustless-work/reconciler.ts`):
++ * `funded` | `approved` | `released` | `disputed` -- the only four kinds
++ * this story's own I/O matrix names for "event batch mirrored"; a dispute's
++ * eventual resolution (Pactly signing as Dispute Resolver, never an
++ * automatic deadline) is this adapter's `resolveDispute` call, not a
++ * lifecycle action this table maps to `escrow_state` today -- see Story
++ * 2.6's own final report for that scope note.
++ */
++export const escrowProcessedEvents = sqliteTable(
++  "escrow_processed_events",
++  {
++    bookingId: text("booking_id").notNull(),
++    transactionHash: text("transaction_hash").notNull(),
++    lifecycleAction: text("lifecycle_action").notNull(),
++    /** Integer string, smallest unit (AD-7), round-tripped exactly --
++     * never the Trustless Work SDK's own human-decimal `number` (see the
++     * adapter's own amount-conversion note in `trustless-work/client.ts`). */
++    amount: text("amount").notNull(),
++    /** The Trustless Work escrow's own identity (`contractId`, a Soroban
++     * `C...`) -- kept for traceability, not part of the dedupe key. */
++    contractId: text("contract_id").notNull(),
++    /** The indexer's own `ledgerSeq`, kept as the string it arrives as
++     * (Trustless Work's read-model uses strings for ledger sequence
++     * numbers, not a JS-safe integer). */
++    ledgerSeq: text("ledger_seq").notNull(),
++    /** Set when the evidence's `engagementId` had no matching booking row
++     * -- surfaced as an anomaly rather than inventing one, same discipline
++     * as `processedEvents.isAnomaly` above. */
++    isAnomaly: integer("is_anomaly", { mode: "boolean" }).notNull().default(false),
++    processedAt: integer("processed_at").notNull(),
++  },
++  (table) => [primaryKey({ columns: [table.transactionHash, table.lifecycleAction] })],
++);
+diff --git a/backend/src/services/booking.ts b/backend/src/services/booking.ts
+index 163bcf1..db9c8f5 100644
+--- a/backend/src/services/booking.ts
++++ b/backend/src/services/booking.ts
+@@ -1,24 +1,37 @@
+ /**
+  * Booking service functions later stories' routes call. Everything here is
+- * thin: SQL lives in `../db/`, RPC lives in `../chain/`, and this module
+- * only composes the two -- the layering the whole backend is written
+- * against (routes -> services -> db/chain/anchor, one-way).
++ * thin: SQL lives in `../db/`, the escrow boundary lives in `../escrow/`,
++ * and this module only composes the two -- the layering the whole backend
++ * is written against (routes -> services -> db/escrow/anchor, one-way).
+  *
+  * What is deliberately *not* here: nothing in this file ever sets
+- * `escrow_state`. That column belongs to `../chain/event-worker.ts` alone
+- * (AD-1/AD-3); `lockDeposit` below only submits the chain call and returns
+- * its transaction hash -- the booking's `escrowState` stays `null` until
+- * the worker processes the `locked` event this call, if it succeeds,
+- * eventually produces.
++ * `escrow_state`. That column belongs to `../escrow/trustless-work/
++ * reconciler.ts` alone (AD-1/AD-3, Story 2.6's retarget of
++ * `../chain/event-worker.ts`); `lockDeposit` below only builds the unsigned
++ * deploy+fund XDR and returns it -- the booking's `escrowState` stays
++ * `null` until the reconciler processes the `funded` evidence this call, if
++ * its returned XDR is signed and submitted, eventually produces.
++ *
++ * `lockDeposit` no longer calls `../chain/client.ts` (Story 2.6): that
++ * module is superseded, not deleted -- it stays in the tree, reviewed and
++ * tested, as a record of the pre-pivot design (AD-8's own "no completed
++ * history is erased").
+  */
+ import { randomBytes } from "node:crypto";
+ 
+-import * as chain from "../chain/client.js";
++import { defaultEscrowAdapter } from "../escrow/trustless-work/client.js";
++import type { DeployEscrowResult, EscrowAdapter, UnsignedTransaction } from "../escrow/interface.js";
+ import { getBookingById, insertBooking, updateBalanceState, type BookingRow } from "../db/bookings.js";
+ import { getProviderProfileById } from "../db/providerProfiles.js";
+ import type { Db } from "../db/client.js";
+ import { BALANCE_STATES, type BalanceState } from "../db/schema.js";
+ 
++/** Pactly's only supported asset for now (PRD): the deposit's trustline
++ * symbol every `lockDeposit` deploy names. Not yet a per-booking or
++ * per-provider choice -- when Pactly supports more than one asset, this
++ * becomes an input instead of a constant. */
++const DEPOSIT_ASSET_SYMBOL = "USDC";
++
+ /** 16 random bytes, hex-encoded -- the shape `db/schema.ts`'s
+  * `bookings.id` and the contract's `BytesN<16>` both expect. AD-13 calls
+  * this an "off-chain ULID"; a true ULID also encodes a sortable timestamp,
+@@ -79,23 +92,45 @@ export async function setBalanceState(db: Db, bookingId: string, balanceState: B
+   await updateBalanceState(db, bookingId, balanceState);
+ }
+ 
++export interface LockDepositResult {
++  /** The escrow's predicted `contractId` -- the join key every later
++   * adapter call (`approve`/`release`/`startDispute`/`resolveDispute`)
++   * needs; persisting it is a later story's own job (out of this story's
++   * scope -- see `escrow/trustless-work/client.ts`'s own doc comment). */
++  contractId: string;
++  /** Unsigned deploy XDR, for the client's own signature. */
++  deploy: DeployEscrowResult;
++  /** Unsigned fund XDR, for the client's own signature -- built against
++   * the same predicted `contractId` the deploy step returned, before that
++   * deploy transaction is ever signed or submitted (building an unsigned
++   * transaction against a contract id needs no on-chain state to exist
++   * yet; only *submitting* fund would). */
++  fund: UnsignedTransaction;
++}
++
+ /**
+- * Submits `create_booking` for an already-held booking. Resolves the
+- * professional's wallet from the booking's own provider profile, so a
+- * caller only ever needs the booking id and the client's signing keypair
+- * -- never a raw chain argument list, which stays `chain/client.ts`'s
+- * concern alone.
++ * Builds the unsigned deploy+fund XDR for an already-held booking (Story
++ * 2.6: replaces the old direct `chain.createBooking` call with the
++ * vendor-neutral `EscrowAdapter`). Resolves the professional's wallet from
++ * the booking's own provider profile, so a caller only ever needs the
++ * booking id and the client's own wallet address -- never a Trustless Work
++ * payload, which stays `escrow/trustless-work/client.ts`'s concern alone.
+  *
+- * Returns the submitted transaction's hash; the booking's `escrowState`
+- * only becomes `"locked"` once the event worker processes the resulting
+- * event, not as a side effect of this call succeeding.
++ * Unlike the old `chain.createBooking`, this never signs or submits
++ * anything -- it only builds unsigned XDR (AD-8's own boundary), so it
++ * takes `clientAddress` as a plain string, never a `Keypair`. Routing the
++ * returned XDR to the client's wallet for signature, then submitting it
++ * (deploy, then fund), is a later story's job (Epic 3's booking/payment
++ * route); the booking's `escrowState` only becomes `"locked"` once the
++ * reconciler processes the resulting `funded` evidence, not as a side
++ * effect of this call succeeding.
+  */
+ export async function lockDeposit(
+   db: Db,
+   bookingId: string,
+-  clientSigner: chain.Keypair,
+-  overrides?: Partial<chain.ChainCallDeps>,
+-): Promise<{ hash: string }> {
++  clientAddress: string,
++  adapter: EscrowAdapter = defaultEscrowAdapter,
++): Promise<LockDepositResult> {
+   const booking = await getBookingById(db, bookingId);
+   if (!booking) {
+     throw new TypeError(`No booking hold exists for id "${bookingId}"`);
+@@ -104,16 +139,22 @@ export async function lockDeposit(
+   if (!providerProfile) {
+     throw new TypeError(`Booking "${bookingId}" references a provider profile that no longer exists`);
+   }
+-  return chain.createBooking(
+-    {
+-      bookingId: booking.id,
+-      professional: providerProfile.walletAddress,
+-      client: booking.clientWalletAddress,
+-      token: booking.tokenAddress,
+-      amount: booking.depositAmount,
+-      cancelDeadline: booking.cancelDeadline,
+-    },
+-    clientSigner,
+-    overrides,
+-  );
++
++  const deployResult = await adapter.deploy({
++    bookingId: booking.id,
++    clientAddress,
++    providerAddress: providerProfile.walletAddress,
++    tokenAddress: booking.tokenAddress,
++    assetSymbol: DEPOSIT_ASSET_SYMBOL,
++    amount: booking.depositAmount,
++    title: `Pactly booking ${booking.id}`,
++    description: `Pactly session deposit for booking ${booking.id}`,
++  });
++  const fundResult = await adapter.fund({
++    contractId: deployResult.contractId,
++    clientAddress,
++    amount: booking.depositAmount,
++  });
++
++  return { contractId: deployResult.contractId, deploy: deployResult, fund: fundResult };
+ }
+diff --git a/backend/test/config.test.ts b/backend/test/config.test.ts
+index 449f857..78ca4db 100644
+--- a/backend/test/config.test.ts
++++ b/backend/test/config.test.ts
+@@ -37,6 +37,10 @@ function baseEnv(port: number): NodeJS.ProcessEnv {
+     PACTLY_AUTH_SIGNING_SECRET: "test-signing-secret-not-for-production-use",
+     ESCROW_CONTRACT_ID: "",
+     PACTLY_ADMIN_WALLETS: "",
++    TRUSTLESS_WORK_API_URL: "",
++    TRUSTLESS_WORK_API_KEY: "",
++    TRUSTLESS_WORK_PLATFORM_ID: "",
++    TRUSTLESS_WORK_PLATFORM_ADDRESS: "",
+     DATABASE_PATH: "./data/pactly.db",
+   };
+ }
+diff --git a/backend/test/services-booking.test.ts b/backend/test/services-booking.test.ts
+index d97c780..d501d4b 100644
+--- a/backend/test/services-booking.test.ts
++++ b/backend/test/services-booking.test.ts
+@@ -1,92 +1,122 @@
+ /**
+- * `services/booking.ts` exercised as a unit -- no network access anywhere
+- * (the `simulate` stage is overridden and returns a simulation error, so
+- * nothing past it ever runs). Covers `lockDeposit`'s argument wiring (a
+- * reversed professional/client pair would lock a deposit payable to the
+- * wrong party -- a real money-safety bug class this story had no test
+- * for) and `setBalanceState`'s refusal to silently write nothing for an
+- * unknown booking id.
++ * `services/booking.ts` exercised as a unit -- no network access anywhere:
++ * `lockDeposit` is driven through a fake `EscrowAdapter` that never
++ * constructs a real `TrustlessWorkClient`. Covers `lockDeposit`'s argument
++ * wiring (a reversed professional/client pair would lock a deposit payable
++ * to the wrong party -- a real money-safety bug class this story had no
++ * test for) and `setBalanceState`'s refusal to silently write nothing for
++ * an unknown booking id.
+  */
+ import "./testConfigEnv.js";
+ import { randomBytes } from "node:crypto";
+ import { test } from "node:test";
+ import assert from "node:assert/strict";
+-import { Keypair, StrKey, scValToNative, type rpc } from "@stellar/stellar-sdk";
++import { Keypair, StrKey } from "@stellar/stellar-sdk";
+ 
+ import { lockDeposit, setBalanceState } from "../src/services/booking.js";
+-import { Account, type ChainCallDeps } from "../src/chain/client.js";
++import type {
++  DeployEscrowInput,
++  DeployEscrowResult,
++  EscrowAdapter,
++  FundEscrowInput,
++  UnsignedTransaction,
++} from "../src/escrow/interface.js";
+ import { closeDatabase, openTestDatabase, randomBookingId, seedBooking, seedProviderProfile } from "./helpers.js";
+ 
+ function fakeContractId(): string {
+   return StrKey.encodeContract(randomBytes(32));
+ }
+ 
+-function simulationError(message: string): rpc.Api.SimulateTransactionResponse {
++function unreachableEscrowAdapter(): EscrowAdapter {
+   return {
+-    id: "1",
+-    latestLedger: 100,
+-    events: [],
+-    error: message,
+-    _parsed: true,
+-  } as rpc.Api.SimulateTransactionResponse;
++    deploy: async () => {
++      throw new Error("deploy should not have been called");
++    },
++    fund: async () => {
++      throw new Error("fund should not have been called");
++    },
++    approve: async () => {
++      throw new Error("approve should not have been called");
++    },
++    release: async () => {
++      throw new Error("release should not have been called");
++    },
++    startDispute: async () => {
++      throw new Error("startDispute should not have been called");
++    },
++    resolveDispute: async () => {
++      throw new Error("resolveDispute should not have been called");
++    },
++  };
+ }
+ 
+-test("lockDeposit submits create_booking with the professional's wallet as the professional, never the client's", async () => {
++test("lockDeposit calls the EscrowAdapter's deploy+fund with the professional's wallet as the provider, never the client's", async () => {
+   const result = openTestDatabase();
+   try {
+-    const clientKeypair = Keypair.random();
++    const clientAddress = Keypair.random().publicKey();
+     const professionalWallet = Keypair.random().publicKey();
+     const tokenAddress = fakeContractId();
+     const depositAmount = "5000000";
+-    const cancelDeadline = Math.floor(Date.now() / 1000) + 3600;
+ 
+     const providerProfileId = await seedProviderProfile(result, { walletAddress: professionalWallet });
+     const bookingId = await seedBooking(result, {
+       providerProfileId,
+-      clientWalletAddress: clientKeypair.publicKey(),
++      clientWalletAddress: clientAddress,
+       tokenAddress,
+       depositAmount,
+-      cancelDeadline,
+     });
+ 
+-    let capturedArgs: unknown[] | undefined;
+-    const deps: Partial<ChainCallDeps> = {
++    let capturedDeploy: DeployEscrowInput | undefined;
++    let capturedFund: FundEscrowInput | undefined;
++    const deployResult: DeployEscrowResult = {
+       contractId: fakeContractId(),
+-      getAccount: async (publicKey) => new Account(publicKey, "100"),
+-      simulate: async (tx) => {
+-        const op = tx.operations[0];
+-        assert.equal(op?.type, "invokeHostFunction");
+-        if (op?.type === "invokeHostFunction" && op.func.type === "hostFunctionTypeInvokeContract") {
+-          capturedArgs = op.func.invokeContract.args.map((arg) => scValToNative(arg));
+-        }
+-        return simulationError("HostError: Error(Contract, #6)");
+-      },
+-      send: async () => {
+-        throw new Error("send should not be called after a simulation error");
++      unsignedXdr: "deploy-unsigned-xdr",
++      txHash: "deploy-tx-hash",
++    };
++    const fundResult: UnsignedTransaction = { unsignedXdr: "fund-unsigned-xdr", txHash: "fund-tx-hash" };
++
++    const adapter: EscrowAdapter = {
++      ...unreachableEscrowAdapter(),
++      deploy: async (input: DeployEscrowInput) => {
++        capturedDeploy = input;
++        return deployResult;
+       },
+-      waitForTransaction: async () => {
+-        throw new Error("waitForTransaction should not be called after a simulation error");
++      fund: async (input: FundEscrowInput) => {
++        capturedFund = input;
++        return fundResult;
+       },
+     };
+ 
+-    await assert.rejects(() => lockDeposit(result.db, bookingId, clientKeypair, deps));
++    const lockResult = await lockDeposit(result.db, bookingId, clientAddress, adapter);
++
++    assert.equal(lockResult.contractId, deployResult.contractId);
++    assert.deepEqual(lockResult.deploy, deployResult);
++    assert.deepEqual(lockResult.fund, fundResult);
++
++    assert.ok(capturedDeploy, "adapter.deploy should have been called");
++    assert.equal(capturedDeploy.bookingId, bookingId);
++    assert.equal(capturedDeploy.providerAddress, professionalWallet, "provider must be the provider profile's wallet");
++    assert.equal(capturedDeploy.clientAddress, clientAddress, "client must be the booking's own client wallet");
++    assert.notEqual(capturedDeploy.providerAddress, capturedDeploy.clientAddress, "provider and client must not have been swapped");
++    assert.equal(capturedDeploy.tokenAddress, tokenAddress);
++    assert.equal(capturedDeploy.amount, depositAmount);
++
++    assert.ok(capturedFund, "adapter.fund should have been called");
++    assert.equal(capturedFund.contractId, deployResult.contractId, "fund must target the contract deploy just predicted");
++    assert.equal(capturedFund.clientAddress, clientAddress);
++    assert.equal(capturedFund.amount, depositAmount);
++  } finally {
++    closeDatabase(result);
++  }
++});
+ 
+-    assert.ok(capturedArgs, "simulate should have been called with the built transaction");
+-    const [bookingIdBytes, professional, client, token, amount, deadline] = capturedArgs as [
+-      Uint8Array,
+-      string,
+-      string,
+-      string,
+-      bigint,
+-      bigint,
+-    ];
+-    assert.equal(Buffer.from(bookingIdBytes).toString("hex"), bookingId);
+-    assert.equal(professional, professionalWallet, "professional must be the provider profile's wallet");
+-    assert.equal(client, clientKeypair.publicKey(), "client must be the booking's own client wallet");
+-    assert.notEqual(professional, client, "professional and client must not have been swapped");
+-    assert.equal(token, tokenAddress);
+-    assert.equal(amount.toString(), depositAmount);
+-    assert.equal(Number(deadline), cancelDeadline);
++test("lockDeposit throws for an unknown booking id without ever calling the adapter", async () => {
++  const result = openTestDatabase();
++  try {
++    await assert.rejects(
++      () => lockDeposit(result.db, randomBookingId(), Keypair.random().publicKey(), unreachableEscrowAdapter()),
++      TypeError,
++    );
+   } finally {
+     closeDatabase(result);
+   }
+diff --git a/backend/test/testConfigEnv.ts b/backend/test/testConfigEnv.ts
+index 9fb6990..70470f2 100644
+--- a/backend/test/testConfigEnv.ts
++++ b/backend/test/testConfigEnv.ts
+@@ -35,6 +35,10 @@ writeFileSync(
+     "PACTLY_AUTH_SIGNING_SECRET=test-signing-secret-not-for-production-use",
+     "ESCROW_CONTRACT_ID=",
+     "PACTLY_ADMIN_WALLETS=",
++    "TRUSTLESS_WORK_API_URL=",
++    "TRUSTLESS_WORK_API_KEY=",
++    "TRUSTLESS_WORK_PLATFORM_ID=",
++    "TRUSTLESS_WORK_PLATFORM_ADDRESS=",
+     "DATABASE_PATH=./data/pactly-test.db",
+     "",
+   ].join("\n"),
+diff --git a/package-lock.json b/package-lock.json
+index aa64723..94db5a4 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -24,6 +24,7 @@
+       "dependencies": {
+         "@hono/node-server": "2.1.1",
+         "@stellar/stellar-sdk": "17.1.0",
++        "@trustless-work/escrow-js": "1.0.0-beta.1",
+         "better-sqlite3": "13.0.3",
+         "drizzle-orm": "0.45.2",
+         "hono": "4.13.8",
+@@ -857,6 +858,15 @@
+         "node": ">=22.12.0"
+       }
+     },
++    "node_modules/@trustless-work/escrow-js": {
++      "version": "1.0.0-beta.1",
++      "resolved": "https://registry.npmjs.org/@trustless-work/escrow-js/-/escrow-js-1.0.0-beta.1.tgz",
++      "integrity": "sha512-3O+zXLhhewObD3oNRVzmeC8m056/m3g5cdgxPW7W9SpDDslCisd+ZsZN7M8+/haDPPnrfgmLdn5bYNptm6Jqgg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=18"
++      }
++    },
+     "node_modules/@types/better-sqlite3": {
+       "version": "7.6.13",
+       "resolved": "https://registry.npmjs.org/@types/better-sqlite3/-/better-sqlite3-7.6.13.tgz",
+diff --git a/backend/src/db/escrowProcessedEvents.ts b/backend/src/db/escrowProcessedEvents.ts
+new file mode 100644
+index 0000000..1cd07d2
+--- /dev/null
++++ b/backend/src/db/escrowProcessedEvents.ts
+@@ -0,0 +1,60 @@
++/**
++ * The reconciler's own dedupe ledger (Story 2.6, retargeting AD-9 from
++ * `db/processedEvents.ts`). `../escrow/trustless-work/reconciler.ts` is the
++ * only caller: every piece of evidence it sees, known booking or not, gets
++ * a row here exactly once, keyed by `(transactionHash, lifecycleAction)`.
++ */
++import { and, eq } from "drizzle-orm";
++
++import type { Db, DbOrTx } from "./client.js";
++import { escrowProcessedEvents } from "./schema.js";
++
++export interface NewEscrowProcessedEvent {
++  bookingId: string;
++  transactionHash: string;
++  lifecycleAction: string;
++  amount: string;
++  contractId: string;
++  ledgerSeq: string;
++  isAnomaly: boolean;
++  processedAt: number;
++}
++
++/** Synchronous form -- callable either directly or (its reason for
++ * existing) from inside a `db.transaction()` callback, which on
++ * better-sqlite3 must never `await` (see `db/bookings.ts`'s
++ * `updateEscrowStateSync` for why). Same dedupe behavior as
++ * {@link insertEscrowProcessedEventIfNew}. */
++export function insertEscrowProcessedEventIfNewSync(db: DbOrTx, event: NewEscrowProcessedEvent): boolean {
++  const result = db.insert(escrowProcessedEvents).values(event).onConflictDoNothing().run();
++  return result.changes > 0;
++}
++
++/** Inserts a processed-evidence row unless `(transactionHash,
++ * lifecycleAction)` already has one, in which case this is a no-op.
++ * Returns `true` when the row was newly inserted (fresh evidence to act
++ * on), `false` for a replay -- the I/O matrix's "same batch replayed" row:
++ * nothing changes, no duplicate row. */
++export async function insertEscrowProcessedEventIfNew(db: Db, event: NewEscrowProcessedEvent): Promise<boolean> {
++  return insertEscrowProcessedEventIfNewSync(db, event);
++}
++
++export type EscrowProcessedEventRow = typeof escrowProcessedEvents.$inferSelect;
++
++export async function getEscrowProcessedEvent(
++  db: Db,
++  transactionHash: string,
++  lifecycleAction: string,
++): Promise<EscrowProcessedEventRow | undefined> {
++  const rows = await db
++    .select()
++    .from(escrowProcessedEvents)
++    .where(
++      and(
++        eq(escrowProcessedEvents.transactionHash, transactionHash),
++        eq(escrowProcessedEvents.lifecycleAction, lifecycleAction),
++      ),
++    )
++    .limit(1);
++  return rows[0];
++}
+diff --git a/backend/src/db/escrowReconcilerCursor.ts b/backend/src/db/escrowReconcilerCursor.ts
+new file mode 100644
+index 0000000..22e045b
+--- /dev/null
++++ b/backend/src/db/escrowReconcilerCursor.ts
+@@ -0,0 +1,37 @@
++/**
++ * The Trustless Work reconciler's own stored cursor (Story 2.6, retargeting
++ * AD-9 from `chain/event-worker.ts`): a single row (`id = 1`) in
++ * `escrow_reconciler_state` -- a table separate from `event_worker_state`,
++ * so this reconciler's restart/replay behavior can never be coupled to the
++ * (now-dead-code) Soroban worker's own cursor. `../escrow/trustless-work/
++ * reconciler.ts` reads it before each run and writes it back after, so a
++ * restart resumes after the cursor instead of at the beginning.
++ */
++import { eq } from "drizzle-orm";
++
++import type { Db } from "./client.js";
++import { escrowReconcilerState } from "./schema.js";
++
++const SINGLETON_ID = 1;
++
++/** `undefined` before the reconciler has ever run (no row yet) or when the
++ * one row's `cursor` is `null` (it ran but has not advanced past the start
++ * -- the same "begin from the top" case as never having run). */
++export async function getEscrowReconcilerCursor(db: Db): Promise<string | undefined> {
++  const rows = await db
++    .select()
++    .from(escrowReconcilerState)
++    .where(eq(escrowReconcilerState.id, SINGLETON_ID))
++    .limit(1);
++  return rows[0]?.cursor ?? undefined;
++}
++
++export async function setEscrowReconcilerCursor(db: Db, cursor: string, now: number = Date.now()): Promise<void> {
++  await db
++    .insert(escrowReconcilerState)
++    .values({ id: SINGLETON_ID, cursor, updatedAt: now })
++    .onConflictDoUpdate({
++      target: escrowReconcilerState.id,
++      set: { cursor, updatedAt: now },
++    });
++}
+diff --git a/backend/src/escrow/interface.ts b/backend/src/escrow/interface.ts
+new file mode 100644
+index 0000000..1610472
+--- /dev/null
++++ b/backend/src/escrow/interface.ts
+@@ -0,0 +1,129 @@
++/**
++ * The vendor-neutral escrow boundary AD-8 requires (Story 2.6). Every
++ * caller outside `escrow/` -- today, only `services/booking.ts` -- depends
++ * on this interface alone, never on a Trustless Work type, so a future
++ * vendor swap only ever touches a new `escrow/<vendor>/` sibling to
++ * `escrow/trustless-work/`.
++ *
++ * Every mutate method returns an *unsigned* XDR string (plus whatever
++ * identifiers the caller needs to track the operation) -- this adapter
++ * never holds or requests a private key, and never signs or submits
++ * anything itself. That is also why no method below takes a `Keypair`:
++ * unlike `chain/client.ts`, which builds, signs and submits its own
++ * transaction end to end and so needs a real `Keypair` to call `.sign()`
++ * with, nothing here ever calls `.sign()` -- Trustless Work's own API
++ * builds the transaction and hands back unsigned XDR, so every method only
++ * ever needs the *address* of whichever role is expected to eventually
++ * sign it. Routing that XDR to the right wallet (or managed-account
++ * signer) is the caller's job, not this adapter's.
++ *
++ * Amounts are integer strings in the asset's smallest unit (AD-7), exactly
++ * as they are everywhere else in this backend -- the adapter implementation
++ * (`trustless-work/client.ts`) is the one place that ever converts one to
++ * Trustless Work's own human-decimal `number`, with an explicit range check
++ * before the conversion.
++ *
++ * Cancellation, no-show and dispute resolution are never automatic here:
++ * `resolveDispute` is the one method Pactly itself calls, signing as
++ * Dispute Resolver, and it only ever runs on an explicit decision Pactly
++ * makes -- never an outcome a deadline enforces on its own (Story 1.8
++ * AC7). A doc comment or log message that touches any of these states must
++ * say so plainly, per this story's own Boundaries & Constraints.
++ */
++
++/** Booking-level input for deploying a new escrow. `bookingId` becomes the
++ * escrow's `engagementId` (AD-13) -- the join key a reconciler or a later
++ * lookup uses to get back to this booking, never a vendor-assigned id. */
++export interface DeployEscrowInput {
++  bookingId: string;
++  /** The client's Stellar account (G...) -- funder and approver, per the
++   * role map (Story 1.8). */
++  clientAddress: string;
++  /** The professional's Stellar account (G...) -- service provider,
++   * release signer (self-claim) and receiver, per the role map. */
++  providerAddress: string;
++  /** The deposit's token contract (the trustline's Soroban SAC id). */
++  tokenAddress: string;
++  /** The trustline's asset symbol (e.g. "USDC"). */
++  assetSymbol: string;
++  /** Integer string, smallest unit (AD-7). Must be a positive integer
++   * that survives conversion to Trustless Work's own `number` amount
++   * (see the adapter's own conversion note) -- refused before any network
++   * access otherwise. */
++  amount: string;
++  title: string;
++  description: string;
++}
++
++export interface DeployEscrowResult {
++  /** The escrow's predicted Soroban contract id -- returned by Trustless
++   * Work's own build step, before the deploy transaction is ever signed or
++   * submitted. */
++  contractId: string;
++  unsignedXdr: string;
++  txHash: string;
++}
++
++/** The shape every non-deploy mutate method returns: an unsigned
++ * transaction ready for the assigned role's signature. */
++export interface UnsignedTransaction {
++  unsignedXdr: string;
++  txHash: string;
++}
++
++export interface FundEscrowInput {
++  contractId: string;
++  /** The client's own address -- funding is always the funder's own
++   * signature, per the role map. */
++  clientAddress: string;
++  /** Integer string, smallest unit (AD-7). */
++  amount: string;
++}
++
++export interface ApproveEscrowInput {
++  contractId: string;
++  /** The client's own address -- approval is always the approver's own
++   * signature, per the role map. */
++  clientAddress: string;
++}
++
++export interface ReleaseEscrowInput {
++  contractId: string;
++  /** The provider's own address -- release signer and receiver are the
++   * same party (self-claim), per the role map. */
++  providerAddress: string;
++}
++
++export interface StartDisputeInput {
++  contractId: string;
++  /** Whoever raises the dispute -- the client (as approver) or the
++   * provider (as service provider); never Pactly itself, which only ever
++   * signs the later `resolveDispute` call. */
++  signerAddress: string;
++  reason: string;
++}
++
++export interface ResolveDisputeDistribution {
++  address: string;
++  /** Integer string, smallest unit (AD-7). */
++  amount: string;
++}
++
++export interface ResolveDisputeInput {
++  contractId: string;
++  /** Named addresses and amounts -- an explicit allocation Pactly itself
++   * decides, never inferred from a deadline. */
++  distributions: ResolveDisputeDistribution[];
++}
++
++export interface EscrowAdapter {
++  deploy(input: DeployEscrowInput): Promise<DeployEscrowResult>;
++  fund(input: FundEscrowInput): Promise<UnsignedTransaction>;
++  approve(input: ApproveEscrowInput): Promise<UnsignedTransaction>;
++  release(input: ReleaseEscrowInput): Promise<UnsignedTransaction>;
++  startDispute(input: StartDisputeInput): Promise<UnsignedTransaction>;
++  /** Pactly resolves a dispute explicitly, signing as Dispute Resolver --
++   * see this interface's own top-level doc comment. Never called as a
++   * side effect of a deadline passing. */
++  resolveDispute(input: ResolveDisputeInput): Promise<UnsignedTransaction>;
++}
+diff --git a/backend/src/escrow/trustless-work/client.ts b/backend/src/escrow/trustless-work/client.ts
+new file mode 100644
+index 0000000..dc69e52
+--- /dev/null
++++ b/backend/src/escrow/trustless-work/client.ts
+@@ -0,0 +1,344 @@
++/**
++ * The Trustless Work escrow adapter (AD-8): every Trustless Work REST call
++ * in this codebase goes through the six functions below, and no other
++ * module builds a Trustless Work payload or opens a `TrustlessWorkClient`.
++ *
++ * Mirrors `chain/client.ts`'s shape exactly: network access sits entirely
++ * behind `EscrowCallDeps`, one injected function per Trustless Work REST
++ * call, each defaulting to the real `@trustless-work/escrow-js` client. A
++ * caller that does not override a stage gets the real network; a test that
++ * overrides every stage it exercises never touches it -- the only reason
++ * this story is verifiable at all while `TRUSTLESS_WORK_API_URL` is empty
++ * and no operator API key exists.
++ *
++ * **Protocol version.** This targets Trustless Work's Core v2 API via the
++ * installed `@trustless-work/escrow-js@1.0.0-beta.1` -- confirmed against
++ * its real, installed `.d.ts` files, not the spec's paraphrase of them (see
++ * this story's own final report for every discrepancy found). Every escrow
++ * this adapter builds is `"single-release"`, one milestone,
++ * `approvalsTarget: 1` -- Pactly has no use for `"multi-release"` escrows
++ * or `updateEscrow` (explicitly out of this story's scope).
++ *
++ * **Amount conversion (a real discrepancy from the spec).** The spec
++ * assumed the SDK's `amount: number` fields were the same smallest-unit
++ * integer Pactly already carries, narrowed to `number`. The installed
++ * package's own README says otherwise, in its own words: "Amounts on reads
++ * are human decimal strings ... do not divide by 1e7. Build/operate
++ * payloads still use human numbers." So `DeploySingleReleaseEscrowPayload
++ * .amount`, `FundEscrowPayload.amount` and `Distribution.amount` are all
++ * **human-decimal** numbers (e.g. `1.5`, not `15000000`) -- this adapter is
++ * the one place that divides Pactly's smallest-unit integer string down by
++ * `10 ** ASSET_DECIMALS` before it ever reaches the SDK, with the
++ * non-positive/safe-integer checks run on the smallest-unit integer first,
++ * per this story's own hard rule. `ASSET_DECIMALS` is fixed at 7, matching
++ * this codebase's own established USDC convention (`contracts/escrow/src/
++ * types.rs`'s "7 decimals for USDC" and `epic-1-context.md`'s same note) --
++ * not a Trustless Work constant, since the SDK's own types carry no decimals
++ * field at all.
++ */
++import {
++  TrustlessWorkClient,
++  type ApproveMilestonesPayload,
++  type AttributionHeaders,
++  type BuildTransactionResponse,
++  type DeployEscrowResponse,
++  type DeploySingleReleaseEscrowPayload,
++  type Distribution,
++  type FundEscrowPayload,
++  type Roles,
++  type SingleReleaseReleaseFundsPayload,
++  type SingleReleaseResolveDisputePayload,
++  type SingleReleaseStartDisputePayload,
++} from "@trustless-work/escrow-js";
++
++import { config } from "../../config.js";
++import type {
++  ApproveEscrowInput,
++  DeployEscrowInput,
++  DeployEscrowResult,
++  EscrowAdapter,
++  FundEscrowInput,
++  ReleaseEscrowInput,
++  ResolveDisputeInput,
++  StartDisputeInput,
++  UnsignedTransaction,
++} from "../interface.js";
++import { EscrowConfigError, translateTrustlessWorkError } from "./errors.js";
++
++/** Every escrow this adapter builds is single-release (see this module's
++ * own top doc comment). */
++const ESCROW_TYPE = "single-release" as const;
++
++/** Fixed at 7 -- this codebase's own established USDC convention (see this
++ * module's top doc comment), not a value the Trustless Work SDK exposes. */
++const ASSET_DECIMALS = 7;
++const SMALLEST_UNIT_SCALE = 10 ** ASSET_DECIMALS;
++
++export interface EscrowCallDeps {
++  apiUrl: string;
++  apiKey: string;
++  platformId: string;
++  platformAddress: string;
++  deployEscrow: (
++    payload: DeploySingleReleaseEscrowPayload,
++    attribution?: AttributionHeaders,
++  ) => Promise<DeployEscrowResponse>;
++  fundEscrow: (payload: FundEscrowPayload) => Promise<BuildTransactionResponse>;
++  approveMilestones: (payload: ApproveMilestonesPayload) => Promise<BuildTransactionResponse>;
++  releaseFunds: (payload: SingleReleaseReleaseFundsPayload) => Promise<BuildTransactionResponse>;
++  startDispute: (payload: SingleReleaseStartDisputePayload) => Promise<BuildTransactionResponse>;
++  resolveDispute: (payload: SingleReleaseResolveDisputePayload) => Promise<BuildTransactionResponse>;
++}
++
++function defaultDeps(overrides: Partial<EscrowCallDeps>): EscrowCallDeps {
++  const apiUrl = overrides.apiUrl ?? config.trustlessWorkApiUrl;
++  const apiKey = overrides.apiKey ?? config.trustlessWorkApiKey;
++  const platformId = overrides.platformId ?? config.trustlessWorkPlatformId;
++  const platformAddress = overrides.platformAddress ?? config.trustlessWorkPlatformAddress;
++
++  // Constructed lazily, and only once: a caller who overrides every stage
++  // it exercises (every unit test) never causes this to be built, let
++  // alone contacted.
++  let client: TrustlessWorkClient | undefined;
++  const getClient = (): TrustlessWorkClient => {
++    if (!apiUrl) {
++      throw new EscrowConfigError(
++        "TRUSTLESS_WORK_API_URL is empty. Configure the Trustless Work API base URL " +
++          "before making an escrow call (see .env.example).",
++      );
++    }
++    client ??= new TrustlessWorkClient({ baseURL: apiUrl, apiKey });
++    return client;
++  };
++
++  return {
++    apiUrl,
++    apiKey,
++    platformId,
++    platformAddress,
++    deployEscrow:
++      overrides.deployEscrow ??
++      ((payload, attribution) => getClient().rest.deployEscrow(payload, ESCROW_TYPE, attribution)),
++    fundEscrow: overrides.fundEscrow ?? ((payload) => getClient().rest.fundEscrow(payload, ESCROW_TYPE)),
++    approveMilestones:
++      overrides.approveMilestones ?? ((payload) => getClient().rest.approveMilestones(payload, ESCROW_TYPE)),
++    releaseFunds: overrides.releaseFunds ?? ((payload) => getClient().rest.releaseFunds(payload, ESCROW_TYPE)),
++    startDispute: overrides.startDispute ?? ((payload) => getClient().rest.startDispute(payload, ESCROW_TYPE)),
++    resolveDispute: overrides.resolveDispute ?? ((payload) => getClient().rest.resolveDispute(payload, ESCROW_TYPE)),
++  };
++}
++
++/** Runs `fn`, translating whatever it throws into one of `errors.ts`'s
++ * typed errors -- the one place every adapter function funnels its network
++ * call through, per AD-8. An error this module already typed (an
++ * {@link EscrowConfigError} the lazily-constructed client seam throws
++ * before ever reaching the network, most notably) passes through
++ * unchanged rather than being re-wrapped as a generic request failure. */
++async function callTrustlessWork<T>(fn: () => Promise<T>): Promise<T> {
++  try {
++    return await fn();
++  } catch (error) {
++    if (error instanceof EscrowConfigError) throw error;
++    throw translateTrustlessWorkError(error);
++  }
++}
++
++/** An integer string in the asset's smallest unit (AD-7) -- never a float.
++ * Converts to Trustless Work's own human-decimal `number`, refusing first
++ * (typed {@link EscrowConfigError}, before any network access) when the
++ * value is not a positive integer, or would not survive the conversion
++ * safely. The `Number.isSafeInteger` check runs on the smallest-unit
++ * integer itself, before it is ever divided down -- never a bare
++ * `Number(bigString)`. */
++function toHumanAmount(amount: string): number {
++  if (!/^\d+$/.test(amount)) {
++    throw new EscrowConfigError(`amount must be a non-negative integer string, got "${amount}"`);
++  }
++  const smallestUnits = BigInt(amount);
++  if (smallestUnits <= 0n) {
++    throw new EscrowConfigError(`amount must be a positive integer, got "${amount}"`);
++  }
++  if (smallestUnits > BigInt(Number.MAX_SAFE_INTEGER)) {
++    throw new EscrowConfigError(
++      `amount "${amount}" exceeds the safe integer range for conversion to Trustless Work's numeric amount`,
++    );
++  }
++  const smallestUnitsNumber = Number(smallestUnits);
++  if (!Number.isSafeInteger(smallestUnitsNumber)) {
++    throw new EscrowConfigError(
++      `amount "${amount}" exceeds the safe integer range for conversion to Trustless Work's numeric amount`,
++    );
++  }
++  return smallestUnitsNumber / SMALLEST_UNIT_SCALE;
++}
++
++function toUnsignedTransaction(response: BuildTransactionResponse): UnsignedTransaction {
++  return { unsignedXdr: response.unsignedXdr, txHash: response.txHash };
++}
++
++/**
++ * Builds the unsigned deploy XDR for a new single-release escrow, roles
++ * exactly per the role map (Story 1.8): client as funder/approver,
++ * provider as service provider/release signer/receiver, Pactly as
++ * platform/dispute resolver.
++ *
++ * **`admin` role decision.** The real `Roles` type (v2) requires an
++ * `admin` address that Story 1.8's seven-role map never named (the map
++ * predates the SDK's own array-shaped, admin-bearing `Roles`). This
++ * adapter assigns Pactly's own platform address (`config
++ * .trustlessWorkPlatformAddress`) as `admin` -- Pactly is the only party
++ * that ever deploys these escrows, and no other role is positioned to
++ * administer one, so overloading Pactly's existing platform address onto
++ * `admin` adds no new trust surface beyond what the role map already
++ * concedes for `platform`/`disputeResolvers`. This is a trust assumption,
++ * not a property Trustless Work enforces trustlessly -- named here and in
++ * this story's own final report, per this story's own constraints.
++ */
++export async function deploy(
++  input: DeployEscrowInput,
++  overrides: Partial<EscrowCallDeps> = {},
++): Promise<DeployEscrowResult> {
++  const deps = defaultDeps(overrides);
++  const amount = toHumanAmount(input.amount);
++
++  const roles: Roles = {
++    approvers: [input.clientAddress],
++    serviceProviders: [input.providerAddress],
++    releaseSigners: [input.providerAddress],
++    receiver: input.providerAddress,
++    platform: deps.platformAddress,
++    disputeResolvers: [deps.platformAddress],
++    admin: deps.platformAddress,
++  };
++
++  const payload: DeploySingleReleaseEscrowPayload = {
++    signer: input.clientAddress,
++    engagementId: input.bookingId,
++    title: input.title,
++    description: input.description,
++    amount,
++    // Pactly takes no Trustless-Work-side platform fee today; its own
++    // deposit-rate economics (`provider_profiles.deposit_rate_bps`) are
++    // computed entirely off-chain, before this adapter is ever called.
++    platformFee: 0,
++    roles,
++    milestones: [{ description: input.description, approvalsTarget: 1 }],
++    trustline: { contractId: input.tokenAddress, symbol: input.assetSymbol },
++  };
++  const attribution: AttributionHeaders | undefined = deps.platformId ? { platformId: deps.platformId } : undefined;
++
++  const response = await callTrustlessWork(() => deps.deployEscrow(payload, attribution));
++  return { contractId: response.contractId, unsignedXdr: response.unsignedXdr, txHash: response.txHash };
++}
++
++/** Builds the unsigned fund XDR for the client's own signature. */
++export async function fund(
++  input: FundEscrowInput,
++  overrides: Partial<EscrowCallDeps> = {},
++): Promise<UnsignedTransaction> {
++  const deps = defaultDeps(overrides);
++  const amount = toHumanAmount(input.amount);
++  const payload: FundEscrowPayload = { amount, contractId: input.contractId, signer: input.clientAddress };
++  const response = await callTrustlessWork(() => deps.fundEscrow(payload));
++  return toUnsignedTransaction(response);
++}
++
++/** Builds the unsigned approve XDR for the client's (approver's) own
++ * signature -- this escrow has exactly one milestone, so `milestoneIndexes`
++ * is always `[0]`. */
++export async function approve(
++  input: ApproveEscrowInput,
++  overrides: Partial<EscrowCallDeps> = {},
++): Promise<UnsignedTransaction> {
++  const deps = defaultDeps(overrides);
++  const payload: ApproveMilestonesPayload = {
++    contractId: input.contractId,
++    approver: input.clientAddress,
++    milestoneIndexes: [0],
++  };
++  const response = await callTrustlessWork(() => deps.approveMilestones(payload));
++  return toUnsignedTransaction(response);
++}
++
++/** Builds the unsigned release XDR for the provider's own signature
++ * (self-claim: release signer and receiver are the same party). */
++export async function release(
++  input: ReleaseEscrowInput,
++  overrides: Partial<EscrowCallDeps> = {},
++): Promise<UnsignedTransaction> {
++  const deps = defaultDeps(overrides);
++  const payload: SingleReleaseReleaseFundsPayload = {
++    contractId: input.contractId,
++    releaseSigner: input.providerAddress,
++  };
++  const response = await callTrustlessWork(() => deps.releaseFunds(payload));
++  return toUnsignedTransaction(response);
++}
++
++/** Builds the unsigned start-dispute XDR for whichever party raises it
++ * (the client as approver, or the provider) -- never Pactly itself, which
++ * only ever signs {@link resolveDispute}. */
++export async function startDispute(
++  input: StartDisputeInput,
++  overrides: Partial<EscrowCallDeps> = {},
++): Promise<UnsignedTransaction> {
++  const deps = defaultDeps(overrides);
++  const payload: SingleReleaseStartDisputePayload = {
++    contractId: input.contractId,
++    signer: input.signerAddress,
++    reason: input.reason,
++  };
++  const response = await callTrustlessWork(() => deps.startDispute(payload));
++  return toUnsignedTransaction(response);
++}
++
++/**
++ * Builds the unsigned resolve-dispute XDR -- the one adapter function
++ * Pactly itself is ever the signer for (`disputeResolver`, per the role
++ * map). Every cancellation, late-cancellation or no-show that the client
++ * does not resolve by approving in time becomes a dispute Pactly resolves
++ * here, explicitly, by naming a distribution -- never an outcome the
++ * protocol enforces automatically on a deadline (Story 1.8 AC7). Nothing
++ * about this function is triggered by a clock; it is only ever called on
++ * Pactly's own explicit decision.
++ */
++export async function resolveDispute(
++  input: ResolveDisputeInput,
++  overrides: Partial<EscrowCallDeps> = {},
++): Promise<UnsignedTransaction> {
++  const deps = defaultDeps(overrides);
++  const distributions: Distribution[] = input.distributions.map((distribution) => ({
++    address: distribution.address,
++    amount: toHumanAmount(distribution.amount),
++  }));
++  const payload: SingleReleaseResolveDisputePayload = {
++    contractId: input.contractId,
++    disputeResolver: deps.platformAddress,
++    distributions,
++  };
++  const response = await callTrustlessWork(() => deps.resolveDispute(payload));
++  return toUnsignedTransaction(response);
++}
++
++/** Binds every function above to one fixed set of `EscrowCallDeps`
++ * overrides, producing a plain {@link EscrowAdapter} -- the shape
++ * `services/booking.ts` actually depends on, per `escrow/interface.ts`'s
++ * own "never import a Trustless Work type directly" rule. A test that
++ * wants Trustless-Work-level seams (network stages) calls the functions
++ * above directly, the same way `chain-client.test.ts` calls
++ * `chain/client.ts`'s exports directly; a test of `services/booking.ts`
++ * only ever needs a fake `EscrowAdapter`. */
++export function createEscrowAdapter(overrides: Partial<EscrowCallDeps> = {}): EscrowAdapter {
++  return {
++    deploy: (input) => deploy(input, overrides),
++    fund: (input) => fund(input, overrides),
++    approve: (input) => approve(input, overrides),
++    release: (input) => release(input, overrides),
++    startDispute: (input) => startDispute(input, overrides),
++    resolveDispute: (input) => resolveDispute(input, overrides),
++  };
++}
++
++/** The real adapter, wired to `config` -- what `services/booking.ts`
++ * defaults to. Never constructed by a test. */
++export const defaultEscrowAdapter: EscrowAdapter = createEscrowAdapter();
+diff --git a/backend/src/escrow/trustless-work/errors.ts b/backend/src/escrow/trustless-work/errors.ts
+new file mode 100644
+index 0000000..81c1477
+--- /dev/null
++++ b/backend/src/escrow/trustless-work/errors.ts
+@@ -0,0 +1,79 @@
++/**
++ * Typed application errors for every way a Trustless Work escrow call can
++ * fail, mirroring `chain/errors.ts`'s shape: a caller of `client.ts` never
++ * sees a raw Trustless Work SDK error, HTTP body or `fetch` failure, only
++ * one of these three.
++ */
++import {
++  TrustlessWorkApiError,
++  TrustlessWorkNetworkError,
++  toTrustlessWorkError,
++  type ApiErrorCode,
++} from "@trustless-work/escrow-js";
++
++/** `TRUSTLESS_WORK_API_URL` is empty, or an amount this adapter was asked
++ * to send could not be safely converted to Trustless Work's own numeric
++ * amount (non-positive, or outside the safe-integer range). Refused before
++ * any network access, per this story's own constraint -- the I/O matrix
++ * names this same class for both the config gap and the amount refusals. */
++export class EscrowConfigError extends Error {
++  constructor(message: string) {
++    super(message);
++    this.name = "EscrowConfigError";
++  }
++}
++
++/** Trustless Work's own API refused the call -- an RFC 9457 Problem
++ * Details response, translated from the real SDK's `TrustlessWorkApiError`.
++ * `.code` is Trustless Work's own machine-readable code (e.g.
++ * `"ESCROW_PLATFORM_FEE_TOO_HIGH"`, `"UNAUTHORIZED"`) so a caller can
++ * branch on it without parsing `.message`; `.status` is the HTTP status,
++ * when known. Never carries the raw response body. */
++export class EscrowApiError extends Error {
++  constructor(
++    public readonly code: ApiErrorCode,
++    message: string,
++    public readonly status?: number,
++  ) {
++    super(message);
++    this.name = "EscrowApiError";
++  }
++}
++
++/** Everything that is not a Trustless Work API-level refusal: the request
++ * never reached Trustless Work (network/timeout failure, translated from
++ * the real SDK's `TrustlessWorkNetworkError`), or a raw `fetch` failure the
++ * SDK itself did not recognize as Problem Details. Still typed, still
++ * never a raw string or stack trace handed straight to a caller. */
++export class EscrowRequestError extends Error {
++  constructor(message: string) {
++    super(message);
++    this.name = "EscrowRequestError";
++  }
++}
++
++/**
++ * Translates whatever a Trustless Work SDK call throws into one of this
++ * module's typed errors. Uses the real package's own `toTrustlessWorkError`
++ * normalizer (never a hand-rolled re-parse of the error shape) to recognize
++ * its two error classes; anything else (a bare `TypeError` from `fetch`
++ * itself, for instance) still becomes a typed {@link EscrowRequestError}
++ * rather than escaping raw.
++ */
++export function translateTrustlessWorkError(error: unknown): EscrowApiError | EscrowRequestError {
++  const normalized = toTrustlessWorkError(error);
++  if (normalized instanceof TrustlessWorkApiError) {
++    return new EscrowApiError(
++      normalized.code,
++      `Trustless Work refused the call: ${normalized.detail || normalized.title} (${normalized.code}).`,
++      normalized.status,
++    );
++  }
++  if (normalized instanceof TrustlessWorkNetworkError) {
++    return new EscrowRequestError(
++      `Could not reach Trustless Work (HTTP ${normalized.status}): ${normalized.message}`,
++    );
++  }
++  const message = normalized instanceof Error ? normalized.message : String(normalized);
++  return new EscrowRequestError(`Trustless Work request failed: ${message}`);
++}
+diff --git a/backend/src/escrow/trustless-work/reconciler.ts b/backend/src/escrow/trustless-work/reconciler.ts
+new file mode 100644
+index 0000000..15c5571
+--- /dev/null
++++ b/backend/src/escrow/trustless-work/reconciler.ts
+@@ -0,0 +1,312 @@
++/**
++ * The cursored, idempotent Trustless Work reconciler (AD-9) -- Story 2.6's
++ * retarget of `chain/event-worker.ts` onto Trustless Work evidence instead
++ * of Soroban `getEvents`. The only writer of `bookings.escrow_state` for
++ * any Trustless-Work-backed booking (AD-1/AD-3); every other module that
++ * touches a booking row leaves that column alone.
++ *
++ * `runReconcilerOnce` is one batch: read the stored cursor
++ * (`db/escrowReconcilerCursor.ts`), fetch evidence since it through the
++ * injected `FetchEscrowEvidence` seam, apply each item at most once
++ * (`escrow_processed_events` dedupes by `(transactionHash,
++ * lifecycleAction)`, not `chain/event-worker.ts`'s `(bookingId,
++ * eventType)` -- a Trustless Work escrow's evidence is keyed by the
++ * transaction that produced it), then advance the cursor -- so a restart
++ * resumes from where it left off rather than from the first page.
++ *
++ * **No global event cursor, unlike Soroban's `getEvents`.** Confirmed
++ * against the installed `@trustless-work/escrow-js@1.0.0-beta.1`'s real
++ * types: `EscrowRestService.listEscrowEvents(contractId, params?)` is
++ * scoped to one escrow's `contractId` at a time -- there is no single
++ * "every event across every escrow since cursor X" endpoint the way
++ * Soroban's `getEvents` was. `realFetchEscrowEvidence` below is this
++ * story's own engineering decision for the *real* implementation (never
++ * exercised by a test, per this story's own hard rule): page
++ * `listEscrows` -- scoped to Pactly's own platform/participant -- ordered
++ * by `updatedAt` ascending, and for every escrow the page returns, fetch
++ * that escrow's own events and flatten them into one evidence batch. An
++ * escrow that receives a new lifecycle event has its `updatedAt` bumped,
++ * so it reappears past whatever cursor was last stored -- which is what
++ * lets a later poll ever see it again.
++ */
++import {
++  TrustlessWorkClient,
++  type EscrowEvent,
++  type ListEscrowEventsParams,
++  type ListEscrowsParams,
++  type ListEscrowsResponse,
++  type ListEscrowEventsResponse,
++} from "@trustless-work/escrow-js";
++
++import { config } from "../../config.js";
++import { getBookingById, updateEscrowStateSync } from "../../db/bookings.js";
++import { getEscrowReconcilerCursor, setEscrowReconcilerCursor } from "../../db/escrowReconcilerCursor.js";
++import { insertEscrowProcessedEventIfNewSync } from "../../db/escrowProcessedEvents.js";
++import type { Db, DbOrTx } from "../../db/client.js";
++import type { EscrowState } from "../../db/schema.js";
++import { EscrowConfigError } from "./errors.js";
++
++/**
++ * The only four lifecycle kinds this story's own I/O matrix names for
++ * "event batch mirrored" -- `funded`, `approved`, `released`, `disputed`.
++ * A dispute's eventual *resolution* (Pactly signing `resolveDispute`,
++ * never an automatic deadline) is not one of them: the real SDK's
++ * `EscrowEvent.kind` carries no fixed enum (it is a bare `string`), and
++ * this story's matrix does not name what a resolved-dispute evidence kind
++ * is called or how its distribution should map onto `escrow_state`'s
++ * three values -- left as a follow-up per this story's own final report,
++ * not guessed at here. Any `kind` outside this list is treated exactly
++ * like `chain/events.ts`'s `decodeEvent` treats an unrecognized topic
++ * name: silently skipped, never processed, never recorded.
++ */
++const RECOGNIZED_LIFECYCLE_ACTIONS = ["funded", "approved", "released", "disputed"] as const;
++export type EscrowLifecycleAction = (typeof RECOGNIZED_LIFECYCLE_ACTIONS)[number];
++
++function isLifecycleAction(value: string): value is EscrowLifecycleAction {
++  return (RECOGNIZED_LIFECYCLE_ACTIONS as readonly string[]).includes(value);
++}
++
++/**
++ * Maps a recognized lifecycle action onto `bookings.escrow_state`'s three
++ * values -- `chain/event-worker.ts`'s `escrowStateForEvent`, retargeted.
++ * `disputed` stays `locked`: opening a dispute never moves money on its
++ * own, and this reconciler never infers a resolution outcome -- Pactly
++ * resolves a dispute explicitly, as Dispute Resolver, via the adapter's
++ * own `resolveDispute` call (Story 1.8 AC7), never automatically here.
++ */
++export function escrowStateForLifecycleAction(action: EscrowLifecycleAction): EscrowState {
++  switch (action) {
++    case "funded":
++      return "locked";
++    case "approved":
++      return "locked";
++    case "released":
++      return "released";
++    case "disputed":
++      return "locked";
++  }
++}
++
++/** One decoded piece of Trustless Work evidence, already stripped of the
++ * SDK's own read-model shape -- `bookingId` is the escrow's own
++ * `engagementId` (AD-13: always Pactly's own booking id, set on deploy),
++ * `amount` as an integer string (AD-7), never the SDK's human-decimal
++ * `number`. */
++export interface EscrowEvidence {
++  bookingId: string;
++  transactionHash: string;
++  lifecycleAction: EscrowLifecycleAction;
++  /** Integer string, smallest unit (AD-7) -- best-effort from the event's
++   * own `payload` (a bare `Record<string, unknown>` in the real SDK, no
++   * fixed schema); `"0"` when the payload carries no recognizable amount
++   * field, since this reconciler never invents a value it cannot read. */
++  amount: string;
++  contractId: string;
++  ledgerSeq: string;
++}
++
++export interface FetchEscrowEvidenceResult {
++  evidence: EscrowEvidence[];
++  /** Always present, even for an empty batch -- mirrors
++   * `chain/events.ts`'s `FetchEventsResult.cursor`. */
++  cursor: string;
++}
++
++/** The reconciler's one seam onto the network: given the last processed
++ * cursor (`undefined` on a first run), returns the next batch and the
++ * cursor to resume from. Defaults to {@link realFetchEscrowEvidence}. */
++export type FetchEscrowEvidence = (cursor: string | undefined) => Promise<FetchEscrowEvidenceResult>;
++
++/** Decodes one raw `EscrowEvent` into {@link EscrowEvidence}, or `undefined`
++ * when its `kind` is not one of {@link RECOGNIZED_LIFECYCLE_ACTIONS} --
++ * exported so it can be unit-tested on its own, with hand-built events,
++ * never a real network round trip (mirrors `chain/events.ts`'s
++ * `decodeEvent`). */
++export function decodeEscrowEvidence(bookingId: string, contractId: string, event: EscrowEvent): EscrowEvidence | undefined {
++  if (!isLifecycleAction(event.kind)) return undefined;
++  const payloadAmount = event.payload?.["amount"];
++  const amount = typeof payloadAmount === "string" && /^\d+$/.test(payloadAmount) ? payloadAmount : "0";
++  return {
++    bookingId,
++    transactionHash: event.txHash,
++    lifecycleAction: event.kind,
++    amount,
++    contractId,
++    ledgerSeq: event.ledgerSeq,
++  };
++}
++
++export interface EscrowEvidenceCallDeps {
++  apiUrl: string;
++  apiKey: string;
++  platformId: string;
++  platformAddress: string;
++  listEscrows: (params: ListEscrowsParams) => Promise<ListEscrowsResponse>;
++  listEscrowEvents: (contractId: string, params?: ListEscrowEventsParams) => Promise<ListEscrowEventsResponse>;
++}
++
++function defaultEvidenceDeps(overrides: Partial<EscrowEvidenceCallDeps>): EscrowEvidenceCallDeps {
++  const apiUrl = overrides.apiUrl ?? config.trustlessWorkApiUrl;
++  const apiKey = overrides.apiKey ?? config.trustlessWorkApiKey;
++  const platformId = overrides.platformId ?? config.trustlessWorkPlatformId;
++  const platformAddress = overrides.platformAddress ?? config.trustlessWorkPlatformAddress;
++
++  let client: TrustlessWorkClient | undefined;
++  const getClient = (): TrustlessWorkClient => {
++    if (!apiUrl) {
++      throw new EscrowConfigError(
++        "TRUSTLESS_WORK_API_URL is empty. Configure the Trustless Work API base URL " +
++          "before starting the escrow reconciler (see .env.example).",
++      );
++    }
++    client ??= new TrustlessWorkClient({ baseURL: apiUrl, apiKey });
++    return client;
++  };
++
++  return {
++    apiUrl,
++    apiKey,
++    platformId,
++    platformAddress,
++    listEscrows: overrides.listEscrows ?? ((params) => getClient().rest.listEscrows(params)),
++    listEscrowEvents: overrides.listEscrowEvents ?? ((contractId, params) => getClient().rest.listEscrowEvents(contractId, params)),
++  };
++}
++
++/** The real implementation -- see this module's own top doc comment for
++ * why its cursor is the escrow list's own keyset cursor, not a single
++ * global event cursor. Never called by this story's own tests. */
++export function realFetchEscrowEvidence(overrides: Partial<EscrowEvidenceCallDeps> = {}): FetchEscrowEvidence {
++  const deps = defaultEvidenceDeps(overrides);
++  return async (cursor) => {
++    const page = await deps.listEscrows({
++      platformId: deps.platformId || undefined,
++      participant: deps.platformAddress || undefined,
++      sort: "updatedAt",
++      order: "asc",
++      cursor,
++    });
++
++    const evidence: EscrowEvidence[] = [];
++    for (const row of page.data) {
++      if (!row.engagementId) continue;
++      const events = await deps.listEscrowEvents(row.contractId);
++      for (const event of events.data) {
++        const decoded = decodeEscrowEvidence(row.engagementId, row.contractId, event);
++        if (decoded) evidence.push(decoded);
++      }
++    }
++
++    // `nextCursor` is `null` once the escrow list has no further page; in
++    // that case there is nothing further to advance to yet, so resume from
++    // the same cursor next run (an escrow whose `updatedAt` changes will
++    // reappear past it) rather than losing the caller's place.
++    return { evidence, cursor: page.nextCursor ?? cursor ?? "" };
++  };
++}
++
++export type ProcessEvidenceOutcome = "applied" | "duplicate" | "anomaly";
++
++export interface ProcessEvidenceDeps {
++  /** Overridable only so a test can simulate a failure between the dedupe
++   * insert and the escrow-state write (mirrors `chain/event-worker.ts`'s
++   * own `ProcessEventDeps`); the real writer is always
++   * {@link updateEscrowStateSync}. */
++  updateEscrowState?: (tx: DbOrTx, bookingId: string, escrowState: EscrowState) => void;
++}
++
++/** Applies one piece of evidence, at most once. Returns which of the
++ * three I/O-matrix outcomes happened.
++ *
++ * The dedupe insert and the escrow-state write commit together, in one
++ * `db.transaction()` -- the same atomicity `chain/event-worker.ts`'s
++ * `processEvent` established, retargeted onto `escrow_processed_events`:
++ * if the write throws, better-sqlite3 rolls the whole transaction back, so
++ * no dedupe row is ever left behind without its escrow-state write having
++ * happened. */
++export async function processEscrowEvidence(
++  db: Db,
++  evidence: EscrowEvidence,
++  log: (message: string) => void = defaultLog,
++  deps: ProcessEvidenceDeps = {},
++): Promise<ProcessEvidenceOutcome> {
++  const updateEscrowState = deps.updateEscrowState ?? updateEscrowStateSync;
++  const booking = await getBookingById(db, evidence.bookingId);
++
++  // Synchronous throughout, per better-sqlite3's transaction contract: an
++  // `await` inside this callback would let the driver COMMIT before the
++  // awaited write actually ran.
++  const isNew = db.transaction((tx) => {
++    const inserted = insertEscrowProcessedEventIfNewSync(tx, {
++      bookingId: evidence.bookingId,
++      transactionHash: evidence.transactionHash,
++      lifecycleAction: evidence.lifecycleAction,
++      amount: evidence.amount,
++      contractId: evidence.contractId,
++      ledgerSeq: evidence.ledgerSeq,
++      isAnomaly: booking === undefined,
++      processedAt: Date.now(),
++    });
++    if (inserted && booking) {
++      updateEscrowState(tx, evidence.bookingId, escrowStateForLifecycleAction(evidence.lifecycleAction));
++    }
++    return inserted;
++  });
++
++  if (!isNew) {
++    // Replay of an already-processed (transactionHash, lifecycleAction)
++    // pair: nothing changes, including the booking row untouched below.
++    return "duplicate";
++  }
++  if (!booking) {
++    // Recorded above (so a later reconciliation can find it), but no
++    // booking row is invented -- the I/O matrix's "evidence for unknown
++    // booking" row.
++    log(
++      `[escrow-reconciler] anomaly: "${evidence.lifecycleAction}" evidence (tx ${evidence.transactionHash}) ` +
++        `for unknown booking ${evidence.bookingId} (contract ${evidence.contractId})`,
++    );
++    return "anomaly";
++  }
++  return "applied";
++}
++
++function defaultLog(message: string): void {
++  console.error(message);
++}
++
++export interface ReconcilerDeps {
++  db: Db;
++  fetchEscrowEvidence: FetchEscrowEvidence;
++  log?: (message: string) => void;
++}
++
++export interface RunReconcilerResult {
++  applied: number;
++  duplicates: number;
++  anomalies: number;
++  cursor: string;
++}
++
++/** Runs exactly one fetch-and-apply batch. A long-running process calls
++ * this in a loop (not this story's job, mirroring `chain/event-worker.ts`'s
++ * own note); a test calls it directly, once or several times, against a
++ * real temporary database. */
++export async function runReconcilerOnce(deps: ReconcilerDeps): Promise<RunReconcilerResult> {
++  const { db, fetchEscrowEvidence, log = defaultLog } = deps;
++  const cursor = await getEscrowReconcilerCursor(db);
++  const { evidence, cursor: nextCursor } = await fetchEscrowEvidence(cursor);
++
++  let applied = 0;
++  let duplicates = 0;
++  let anomalies = 0;
++  for (const item of evidence) {
++    const outcome = await processEscrowEvidence(db, item, log);
++    if (outcome === "applied") applied += 1;
++    else if (outcome === "duplicate") duplicates += 1;
++    else anomalies += 1;
++  }
++
++  await setEscrowReconcilerCursor(db, nextCursor);
++  return { applied, duplicates, anomalies, cursor: nextCursor };
++}
+diff --git a/backend/test/escrow-trustless-work-client.test.ts b/backend/test/escrow-trustless-work-client.test.ts
+new file mode 100644
+index 0000000..17874c0
+--- /dev/null
++++ b/backend/test/escrow-trustless-work-client.test.ts
+@@ -0,0 +1,330 @@
++/**
++ * `escrow/trustless-work/client.ts` exercised as a unit: every network
++ * stage (`deployEscrow`, `fundEscrow`, `approveMilestones`, `releaseFunds`,
++ * `startDispute`, `resolveDispute`) is overridden via `EscrowCallDeps`, so
++ * nothing here ever reaches `dev.api.trustlesswork.com`,
++ * `api.trustlesswork.com`, or any other real host. Covers every I/O-matrix
++ * row this story's spec names for the adapter: every mutate call's success
++ * path (not only its refusals), the two amount refusals, the empty-config
++ * refusal, and the two error-translation rows.
++ */
++import "./testConfigEnv.js";
++import { randomBytes } from "node:crypto";
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import { Keypair, StrKey } from "@stellar/stellar-sdk";
++import {
++  TrustlessWorkApiError,
++  TrustlessWorkNetworkError,
++  type ApiProblemDetails,
++  type ApproveMilestonesPayload,
++  type BuildTransactionResponse,
++  type DeployEscrowResponse,
++  type DeploySingleReleaseEscrowPayload,
++  type FundEscrowPayload,
++  type SingleReleaseReleaseFundsPayload,
++  type SingleReleaseResolveDisputePayload,
++  type SingleReleaseStartDisputePayload,
++} from "@trustless-work/escrow-js";
++
++import { approve, deploy, fund, release, resolveDispute, startDispute, type EscrowCallDeps } from "../src/escrow/trustless-work/client.js";
++import { EscrowApiError, EscrowConfigError, EscrowRequestError } from "../src/escrow/trustless-work/errors.js";
++import type {
++  ApproveEscrowInput,
++  DeployEscrowInput,
++  FundEscrowInput,
++  ReleaseEscrowInput,
++  ResolveDisputeInput,
++  StartDisputeInput,
++} from "../src/escrow/interface.js";
++
++function fakeContractId(): string {
++  return StrKey.encodeContract(randomBytes(32));
++}
++
++function fakeAddress(): string {
++  return Keypair.random().publicKey();
++}
++
++/** Every network stage throws if called -- a test using this fails loudly
++ * if the code under test does not refuse before reaching it (mirrors
++ * `chain-client.test.ts`'s own `unreachableStages`). */
++function unreachableStages(): Pick<
++  EscrowCallDeps,
++  "deployEscrow" | "fundEscrow" | "approveMilestones" | "releaseFunds" | "startDispute" | "resolveDispute"
++> {
++  return {
++    deployEscrow: async () => {
++      throw new Error("deployEscrow should not have been called");
++    },
++    fundEscrow: async () => {
++      throw new Error("fundEscrow should not have been called");
++    },
++    approveMilestones: async () => {
++      throw new Error("approveMilestones should not have been called");
++    },
++    releaseFunds: async () => {
++      throw new Error("releaseFunds should not have been called");
++    },
++    startDispute: async () => {
++      throw new Error("startDispute should not have been called");
++    },
++    resolveDispute: async () => {
++      throw new Error("resolveDispute should not have been called");
++    },
++  };
++}
++
++function baseDeployInput(overrides: Partial<DeployEscrowInput> = {}): DeployEscrowInput {
++  return {
++    bookingId: randomBytes(16).toString("hex"),
++    clientAddress: fakeAddress(),
++    providerAddress: fakeAddress(),
++    tokenAddress: fakeContractId(),
++    assetSymbol: "USDC",
++    amount: "10000000",
++    title: "Pactly booking",
++    description: "Pactly session deposit",
++    ...overrides,
++  };
++}
++
++test("deploy sends V2 array-shaped roles -- exactly one address per role, per the role map -- and converts the amount to a human decimal", async () => {
++  let captured: { payload: DeploySingleReleaseEscrowPayload; attribution?: { platformId?: string } } | undefined;
++  const platformAddress = fakeAddress();
++  const clientAddress = fakeAddress();
++  const providerAddress = fakeAddress();
++
++  const deps: Partial<EscrowCallDeps> = {
++    platformAddress,
++    platformId: "pactly",
++    ...unreachableStages(),
++    deployEscrow: async (payload, attribution) => {
++      captured = { payload, attribution };
++      return {
++        contractId: "predicted-contract-id",
++        unsignedXdr: "deploy-unsigned-xdr",
++        txHash: "deploy-tx-hash",
++      } satisfies DeployEscrowResponse;
++    },
++  };
++
++  const result = await deploy(baseDeployInput({ clientAddress, providerAddress, amount: "10000000" }), deps);
++
++  assert.equal(result.contractId, "predicted-contract-id");
++  assert.equal(result.unsignedXdr, "deploy-unsigned-xdr");
++  assert.equal(result.txHash, "deploy-tx-hash");
++
++  assert.ok(captured, "deployEscrow should have been called");
++  const { payload, attribution } = captured;
++  assert.deepEqual(payload.roles, {
++    approvers: [clientAddress],
++    serviceProviders: [providerAddress],
++    releaseSigners: [providerAddress],
++    receiver: providerAddress,
++    platform: platformAddress,
++    disputeResolvers: [platformAddress],
++    admin: platformAddress,
++  });
++  assert.equal(payload.signer, clientAddress);
++  assert.equal(payload.milestones.length, 1);
++  assert.equal(payload.milestones[0]?.approvalsTarget, 1);
++  // 10_000_000 smallest units / 10**7 (7-decimal USDC convention) === 1.
++  assert.equal(payload.amount, 1);
++  assert.equal(attribution?.platformId, "pactly");
++});
++
++test("deploy's engagementId is the Pactly booking id (AD-13)", async () => {
++  let captured: DeploySingleReleaseEscrowPayload | undefined;
++  const bookingId = randomBytes(16).toString("hex");
++  const deps: Partial<EscrowCallDeps> = {
++    platformAddress: fakeAddress(),
++    ...unreachableStages(),
++    deployEscrow: async (payload) => {
++      captured = payload;
++      return { contractId: "c", unsignedXdr: "x", txHash: "h" } satisfies DeployEscrowResponse;
++    },
++  };
++  await deploy(baseDeployInput({ bookingId }), deps);
++  assert.equal(captured?.engagementId, bookingId);
++});
++
++test("fund builds the unsigned fund XDR for the client's own signature", async () => {
++  let captured: FundEscrowPayload | undefined;
++  const clientAddress = fakeAddress();
++  const contractId = "predicted-contract-id";
++  const deps: Partial<EscrowCallDeps> = {
++    ...unreachableStages(),
++    fundEscrow: async (payload) => {
++      captured = payload;
++      return { unsignedXdr: "fund-unsigned-xdr", txHash: "fund-tx-hash" } satisfies BuildTransactionResponse;
++    },
++  };
++  const input: FundEscrowInput = { contractId, clientAddress, amount: "5000000" };
++  const result = await fund(input, deps);
++
++  assert.equal(result.unsignedXdr, "fund-unsigned-xdr");
++  assert.equal(result.txHash, "fund-tx-hash");
++  assert.ok(captured);
++  assert.equal(captured.contractId, contractId);
++  assert.equal(captured.signer, clientAddress);
++  assert.equal(captured.amount, 0.5);
++});
++
++test("approve builds the unsigned approve XDR for the client (approver), milestone index [0]", async () => {
++  let captured: ApproveMilestonesPayload | undefined;
++  const clientAddress = fakeAddress();
++  const contractId = "predicted-contract-id";
++  const deps: Partial<EscrowCallDeps> = {
++    ...unreachableStages(),
++    approveMilestones: async (payload) => {
++      captured = payload;
++      return { unsignedXdr: "approve-unsigned-xdr", txHash: "approve-tx-hash" } satisfies BuildTransactionResponse;
++    },
++  };
++  const input: ApproveEscrowInput = { contractId, clientAddress };
++  const result = await approve(input, deps);
++
++  assert.equal(result.unsignedXdr, "approve-unsigned-xdr");
++  assert.ok(captured);
++  assert.equal(captured.approver, clientAddress);
++  assert.deepEqual(captured.milestoneIndexes, [0]);
++});
++
++test("release builds the unsigned release XDR for the provider's own signature (self-claim)", async () => {
++  let captured: SingleReleaseReleaseFundsPayload | undefined;
++  const providerAddress = fakeAddress();
++  const contractId = "predicted-contract-id";
++  const deps: Partial<EscrowCallDeps> = {
++    ...unreachableStages(),
++    releaseFunds: async (payload) => {
++      captured = payload;
++      return { unsignedXdr: "release-unsigned-xdr", txHash: "release-tx-hash" } satisfies BuildTransactionResponse;
++    },
++  };
++  const input: ReleaseEscrowInput = { contractId, providerAddress };
++  const result = await release(input, deps);
++
++  assert.equal(result.unsignedXdr, "release-unsigned-xdr");
++  assert.ok(captured);
++  assert.equal(captured.releaseSigner, providerAddress, "release signer must be the provider (self-claim)");
++});
++
++test("startDispute builds the unsigned start-dispute XDR for whichever party raises it", async () => {
++  let captured: SingleReleaseStartDisputePayload | undefined;
++  const signerAddress = fakeAddress();
++  const contractId = "predicted-contract-id";
++  const deps: Partial<EscrowCallDeps> = {
++    ...unreachableStages(),
++    startDispute: async (payload) => {
++      captured = payload;
++      return { unsignedXdr: "dispute-unsigned-xdr", txHash: "dispute-tx-hash" } satisfies BuildTransactionResponse;
++    },
++  };
++  const input: StartDisputeInput = { contractId, signerAddress, reason: "provider no-show" };
++  const result = await startDispute(input, deps);
++
++  assert.equal(result.unsignedXdr, "dispute-unsigned-xdr");
++  assert.ok(captured);
++  assert.equal(captured.signer, signerAddress);
++  assert.equal(captured.reason, "provider no-show");
++});
++
++test("resolveDispute builds the unsigned resolve-dispute XDR naming Pactly as disputeResolver, with named distributions", async () => {
++  let captured: SingleReleaseResolveDisputePayload | undefined;
++  const platformAddress = fakeAddress();
++  const clientAddress = fakeAddress();
++  const providerAddress = fakeAddress();
++  const contractId = "predicted-contract-id";
++  const deps: Partial<EscrowCallDeps> = {
++    platformAddress,
++    ...unreachableStages(),
++    resolveDispute: async (payload) => {
++      captured = payload;
++      return { unsignedXdr: "resolve-unsigned-xdr", txHash: "resolve-tx-hash" } satisfies BuildTransactionResponse;
++    },
++  };
++  const input: ResolveDisputeInput = {
++    contractId,
++    distributions: [
++      { address: clientAddress, amount: "3000000" },
++      { address: providerAddress, amount: "7000000" },
++    ],
++  };
++  const result = await resolveDispute(input, deps);
++
++  assert.equal(result.unsignedXdr, "resolve-unsigned-xdr");
++  assert.ok(captured);
++  assert.equal(captured.disputeResolver, platformAddress, "Pactly signs dispute resolution as Dispute Resolver");
++  assert.deepEqual(captured.distributions, [
++    { address: clientAddress, amount: 0.3 },
++    { address: providerAddress, amount: 0.7 },
++  ]);
++});
++
++test("a non-positive amount refuses before any network access, with a typed EscrowConfigError", async () => {
++  const deps: Partial<EscrowCallDeps> = { platformAddress: fakeAddress(), ...unreachableStages() };
++  await assert.rejects(() => deploy(baseDeployInput({ amount: "0" }), deps), EscrowConfigError);
++  await assert.rejects(
++    () => fund({ contractId: "c", clientAddress: fakeAddress(), amount: "-1" }, deps),
++    // A negative amount does not even match the integer-string pattern, so
++    // this also exercises the "not an integer string" branch of the same
++    // typed refusal.
++    EscrowConfigError,
++  );
++});
++
++test("an amount that cannot safely narrow to Trustless Work's numeric amount refuses before any network access, naming the value", async () => {
++  const deps: Partial<EscrowCallDeps> = { platformAddress: fakeAddress(), ...unreachableStages() };
++  const hugeAmount = (BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString();
++  await assert.rejects(() => deploy(baseDeployInput({ amount: hugeAmount }), deps), (error: unknown) => {
++    assert.ok(error instanceof EscrowConfigError);
++    assert.match(error.message, new RegExp(hugeAmount));
++    return true;
++  });
++});
++
++test("an empty TRUSTLESS_WORK_API_URL refuses before any network access", async () => {
++  const deps: Partial<EscrowCallDeps> = { apiUrl: "", platformAddress: fakeAddress() };
++  await assert.rejects(() => deploy(baseDeployInput(), deps), EscrowConfigError);
++});
++
++test("a Trustless Work API refusal (Problem Details) is translated to a typed EscrowApiError naming the condition, never the raw body", async () => {
++  const problem: ApiProblemDetails = {
++    type: "https://trustlesswork.dev/errors/escrow-platform-fee-too-high",
++    title: "Platform fee too high",
++    status: 422,
++    code: "ESCROW_PLATFORM_FEE_TOO_HIGH",
++    detail: "platformFee must not exceed the configured maximum",
++  };
++  const deps: Partial<EscrowCallDeps> = {
++    ...unreachableStages(),
++    deployEscrow: async () => {
++      throw new TrustlessWorkApiError(problem);
++    },
++  };
++  await assert.rejects(() => deploy(baseDeployInput(), { platformAddress: fakeAddress(), ...deps }), (error: unknown) => {
++    assert.ok(error instanceof EscrowApiError);
++    assert.equal(error.code, "ESCROW_PLATFORM_FEE_TOO_HIGH");
++    assert.equal(error.status, 422);
++    assert.doesNotMatch(error.message, /trustlesswork\.dev\/errors/, "the raw Problem Details type/URL should not leak verbatim");
++    return true;
++  });
++});
++
++test("Trustless Work being unreachable (network/timeout) is translated to a typed EscrowRequestError, never a raw fetch error", async () => {
++  const deps: Partial<EscrowCallDeps> = {
++    ...unreachableStages(),
++    fundEscrow: async () => {
++      throw new TrustlessWorkNetworkError("fetch failed", 0, undefined);
++    },
++  };
++  await assert.rejects(
++    () => fund({ contractId: "c", clientAddress: fakeAddress(), amount: "1000000" }, deps),
++    (error: unknown) => {
++      assert.ok(error instanceof EscrowRequestError);
++      assert.ok(!(error instanceof TrustlessWorkNetworkError));
++      return true;
++    },
++  );
++});
+diff --git a/backend/test/escrow-trustless-work-reconciler.test.ts b/backend/test/escrow-trustless-work-reconciler.test.ts
+new file mode 100644
+index 0000000..b6b63af
+--- /dev/null
++++ b/backend/test/escrow-trustless-work-reconciler.test.ts
+@@ -0,0 +1,297 @@
++/**
++ * The Trustless Work reconciler driven as a unit, over a real temporary
++ * SQLite database (`openDatabase(":memory:")`) through its injected
++ * `FetchEscrowEvidence` seam -- never against the network. Covers the I/O
++ * matrix rows this story's spec names for the reconciler: event batch
++ * mirrored (every recognized lifecycle action), same batch replayed
++ * (dedupe by `(transactionHash, lifecycleAction)`), restart resumes from
++ * the stored cursor, and evidence for an unknown booking recorded as an
++ * anomaly with the reconciler continuing -- each at the *batch* level
++ * (`runReconcilerOnce`), not only the single-item level, per Story 2.5's
++ * own review finding that batch-level cursor/restart coverage was missing.
++ */
++import "./testConfigEnv.js";
++import { randomUUID } from "node:crypto";
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import type { EscrowEvent } from "@trustless-work/escrow-js";
++
++import {
++  decodeEscrowEvidence,
++  escrowStateForLifecycleAction,
++  processEscrowEvidence,
++  runReconcilerOnce,
++  type EscrowEvidence,
++  type FetchEscrowEvidence,
++} from "../src/escrow/trustless-work/reconciler.js";
++import { getBookingById } from "../src/db/bookings.js";
++import { getEscrowReconcilerCursor } from "../src/db/escrowReconcilerCursor.js";
++import { getEscrowProcessedEvent } from "../src/db/escrowProcessedEvents.js";
++import { closeDatabase, openTestDatabase, randomBookingId, seedBooking } from "./helpers.js";
++
++function fakeEvidence(overrides: Partial<EscrowEvidence> & Pick<EscrowEvidence, "bookingId" | "lifecycleAction">): EscrowEvidence {
++  return {
++    transactionHash: randomUUID(),
++    amount: "1000000",
++    contractId: `C${randomUUID().replace(/-/g, "").toUpperCase().slice(0, 55)}`,
++    ledgerSeq: "100",
++    ...overrides,
++  };
++}
++
++test("funded evidence for a known booking sets escrow_state to locked", async () => {
++  const result = openTestDatabase();
++  try {
++    const bookingId = await seedBooking(result);
++    const outcome = await processEscrowEvidence(result.db, fakeEvidence({ bookingId, lifecycleAction: "funded" }));
++    assert.equal(outcome, "applied");
++    const booking = await getBookingById(result.db, bookingId);
++    assert.equal(booking?.escrowState, "locked");
++    assert.equal(booking?.balanceState, "unpaid");
++  } finally {
++    closeDatabase(result);
++  }
++});
++
++test("approved evidence stays locked and is recorded as a distinct row from funded", async () => {
++  const result = openTestDatabase();
++  try {
++    const bookingId = await seedBooking(result);
++    await processEscrowEvidence(result.db, fakeEvidence({ bookingId, lifecycleAction: "funded", transactionHash: "tx-funded" }));
++    const outcome = await processEscrowEvidence(
++      result.db,
++      fakeEvidence({ bookingId, lifecycleAction: "approved", transactionHash: "tx-approved" }),
++    );
++    assert.equal(outcome, "applied");
++    const booking = await getBookingById(result.db, bookingId);
++    assert.equal(booking?.escrowState, "locked");
++
++    const fundedRow = await getEscrowProcessedEvent(result.db, "tx-funded", "funded");
++    const approvedRow = await getEscrowProcessedEvent(result.db, "tx-approved", "approved");
++    assert.ok(fundedRow);
++    assert.ok(approvedRow);
++  } finally {
++    closeDatabase(result);
++  }
++});
++
++test("released evidence sets escrow_state to released", async () => {
++  const result = openTestDatabase();
++  try {
++    const bookingId = await seedBooking(result);
++    const outcome = await processEscrowEvidence(result.db, fakeEvidence({ bookingId, lifecycleAction: "released" }));
++    assert.equal(outcome, "applied");
++    const booking = await getBookingById(result.db, bookingId);
++    assert.equal(booking?.escrowState, "released");
++  } finally {
++    closeDatabase(result);
++  }
++});
++
++test("disputed evidence leaves escrow_state locked -- opening a dispute never moves money automatically", async () => {
++  const result = openTestDatabase();
++  try {
++    const bookingId = await seedBooking(result);
++    await processEscrowEvidence(result.db, fakeEvidence({ bookingId, lifecycleAction: "funded", transactionHash: "tx-funded" }));
++    const outcome = await processEscrowEvidence(
++      result.db,
++      fakeEvidence({ bookingId, lifecycleAction: "disputed", transactionHash: "tx-disputed" }),
++    );
++    assert.equal(outcome, "applied");
++    const booking = await getBookingById(result.db, bookingId);
++    assert.equal(booking?.escrowState, "locked", "a dispute being opened must never look like a resolution");
++  } finally {
++    closeDatabase(result);
++  }
++});
++
++test("replaying the same (transactionHash, lifecycleAction) changes nothing and inserts no duplicate row", async () => {
++  const result = openTestDatabase();
++  try {
++    const bookingId = await seedBooking(result);
++    const evidence = fakeEvidence({ bookingId, lifecycleAction: "funded", transactionHash: "tx-1", contractId: "C-FIRST" });
++
++    const first = await processEscrowEvidence(result.db, evidence);
++    assert.equal(first, "applied");
++
++    // A replay carries a different contractId/ledgerSeq (redelivered with
++    // slightly different read-model metadata), but the same
++    // (transactionHash, lifecycleAction) -- that pair is the dedupe key.
++    const second = await processEscrowEvidence(result.db, { ...evidence, contractId: "C-SECOND", ledgerSeq: "200" });
++    assert.equal(second, "duplicate");
++
++    const booking = await getBookingById(result.db, bookingId);
++    assert.equal(booking?.escrowState, "locked");
++
++    const row = await getEscrowProcessedEvent(result.db, "tx-1", "funded");
++    assert.ok(row);
++    assert.equal(row.contractId, "C-FIRST", "the first evidence's own metadata must win, not the replay's");
++  } finally {
++    closeDatabase(result);
++  }
++});
++
++test("evidence for an unknown booking id invents no row, is recorded as an anomaly, and the reconciler continues", async () => {
++  const result = openTestDatabase();
++  try {
++    const unknownBookingId = randomBookingId();
++    const knownBooking = await seedBooking(result);
++
++    const fetchEscrowEvidence: FetchEscrowEvidence = async () => ({
++      evidence: [
++        fakeEvidence({ bookingId: unknownBookingId, lifecycleAction: "funded", transactionHash: "tx-unknown" }),
++        fakeEvidence({ bookingId: knownBooking, lifecycleAction: "funded", transactionHash: "tx-known" }),
++      ],
++      cursor: "cursor-after-batch",
++    });
++
++    const messages: string[] = [];
++    const batchResult = await runReconcilerOnce({
++      db: result.db,
++      fetchEscrowEvidence,
++      log: (message) => messages.push(message),
++    });
++
++    assert.equal(batchResult.anomalies, 1);
++    assert.equal(batchResult.applied, 1);
++    assert.equal(await getBookingById(result.db, unknownBookingId), undefined, "no row should be invented");
++    assert.equal((await getBookingById(result.db, knownBooking))?.escrowState, "locked");
++
++    const anomalyRow = await getEscrowProcessedEvent(result.db, "tx-unknown", "funded");
++    assert.equal(anomalyRow?.isAnomaly, true);
++    assert.ok(messages.some((message) => message.includes("anomaly")));
++  } finally {
++    closeDatabase(result);
++  }
++});
++
++test("a restarted reconciler resumes from the stored cursor, not from the start (batch level)", async () => {
++  const result = openTestDatabase();
++  try {
++    const bookingId = await seedBooking(result);
++
++    const firstFetch: FetchEscrowEvidence = async (cursor) => {
++      assert.equal(cursor, undefined, "first run should fetch from the beginning");
++      return {
++        evidence: [fakeEvidence({ bookingId, lifecycleAction: "funded", transactionHash: "tx-1" })],
++        cursor: "cursor-after-first-batch",
++      };
++    };
++    const firstResult = await runReconcilerOnce({ db: result.db, fetchEscrowEvidence: firstFetch });
++    assert.equal(firstResult.applied, 1);
++    assert.equal(firstResult.cursor, "cursor-after-first-batch");
++    assert.equal(await getEscrowReconcilerCursor(result.db), "cursor-after-first-batch");
++
++    let secondFetchCalledWith: string | undefined;
++    const secondFetch: FetchEscrowEvidence = async (cursor) => {
++      secondFetchCalledWith = cursor;
++      return { evidence: [], cursor: "cursor-after-second-batch" };
++    };
++    await runReconcilerOnce({ db: result.db, fetchEscrowEvidence: secondFetch });
++    assert.equal(secondFetchCalledWith, "cursor-after-first-batch", "restart must resume from the stored cursor");
++    assert.equal(await getEscrowReconcilerCursor(result.db), "cursor-after-second-batch");
++  } finally {
++    closeDatabase(result);
++  }
++});
++
++test("replaying an entire batch changes nothing observable and still advances the cursor", async () => {
++  const result = openTestDatabase();
++  try {
++    const bookingId = await seedBooking(result);
++    const batch = [
++      fakeEvidence({ bookingId, lifecycleAction: "funded", transactionHash: "tx-1" }),
++      fakeEvidence({ bookingId, lifecycleAction: "approved", transactionHash: "tx-2" }),
++    ];
++
++    const firstFetch: FetchEscrowEvidence = async () => ({ evidence: batch, cursor: "cursor-1" });
++    const firstResult = await runReconcilerOnce({ db: result.db, fetchEscrowEvidence: firstFetch });
++    assert.equal(firstResult.applied, 2);
++    assert.equal(firstResult.duplicates, 0);
++
++    const bookingAfterFirst = await getBookingById(result.db, bookingId);
++
++    // The exact same batch, redelivered (e.g. the indexer re-sends a page
++    // it already served) -- same transactionHash/lifecycleAction pairs,
++    // under a fresh cursor value.
++    const secondFetch: FetchEscrowEvidence = async () => ({ evidence: batch, cursor: "cursor-2" });
++    const secondResult = await runReconcilerOnce({ db: result.db, fetchEscrowEvidence: secondFetch });
++
++    assert.equal(secondResult.applied, 0);
++    assert.equal(secondResult.duplicates, 2);
++    assert.equal(secondResult.cursor, "cursor-2", "the cursor must still advance even though nothing new was applied");
++    assert.equal(await getEscrowReconcilerCursor(result.db), "cursor-2");
++
++    const bookingAfterSecond = await getBookingById(result.db, bookingId);
++    assert.deepEqual(bookingAfterSecond, bookingAfterFirst, "a replayed batch must change nothing observable");
++  } finally {
++    closeDatabase(result);
++  }
++});
++
++test("a failure between the dedupe insert and the escrow-state write leaves nothing committed, so the evidence is still re-processable", async () => {
++  const result = openTestDatabase();
++  try {
++    const bookingId = await seedBooking(result);
++    const evidence = fakeEvidence({ bookingId, lifecycleAction: "funded", transactionHash: "tx-1" });
++
++    await assert.rejects(() =>
++      processEscrowEvidence(result.db, evidence, undefined, {
++        updateEscrowState: () => {
++          throw new Error("simulated failure between the dedupe insert and the escrow-state write");
++        },
++      }),
++    );
++
++    assert.equal(await getEscrowProcessedEvent(result.db, "tx-1", "funded"), undefined);
++    assert.equal((await getBookingById(result.db, bookingId))?.escrowState, null);
++
++    const outcome = await processEscrowEvidence(result.db, evidence);
++    assert.equal(outcome, "applied");
++    assert.equal((await getBookingById(result.db, bookingId))?.escrowState, "locked");
++  } finally {
++    closeDatabase(result);
++  }
++});
++
++test("escrowStateForLifecycleAction maps every recognized action to the right of the three escrow states", () => {
++  assert.equal(escrowStateForLifecycleAction("funded"), "locked");
++  assert.equal(escrowStateForLifecycleAction("approved"), "locked");
++  assert.equal(escrowStateForLifecycleAction("released"), "released");
++  assert.equal(escrowStateForLifecycleAction("disputed"), "locked");
++});
++
++function fakeRawEvent(overrides: Partial<EscrowEvent> = {}): EscrowEvent {
++  return {
++    kind: "funded",
++    actor: null,
++    ledgerSeq: "100",
++    txHash: "tx-1",
++    ledgerClosedAt: new Date().toISOString(),
++    topics: [],
++    payload: { amount: "1000000" },
++    ...overrides,
++  };
++}
++
++test("decodeEscrowEvidence decodes a recognized kind, reading the amount off the event's own payload", () => {
++  const decoded = decodeEscrowEvidence("booking-1", "contract-1", fakeRawEvent({ kind: "released", payload: { amount: "2500000" } }));
++  assert.deepEqual(decoded, {
++    bookingId: "booking-1",
++    transactionHash: "tx-1",
++    lifecycleAction: "released",
++    amount: "2500000",
++    contractId: "contract-1",
++    ledgerSeq: "100",
++  });
++});
++
++test("decodeEscrowEvidence silently skips a kind it does not recognize, mirroring chain/events.ts's decodeEvent", () => {
++  const decoded = decodeEscrowEvidence("booking-1", "contract-1", fakeRawEvent({ kind: "some-future-kind-not-yet-known" }));
++  assert.equal(decoded, undefined);
++});
++
++test("decodeEscrowEvidence falls back to \"0\" when the payload carries no recognizable amount, never inventing a value", () => {
++  const decoded = decodeEscrowEvidence("booking-1", "contract-1", fakeRawEvent({ payload: {} }));
++  assert.equal(decoded?.amount, "0");
++});
