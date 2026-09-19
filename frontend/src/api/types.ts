@@ -142,12 +142,21 @@ export interface SubmitResponse {
 
 export type EscrowLifecycleAction = "funded" | "completed" | "approved" | "disputed" | "released" | "resolved";
 
+/** Story 3.6 (review round): which action kind this booking has a signed
+ * transaction already relayed for, but not yet chain-confirmed --
+ * `null` when nothing is pending. Actions hide themselves while this is
+ * set (`components/BookingActions.tsx`), showing "Waiting for the network
+ * to confirm" instead of a button that would just build a second,
+ * redundant transaction. */
+export type PendingActionKind = "complete" | "approve" | "release" | "dispute" | "resolve" | null;
+
 export interface BookingView {
   id: string;
   /** `null` until the reconciler confirms it -- the UI only ever shows
    * "locked" from here, never from a lock/fund/submit response. */
   escrowState: "locked" | "released" | "refunded" | null;
   lifecycle: { contractId?: string; action?: EscrowLifecycleAction; outcome?: "refund-client" | "pay-provider" };
+  pendingAction: PendingActionKind;
   holdExpiresAt: number | null;
   contractId: string | null;
   deposit: Money;
@@ -182,6 +191,7 @@ export interface BookingListItemBase {
   price: Money;
   escrowState: "locked" | "released" | "refunded" | null;
   lifecycle: BookingLifecycle;
+  pendingAction: PendingActionKind;
   balanceState: BalanceState;
   /** UTC epoch seconds. */
   cancelDeadline: number;
@@ -227,7 +237,11 @@ export interface ActionResponse {
 }
 
 export type DisputeOutcome = "refund-client" | "pay-provider";
-export type DisputeReason = "client-cancel" | "provider-cancel" | "no-show" | "disagreement";
+/** Story 3.6 (review round): bound to the opener's own role -- a client may
+ * claim `client-cancel`, `provider-no-show` or `disagreement`; a provider
+ * may claim `provider-cancel`, `client-no-show` or `disagreement`. */
+export type DisputeReason = "client-cancel" | "provider-cancel" | "client-no-show" | "provider-no-show" | "disagreement";
+export type DisputeOpenerRole = "client" | "provider";
 
 /** `POST /bookings/:id/dispute`'s response -- the reason echoed back and the
  * booking policy's own suggested outcome (`undefined` only for
@@ -249,14 +263,21 @@ export interface ResolveDisputeResponse extends ActionResponse {
 export interface AdminDisputeListItem {
   bookingId: string;
   contractId: string;
+  /** `""` when no opening record exists for this booking's current
+   * contract. */
   openedByWallet: string;
-  reason: DisputeReason;
+  openedByRole?: DisputeOpenerRole;
+  reason: DisputeReason | "unknown";
   suggestedOutcome?: DisputeOutcome;
   amount: Money;
   provider: BookingProviderSummary;
   clientWalletAddress: string;
   /** UTC epoch seconds -- `null` only for a pre-3.4 booking with no slot. */
   slotStartsAt: number | null;
+  /** Story 3.6 (review round): `"resolve"` while an admin's resolve is
+   * already awaiting chain confirmation for this booking -- the admin UI
+   * hides/disables the row rather than let a second resolve be built. */
+  pendingAction: PendingActionKind;
 }
 
 export interface AdminDisputesResponse {

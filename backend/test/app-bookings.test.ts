@@ -155,9 +155,18 @@ test("POST /bookings/hold gives 409 SLOT_TAKEN with the day's other open slots o
   const result = openTestDatabase();
   try {
     const providerProfileId = await seedProviderProfile(result, { isApproved: true });
+    // Review round: anchored to the *next* UTC calendar day (rather than
+    // `Date.now() + 3600`/`+ 7200` directly) so `slotStartsAt` and
+    // `otherSlot` always share one UTC day regardless of how close to
+    // midnight UTC this suite happens to run -- the previous version failed
+    // for about two hours a day when `+7200` crossed into the next day and
+    // `sameDaySlots`' own UTC day window (no tzOffsetMinutes given here)
+    // then excluded `otherSlot`.
     const now = Math.floor(Date.now() / 1000);
-    const slotStartsAt = now + 3600;
-    const otherSlot = now + 7200;
+    const SECONDS_PER_DAY = 24 * 60 * 60;
+    const nextUtcDayStart = (Math.floor(now / SECONDS_PER_DAY) + 1) * SECONDS_PER_DAY;
+    const slotStartsAt = nextUtcDayStart + 3600;
+    const otherSlot = nextUtcDayStart + 7200;
     await replaceFutureSlots(result.db, providerProfileId, [slotStartsAt, otherSlot]);
     await holdSlot(result.db, { providerProfileId, clientWalletAddress: "GFIRSTCLIENT", slotStartsAt }, FAKE_USDC_DEPS);
 

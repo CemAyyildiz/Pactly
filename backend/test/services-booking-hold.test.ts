@@ -522,7 +522,7 @@ test("submitSignedTransaction relays a signed envelope whose hash matches the st
         return { txHash: "submitted-tx-hash" };
       },
     };
-    const outcome = await submitSignedTransaction(result.db, hold.bookingId, xdr, adapter, now);
+    const outcome = await submitSignedTransaction(result.db, hold.bookingId, xdr, "client", adapter, now);
     assert.equal(outcome.txHash, "submitted-tx-hash");
     assert.equal(captured, xdr);
 
@@ -549,7 +549,7 @@ test("submitSignedTransaction relays a signed envelope whose hash matches the st
     const deployTx = buildFakeTransactionXdr();
     const contractId = "CFAKECONTRACT000000000000000000000000000000000000";
     await updateEscrowContractId(result.db, hold.bookingId, contractId, "unsigned-deploy-xdr", deployTx.hash);
-    await submitSignedTransaction(result.db, hold.bookingId, deployTx.xdr, { ...unreachableEscrowAdapter(), submit: async () => ({ txHash: "deploy-landed" }) }, now);
+    await submitSignedTransaction(result.db, hold.bookingId, deployTx.xdr, "client", { ...unreachableEscrowAdapter(), submit: async () => ({ txHash: "deploy-landed" }) }, now);
 
     const fundTx = buildFakeTransactionXdr();
     await setEscrowFundTxHash(result.db, hold.bookingId, fundTx.hash);
@@ -559,6 +559,7 @@ test("submitSignedTransaction relays a signed envelope whose hash matches the st
       result.db,
       hold.bookingId,
       fundTx.xdr,
+      "client",
       { ...unreachableEscrowAdapter(), submit: async () => { submitCount += 1; return { txHash: "fund-landed" }; } },
       now + 5,
     );
@@ -589,7 +590,7 @@ test("submitSignedTransaction refuses (XdrMismatchError) a signed envelope that 
 
     const strangersTx = buildFakeTransactionXdr();
     await assert.rejects(
-      () => submitSignedTransaction(result.db, hold.bookingId, strangersTx.xdr, unreachableEscrowAdapter(), now),
+      () => submitSignedTransaction(result.db, hold.bookingId, strangersTx.xdr, "client", unreachableEscrowAdapter(), now),
       XdrMismatchError,
     );
   } finally {
@@ -611,7 +612,7 @@ test("submitSignedTransaction refuses (XdrMismatchError) an envelope that does n
     );
 
     await assert.rejects(
-      () => submitSignedTransaction(result.db, hold.bookingId, "not-a-real-xdr-blob", unreachableEscrowAdapter(), now),
+      () => submitSignedTransaction(result.db, hold.bookingId, "not-a-real-xdr-blob", "client", unreachableEscrowAdapter(), now),
       XdrMismatchError,
     );
   } finally {

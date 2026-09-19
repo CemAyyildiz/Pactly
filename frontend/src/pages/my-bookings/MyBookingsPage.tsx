@@ -124,6 +124,7 @@ export function MyBookingsPage() {
               balance={booking.balance}
               escrowState={booking.escrowState}
               lifecycle={booking.lifecycle}
+              pendingAction={booking.pendingAction}
               balanceState={booking.balanceState}
               cancelDeadline={booking.cancelDeadline}
               contractId={booking.contractId}
@@ -151,6 +152,7 @@ export function MyBookingsPage() {
                 balance={booking.balance}
                 escrowState={booking.escrowState}
                 lifecycle={booking.lifecycle}
+                pendingAction={booking.pendingAction}
                 balanceState={booking.balanceState}
                 cancelDeadline={booking.cancelDeadline}
                 contractId={booking.contractId}

@@ -139,6 +139,7 @@ const STATEMENTS: readonly string[] = [
     booking_id TEXT PRIMARY KEY,
     contract_id TEXT NOT NULL,
     opened_by_wallet TEXT NOT NULL,
+    opened_by_role TEXT,
     reason TEXT NOT NULL,
     suggested_outcome TEXT,
     tx_hash TEXT NOT NULL,
@@ -232,5 +233,35 @@ export function runMigrations(sqlite: Database): void {
   }
   if (!hasColumn(sqlite, "bookings", "escrow_resolve_tx_hash")) {
     sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_resolve_tx_hash TEXT`);
+  }
+  // Story 3.6 (review round): the pending-dispute build-time record (who,
+  // what role, why -- overwritten on each rebuild, "last builder wins"),
+  // and one "submitted at" timestamp per action kind (409 ACTION_PENDING).
+  if (!hasColumn(sqlite, "bookings", "pending_dispute_reason")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN pending_dispute_reason TEXT`);
+  }
+  if (!hasColumn(sqlite, "bookings", "pending_dispute_opener_wallet")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN pending_dispute_opener_wallet TEXT`);
+  }
+  if (!hasColumn(sqlite, "bookings", "pending_dispute_opener_role")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN pending_dispute_opener_role TEXT`);
+  }
+  if (!hasColumn(sqlite, "bookings", "escrow_complete_submitted_at")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_complete_submitted_at INTEGER`);
+  }
+  if (!hasColumn(sqlite, "bookings", "escrow_approve_submitted_at")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_approve_submitted_at INTEGER`);
+  }
+  if (!hasColumn(sqlite, "bookings", "escrow_release_submitted_at")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_release_submitted_at INTEGER`);
+  }
+  if (!hasColumn(sqlite, "bookings", "escrow_dispute_submitted_at")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_dispute_submitted_at INTEGER`);
+  }
+  if (!hasColumn(sqlite, "bookings", "escrow_resolve_submitted_at")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_resolve_submitted_at INTEGER`);
+  }
+  if (!hasColumn(sqlite, "escrow_dispute_openings", "opened_by_role")) {
+    sqlite.exec(`ALTER TABLE escrow_dispute_openings ADD COLUMN opened_by_role TEXT`);
   }
 }

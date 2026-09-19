@@ -4,45 +4,60 @@ import { ApiError } from "../api/client";
 import { approveAppointment, completeAppointment, openDispute, releaseDeposit, submitSignedTransaction } from "../api/hooks";
 import { formatMoney } from "../lib/money";
 import { signXdr, type Session } from "../wallet";
-import type { ActionResponse, BookingLifecycle, DisputeReason, Money } from "../api/types";
+import type { ActionResponse, BookingLifecycle, DisputeReason, Money, PendingActionKind } from "../api/types";
 
 export interface BookingActionsProps {
   viewer: "client" | "provider";
   id: string;
   escrowState: "locked" | "released" | "refunded" | null;
   lifecycle: BookingLifecycle;
+  /** Story 3.6 (review round): while set, every action hides itself in
+   * favor of a plain "waiting" notice -- a signed transaction for this
+   * action kind has already been relayed and is awaiting chain
+   * confirmation, so building another one here would only ever create a
+   * second, redundant transaction (the backend refuses it outright,
+   * `409 ACTION_PENDING`, but the UI should never let it get that far). */
+  pendingAction?: PendingActionKind;
   deposit: Money;
   session?: Session;
   onActionSubmitted?: () => void;
   onUnauthorized?: () => void;
 }
 
-/** Story 3.6: which reasons make sense for each side to claim -- either
- * side can technically dispute for any reason (the backend does not
- * restrict it), but a client claiming "the client didn't show" would never
- * make sense to offer, so each viewer only ever sees the reasons that are
- * actually theirs to claim, plus the always-available plain disagreement. */
+/** Story 3.6 (review round): each dispute reason is bound to whichever role
+ * may actually claim it -- a client may claim that the client is
+ * cancelling, that the provider did not show up, or a plain disagreement; a
+ * provider's own three mirror that (the backend refuses any other
+ * combination, `400 INVALID_REASON`). */
 const DISPUTE_REASON_OPTIONS: Record<"client" | "provider", Array<{ value: DisputeReason; label: string }>> = {
   client: [
     { value: "client-cancel", label: "I'm cancelling" },
+    { value: "provider-no-show", label: "The provider didn't show up" },
     { value: "disagreement", label: "We disagree about what happened" },
   ],
   provider: [
     { value: "provider-cancel", label: "I'm cancelling" },
-    { value: "no-show", label: "The client didn't show" },
+    { value: "client-no-show", label: "The client didn't show up" },
     { value: "disagreement", label: "We disagree about what happened" },
   ],
 };
 
 /** EXPERIENCE.md's own "Cancelling and resolution" copy: the policy's own
  * words, stated before any signature is ever asked for, kept strictly
- * separate from what the chain has actually done. */
-function policyStatement(suggestedOutcome: "refund-client" | "pay-provider" | undefined, depositLabel: string): string {
+ * separate from what the chain has actually done. Never names "the clinic"
+ * (implementation vocabulary never reaches users past its own domain, and
+ * this product is vertical-agnostic besides) -- always "the provider", and
+ * phrased from *this* viewer's own side ("to you" rather than "to the
+ * client" when the viewer is the client, and symmetrically for the
+ * provider). */
+function policyStatement(suggestedOutcome: "refund-client" | "pay-provider" | undefined, depositLabel: string, viewer: "client" | "provider"): string {
   if (suggestedOutcome === "refund-client") {
-    return `Your booking policy says this returns all ${depositLabel} to the client.`;
+    const recipient = viewer === "client" ? "you" : "the client";
+    return `Your booking policy says this returns all ${depositLabel} to ${recipient}.`;
   }
   if (suggestedOutcome === "pay-provider") {
-    return `Your booking policy says the clinic keeps the full ${depositLabel} deposit.`;
+    const recipient = viewer === "provider" ? "you" : "the provider";
+    return `Your booking policy says the full ${depositLabel} deposit goes to ${recipient}.`;
   }
   return "Your booking policy has no automatic outcome for a plain disagreement.";
 }
@@ -56,24 +71,28 @@ type DisputeStep =
 
 /**
  * The role-correct action buttons for one booking (Story 3.6): "Mark
- * appointment complete" (provider, from `funded`), "Approve" (client, from
- * `funded` or `completed`), "Release deposit" (provider, from `approved`),
- * and "Open a dispute" (either side, from any pre-dispute state) -- each
- * reuses 3.4's own `signXdr` + `submitSignedTransaction` pair. Shared by
- * `BookingCard.tsx` (My bookings, and the panel's card view below 1024px)
- * and `BookingsPage.tsx`'s desktop table, so the sign-and-submit flow for
- * every action lives in exactly one place. No action is ever shown once the
- * lifecycle has reached `disputed`, `released` or `resolved`.
+ * appointment complete" (provider, from `funded` only), "Approve" (client,
+ * from `funded` or `completed`), "Release deposit" (provider, from
+ * `approved`), and "Open a dispute" (either side, from any pre-dispute
+ * state) -- each reuses 3.4's own `signXdr` + `submitSignedTransaction`
+ * pair. Shared by `BookingCard.tsx` (My bookings, and the panel's card view
+ * below 1024px) and `BookingsPage.tsx`'s desktop table, so the
+ * sign-and-submit flow for every action lives in exactly one place. No
+ * action is ever shown once the lifecycle has reached `disputed`,
+ * `released` or `resolved`, or while `pendingAction` is set.
  */
-export function BookingActions({ viewer, id, escrowState, lifecycle, deposit, session, onActionSubmitted, onUnauthorized }: BookingActionsProps) {
+export function BookingActions({ viewer, id, escrowState, lifecycle, pendingAction, deposit, session, onActionSubmitted, onUnauthorized }: BookingActionsProps) {
   const [busyAction, setBusyAction] = useState<ActionKind | "dispute" | undefined>(undefined);
   const [notice, setNotice] = useState<{ text: string; alert?: boolean } | undefined>(undefined);
   const [disputeStep, setDisputeStep] = useState<DisputeStep>({ kind: "idle" });
 
   function describeFailure(error: unknown): string {
     if (error instanceof ApiError) {
-      if (error.code === "BOOKING_STATE") {
+      if (error.code === "BOOKING_STATE" || error.code === "ACTION_PENDING") {
         return "This booking has already moved on -- refresh to see its current state.";
+      }
+      if (error.code === "INVALID_REASON") {
+        return "That reason isn't available for you to claim on this booking.";
       }
       return error.message;
     }
@@ -153,12 +172,23 @@ export function BookingActions({ viewer, id, escrowState, lifecycle, deposit, se
   }
 
   const action = lifecycle.action;
-  const canAct = Boolean(session) && escrowState === "locked";
-  const canComplete = canAct && viewer === "provider" && (action === undefined || action === "funded");
+  const isPending = Boolean(pendingAction);
+  const canAct = Boolean(session) && escrowState === "locked" && !isPending;
+  const canComplete = canAct && viewer === "provider" && action === "funded";
   const canApprove = canAct && viewer === "client" && (action === "funded" || action === "completed");
   const canRelease = canAct && viewer === "provider" && action === "approved";
   const canDispute = canAct && action !== "disputed" && action !== "released" && action !== "resolved";
   const isBusy = busyAction !== undefined;
+
+  if (isPending) {
+    return (
+      <div className="booking-actions">
+        <p className="booking-card__notice" aria-live="polite">
+          Waiting for the network to confirm.
+        </p>
+      </div>
+    );
+  }
 
   if (!canComplete && !canApprove && !canRelease && !canDispute && disputeStep.kind === "idle" && !notice) {
     return null;
@@ -224,7 +254,7 @@ export function BookingActions({ viewer, id, escrowState, lifecycle, deposit, se
 
       {disputeStep.kind === "confirming" && (
         <div className="booking-card__dispute-panel">
-          <p>{policyStatement(disputeStep.suggestedOutcome, formatMoney(deposit.amount, deposit.asset))}</p>
+          <p>{policyStatement(disputeStep.suggestedOutcome, formatMoney(deposit.amount, deposit.asset), viewer)}</p>
           <p>This needs resolution. Pactly will resolve it as the named dispute resolver -- nothing moves until then.</p>
           <div className="booking-card__actions">
             <button type="button" className="button-primary" disabled={isBusy} onClick={() => void confirmDispute()}>

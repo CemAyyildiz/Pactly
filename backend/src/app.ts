@@ -42,9 +42,11 @@ import {
   type DiscoverFilters,
 } from "./services/profile.js";
 import {
+  BookingActionPendingError,
   BookingEscrowStateError,
   BookingHoldExpiredError,
   BookingNotFoundError,
+  InvalidDisputeReasonError,
   SlotTakenError,
   SlotUnavailableError,
   TooManyHoldsError,
@@ -62,13 +64,14 @@ import {
   openDispute,
   releaseDeposit,
   resolveBookingDispute,
+  resolveSubmitRole,
   submitSignedTransaction,
 } from "./services/booking.js";
 import { EscrowApiError, EscrowConfigError, EscrowRequestError } from "./escrow/trustless-work/errors.js";
 import { defaultEscrowAdapter } from "./escrow/trustless-work/client.js";
 import type { EscrowAdapter } from "./escrow/interface.js";
 import { config } from "./config.js";
-import { DISPUTE_REASONS, DISPUTE_OUTCOMES, type DisputeReason, type DisputeOutcome } from "./db/schema.js";
+import { DISPUTE_OUTCOMES, type DisputeOutcome, type DisputeReason } from "./db/schema.js";
 import { getBookingById } from "./db/bookings.js";
 
 export interface Variables {
@@ -475,26 +478,32 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
     }
   });
 
+  /** Story 3.6 (review round): role-aware -- a client, a provider, or
+   * Pactly's own resolver wallet may all submit here, each only ever
+   * relaying the transaction kind {@link resolveSubmitRole}'s own role
+   * grants it (`services/booking.ts`'s `isKindAllowedForRole`). A wallet
+   * holding none of the three roles on this booking gets the same
+   * `404 BOOKING_NOT_FOUND` every other route gives (bookings are never
+   * enumerable). Submit is allowed after the hold expires (the spec's own
+   * "Never" rule) -- role resolution only ever checks existence and
+   * ownership, never the hold's own clock. */
   app.post("/bookings/:id/submit", requirePactlyAuth, async (c) => {
     const bookingId = c.req.param("id");
     if (!bookingId) {
       return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
     }
     try {
-      // Review follow-up: the owner check now runs *before* the body is
+      // Review follow-up: role resolution now runs *before* the body is
       // even parsed for its own shape -- a stranger's request gets the
       // identical 404 BOOKING_NOT_FOUND every other route gives them,
       // never a 400 that would first confirm the booking exists.
-      // Submit is allowed after the hold expires (the spec's own "Never"
-      // rule) -- `getBookingForClient` only ever checks existence and
-      // ownership, never the hold's own clock.
-      await getBookingForClient(db, bookingId, c.get("walletAddress"));
+      const { role } = await resolveSubmitRole(db, bookingId, c.get("walletAddress"));
       const body = await c.req.json().catch(() => undefined);
       const signedXdr = typeof body?.signedXdr === "string" ? body.signedXdr : undefined;
       if (!signedXdr) {
         return c.json({ code: "invalid_request", message: "signedXdr is required." }, 400);
       }
-      const result = await submitSignedTransaction(db, bookingId, signedXdr, escrowAdapter);
+      const result = await submitSignedTransaction(db, bookingId, signedXdr, role, escrowAdapter);
       return c.json(result);
     } catch (error) {
       if (error instanceof BookingNotFoundError) {
@@ -580,6 +589,9 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
       if (error instanceof BookingNotFoundError) {
         return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
       }
+      if (error instanceof BookingActionPendingError) {
+        return c.json({ code: "ACTION_PENDING", message: error.message }, 409);
+      }
       if (error instanceof BookingEscrowStateError) {
         return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
       }
@@ -602,6 +614,9 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
     } catch (error) {
       if (error instanceof BookingNotFoundError) {
         return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof BookingActionPendingError) {
+        return c.json({ code: "ACTION_PENDING", message: error.message }, 409);
       }
       if (error instanceof BookingEscrowStateError) {
         return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
@@ -626,6 +641,9 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
       if (error instanceof BookingNotFoundError) {
         return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
       }
+      if (error instanceof BookingActionPendingError) {
+        return c.json({ code: "ACTION_PENDING", message: error.message }, 409);
+      }
       if (error instanceof BookingEscrowStateError) {
         return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
       }
@@ -641,6 +659,11 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
    * validated here, against the schema's own {@link DISPUTE_REASONS}, so an
    * unknown value never reaches the service layer at all (the spec's own
    * "unknown reason: 400" row). */
+  /** Either side (client or provider) may open a dispute -- `reason` is
+   * validated inside `openDispute` against the caller's own role-scoped
+   * whitelist (Story 3.6 review round), so an unknown reason *or* one that
+   * belongs to the other role never reaches the adapter, both surfacing as
+   * the identical `400 INVALID_REASON`. */
   app.post("/bookings/:id/dispute", requirePactlyAuth, async (c) => {
     const bookingId = c.req.param("id");
     if (!bookingId) {
@@ -648,11 +671,8 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
     }
     const body = await c.req.json().catch(() => undefined);
     const reason = typeof body?.reason === "string" ? body.reason : undefined;
-    if (!reason || !(DISPUTE_REASONS as readonly string[]).includes(reason)) {
-      return c.json(
-        { code: "invalid_request", message: `reason must be one of ${DISPUTE_REASONS.join(", ")}.` },
-        400,
-      );
+    if (!reason) {
+      return c.json({ code: "invalid_request", message: "reason is required." }, 400);
     }
     try {
       const result = await openDispute(db, bookingId, c.get("walletAddress"), reason as DisputeReason, escrowAdapter);
@@ -660,6 +680,12 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
     } catch (error) {
       if (error instanceof BookingNotFoundError) {
         return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof InvalidDisputeReasonError) {
+        return c.json({ code: "INVALID_REASON", message: error.message }, 400);
+      }
+      if (error instanceof BookingActionPendingError) {
+        return c.json({ code: "ACTION_PENDING", message: error.message }, 409);
       }
       if (error instanceof BookingEscrowStateError) {
         return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
@@ -704,6 +730,9 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
       const result = await resolveBookingDispute(db, bookingId, outcome as DisputeOutcome, escrowAdapter);
       return c.json(result);
     } catch (error) {
+      if (error instanceof BookingActionPendingError) {
+        return c.json({ code: "ACTION_PENDING", message: error.message }, 409);
+      }
       if (error instanceof BookingEscrowStateError) {
         return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
       }

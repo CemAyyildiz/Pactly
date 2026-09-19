@@ -7,7 +7,15 @@
 import { and, eq, gt, inArray, isNotNull, isNull, ne, notInArray, or, sql } from "drizzle-orm";
 
 import type { Db, DbOrTx } from "./client.js";
-import { availabilitySlots, bookings, providerProfiles, type BalanceState, type EscrowState } from "./schema.js";
+import {
+  availabilitySlots,
+  bookings,
+  providerProfiles,
+  type BalanceState,
+  type DisputeOpenerRole,
+  type DisputeReason,
+  type EscrowState,
+} from "./schema.js";
 
 /** `escrow_state` values the reconciler must never move a booking past --
  * once here, a booking is excluded from every future reconciliation poll
@@ -358,6 +366,64 @@ export async function setEscrowActionTxHash(db: Db, id: string, action: EscrowAc
       return;
     case "resolve":
       await db.update(bookings).set({ escrowResolveTxHash: txHash }).where(eq(bookings.id, id));
+      return;
+  }
+}
+
+/**
+ * Story 3.6 (review round): the pending dispute's own build-time record --
+ * "last builder wins", so a caller opening a second dispute before ever
+ * submitting the first simply overwrites this row's own hash, reason,
+ * opener wallet and opener role together. Never itself writes
+ * `escrow_dispute_openings` -- that only happens once a signed transaction
+ * matching this same hash is actually relayed ({@link setEscrowActionTxHash}'s
+ * `"dispute"` case is not used for this column any more; this function is
+ * `openDispute`'s one write path instead).
+ */
+export interface PendingDispute {
+  txHash: string;
+  reason: DisputeReason;
+  openerWallet: string;
+  openerRole: DisputeOpenerRole;
+}
+
+export async function setPendingDispute(db: Db, id: string, pending: PendingDispute): Promise<void> {
+  await db
+    .update(bookings)
+    .set({
+      escrowDisputeTxHash: pending.txHash,
+      pendingDisputeReason: pending.reason,
+      pendingDisputeOpenerWallet: pending.openerWallet,
+      pendingDisputeOpenerRole: pending.openerRole,
+    })
+    .where(eq(bookings.id, id));
+}
+
+/**
+ * Story 3.6 (review round): records that a signed transaction for `action`
+ * was actually relayed -- mirrors `recordDeploySubmission`'s role for the
+ * deploy step, one column per action kind. `services/booking.ts` reads this
+ * back (per action, against the reconciler's own current lifecycle) to
+ * refuse building the *same* action again while it is already awaiting
+ * chain confirmation (`409 ACTION_PENDING`), and to compute `pendingAction`
+ * for `GET /bookings/:id` and the two list routes.
+ */
+export async function setEscrowActionSubmittedAt(db: Db, id: string, action: EscrowActionKind, submittedAt: number): Promise<void> {
+  switch (action) {
+    case "complete":
+      await db.update(bookings).set({ escrowCompleteSubmittedAt: submittedAt }).where(eq(bookings.id, id));
+      return;
+    case "approve":
+      await db.update(bookings).set({ escrowApproveSubmittedAt: submittedAt }).where(eq(bookings.id, id));
+      return;
+    case "release":
+      await db.update(bookings).set({ escrowReleaseSubmittedAt: submittedAt }).where(eq(bookings.id, id));
+      return;
+    case "dispute":
+      await db.update(bookings).set({ escrowDisputeSubmittedAt: submittedAt }).where(eq(bookings.id, id));
+      return;
+    case "resolve":
+      await db.update(bookings).set({ escrowResolveSubmittedAt: submittedAt }).where(eq(bookings.id, id));
       return;
   }
 }

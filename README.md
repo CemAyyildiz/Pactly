@@ -141,7 +141,7 @@ Story 3.6 adds the rest of a deposit's life after it locks: the provider marking
 **Cancel → resolve:**
 
 1. Before releasing, either side can tap **Open a dispute** on their own booking row. The screen states the booking-policy outcome in plain words first (who cancelled, and whether the deadline had passed) — this is guidance, never something that has already happened on chain.
-2. Pick the reason (cancelled by the client, cancelled by the provider, no-show, or a plain disagreement) and sign. Both sides now read **In resolution**.
+2. Pick the reason (cancelled by the client, cancelled by the provider, the client didn't show, the provider didn't show, or a plain disagreement) and sign. Both sides now read **In resolution**.
 3. Set `TRUSTLESS_WORK_PLATFORM_ADDRESS` (Pactly's own dispute-resolver wallet) as one of the wallets in `PACTLY_ADMIN_WALLETS` — see `.env.example`'s `SEED_ADMIN_WALLET` note. Sign in with that exact wallet, open `/admin/resolutions`, and resolve the dispute with either outcome (the policy's own suggestion is shown, never applied for you). Both sides then read **Resolved**, with the outcome spelled out ("Refunded to you" / "Paid to the provider").
 
 A wallet in `PACTLY_ADMIN_WALLETS` that is *not* also `TRUSTLESS_WORK_PLATFORM_ADDRESS` can see `/admin/resolutions` but gets `403 NOT_DISPUTE_RESOLVER` if it tries to resolve one — only Pactly's own resolver signer may actually build that transaction.

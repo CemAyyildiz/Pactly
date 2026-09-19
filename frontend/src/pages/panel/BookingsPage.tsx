@@ -162,6 +162,7 @@ export function BookingsPage() {
                         id={booking.id}
                         escrowState={booking.escrowState}
                         lifecycle={booking.lifecycle}
+                        pendingAction={booking.pendingAction}
                         deposit={booking.deposit}
                         session={session}
                         onActionSubmitted={() => void bookingsQuery.refetch()}
@@ -187,6 +188,7 @@ export function BookingsPage() {
                 balance={booking.balance}
                 escrowState={booking.escrowState}
                 lifecycle={booking.lifecycle}
+                pendingAction={booking.pendingAction}
                 balanceState={booking.balanceState}
                 cancelDeadline={booking.cancelDeadline}
                 contractId={booking.contractId}
@@ -215,6 +217,7 @@ export function BookingsPage() {
                 balance={booking.balance}
                 escrowState={booking.escrowState}
                 lifecycle={booking.lifecycle}
+                pendingAction={booking.pendingAction}
                 balanceState={booking.balanceState}
                 cancelDeadline={booking.cancelDeadline}
                 contractId={booking.contractId}

@@ -5,7 +5,7 @@ import { formatMoney } from "../lib/money";
 import { stellarExplorerContractUrl } from "../lib/stellar";
 import { formatSlotDay, formatSlotTime } from "../lib/time";
 import type { Session } from "../wallet";
-import type { BalanceState, BookingLifecycle, Money } from "../api/types";
+import type { BalanceState, BookingLifecycle, Money, PendingActionKind } from "../api/types";
 
 export interface BookingCardProps {
   /** Which side is looking at this card -- picks the "Resolved" wording
@@ -25,6 +25,9 @@ export interface BookingCardProps {
   balance: Money;
   escrowState: "locked" | "released" | "refunded" | null;
   lifecycle: BookingLifecycle;
+  /** Story 3.6 (review round): passed straight through to
+   * {@link BookingActions} -- see its own doc comment. */
+  pendingAction?: PendingActionKind;
   balanceState: BalanceState;
   /** UTC epoch seconds. */
   cancelDeadline: number;
@@ -73,6 +76,7 @@ export function BookingCard({
   balance,
   escrowState,
   lifecycle,
+  pendingAction,
   balanceState,
   cancelDeadline,
   contractId,
@@ -120,6 +124,7 @@ export function BookingCard({
         id={id}
         escrowState={escrowState}
         lifecycle={lifecycle}
+        pendingAction={pendingAction}
         deposit={deposit}
         session={session}
         onActionSubmitted={onActionSubmitted}

@@ -139,6 +139,22 @@ export type BalanceState = (typeof BALANCE_STATES)[number];
  * (`../chain/event-worker.ts`); every other writer of this row, including
  * every service in `../services/`, must leave that column alone.
  */
+/** Story 3.6 (review round): the five reasons a dispute may be opened for,
+ * bound to the opener's own role -- a client may claim `client-cancel`,
+ * `provider-no-show` or `disagreement`; a provider may claim
+ * `provider-cancel`, `client-no-show` or `disagreement` (see
+ * `services/booking.ts`'s own role-scoped whitelists). `suggestedOutcome`
+ * (see `escrowDisputeOpenings` below) is derived from this plus the
+ * cancellation policy (decided 2026-09-18, "who cancels decides") -- except
+ * `disagreement`, which the policy names no automatic outcome for, so its
+ * `suggestedOutcome` stays `null`: the admin picks with no policy steer at
+ * all, never a guess this backend invents on the policy's behalf. */
+export const DISPUTE_REASONS = ["client-cancel", "provider-cancel", "client-no-show", "provider-no-show", "disagreement"] as const;
+export type DisputeReason = (typeof DISPUTE_REASONS)[number];
+
+export const DISPUTE_OPENER_ROLES = ["client", "provider"] as const;
+export type DisputeOpenerRole = (typeof DISPUTE_OPENER_ROLES)[number];
+
 export const bookings = sqliteTable("bookings", {
   id: text("id").primaryKey(),
   providerProfileId: text("provider_profile_id")
@@ -235,13 +251,39 @@ export const bookings = sqliteTable("bookings", {
   escrowCompleteTxHash: text("escrow_complete_tx_hash"),
   escrowApproveTxHash: text("escrow_approve_tx_hash"),
   escrowReleaseTxHash: text("escrow_release_tx_hash"),
+  /** The pending dispute's own built hash -- "last builder wins": rebuilding
+   * (before ever submitting) simply overwrites this, `pendingDisputeReason`,
+   * `pendingDisputeOpenerWallet` and `pendingDisputeOpenerRole` together.
+   * Recording the actual `escrow_dispute_openings` row only happens once a
+   * signed transaction matching this hash is relayed successfully (see that
+   * table's own doc comment) -- never at build time, so an unsigned XDR the
+   * caller never signs ("Never mind") leaves no such row. */
   escrowDisputeTxHash: text("escrow_dispute_tx_hash"),
+  pendingDisputeReason: text("pending_dispute_reason", { enum: DISPUTE_REASONS }),
+  pendingDisputeOpenerWallet: text("pending_dispute_opener_wallet"),
+  pendingDisputeOpenerRole: text("pending_dispute_opener_role", { enum: ["client", "provider"] }),
   /** The unsigned resolve-dispute transaction's own hash -- also recorded on
    * `escrow_dispute_resolutions.tx_hash` (Design Notes: "Why the resolution
    * decision is recorded with its txHash"), duplicated here purely so
    * `submitSignedTransaction` can match against every action's hash from
    * this one row, without a second query. */
   escrowResolveTxHash: text("escrow_resolve_tx_hash"),
+  /**
+   * Story 3.6 (review round): one "submitted at" timestamp per action kind
+   * (`complete`/`approve`/`release`/`dispute`/`resolve`), set only once a
+   * signed transaction matching that action's own stored hash is actually
+   * relayed -- mirrors `deploySubmittedAt`'s own role for the deploy step.
+   * While one of these is set and the reconciler's own chain-derived
+   * lifecycle has not yet moved past what that action would produce, a
+   * fresh build of the *same* action is refused (`409 ACTION_PENDING`)
+   * rather than silently building a second, competing transaction for a
+   * signature that may already be in flight. UTC epoch seconds.
+   */
+  escrowCompleteSubmittedAt: integer("escrow_complete_submitted_at"),
+  escrowApproveSubmittedAt: integer("escrow_approve_submitted_at"),
+  escrowReleaseSubmittedAt: integer("escrow_release_submitted_at"),
+  escrowDisputeSubmittedAt: integer("escrow_dispute_submitted_at"),
+  escrowResolveSubmittedAt: integer("escrow_resolve_submitted_at"),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -417,15 +459,6 @@ export const escrowDisputeResolutions = sqliteTable("escrow_dispute_resolutions"
   decidedAt: integer("decided_at").notNull(),
 });
 
-/** Story 3.6: the four reasons a dispute may be opened for. `suggestedOutcome`
- * (see `escrowDisputeOpenings` below) is derived from this plus the
- * cancellation policy (decided 2026-09-18, "who cancels decides") -- except
- * `disagreement`, which the policy names no automatic outcome for, so its
- * `suggestedOutcome` stays `null`: the admin picks with no policy steer at
- * all, never a guess this backend invents on the policy's behalf. */
-export const DISPUTE_REASONS = ["client-cancel", "provider-cancel", "no-show", "disagreement"] as const;
-export type DisputeReason = (typeof DISPUTE_REASONS)[number];
-
 /**
  * Story 3.6: records that a dispute was opened -- who opened it, why, and
  * the policy's own suggested outcome (stated to the user *before* they ever
@@ -442,11 +475,18 @@ export const escrowDisputeOpenings = sqliteTable("escrow_dispute_openings", {
   bookingId: text("booking_id").primaryKey(),
   contractId: text("contract_id").notNull(),
   openedByWallet: text("opened_by_wallet").notNull(),
+  /** Story 3.6 (review round): which role actually opened it -- the admin
+   * list shows this alongside the reason. */
+  openedByRole: text("opened_by_role", { enum: DISPUTE_OPENER_ROLES }),
   reason: text("reason", { enum: DISPUTE_REASONS }).notNull(),
   /** `null` only for `reason: "disagreement"` -- see this table's own doc
    * comment. */
   suggestedOutcome: text("suggested_outcome", { enum: DISPUTE_OUTCOMES }),
   /** The unsigned start-dispute transaction's own hash. */
   txHash: text("tx_hash").notNull(),
+  /** UTC epoch seconds (review round: was epoch milliseconds -- brought in
+   * line with every other booking-related time column, and with
+   * `cancelDeadline`, which `suggestedOutcome`'s own client-cancel branch
+   * compares it against). */
   openedAt: integer("opened_at").notNull(),
 });

@@ -337,12 +337,14 @@ test("openDispute: either the client or the provider may open one, each signing 
   try {
     const seed = await seedLockedBooking(result, { lifecycleAction: "funded" });
     let captured: StartDisputeInput | undefined;
+    const { xdr, hash } = buildFakeTransactionXdr();
     const adapter: EscrowAdapter = {
       ...unreachableEscrowAdapter(),
       startDispute: async (input) => {
         captured = input;
-        return { unsignedXdr: "dispute-unsigned-xdr", txHash: "dispute-tx-hash" };
+        return { unsignedXdr: "dispute-unsigned-xdr", txHash: hash };
       },
+      submit: async () => ({ txHash: "relayed-hash" }),
     };
     const disputeResult = await openDispute(result.db, seed.bookingId, seed.clientWalletAddress, "disagreement", adapter);
     assert.equal(disputeResult.reason, "disagreement");
@@ -352,9 +354,15 @@ test("openDispute: either the client or the provider may open one, each signing 
     assert.equal(captured.signerAddress, seed.clientWalletAddress);
 
     const booking = await getBookingById(result.db, seed.bookingId);
-    assert.equal(booking?.escrowDisputeTxHash, "dispute-tx-hash");
+    assert.equal(booking?.escrowDisputeTxHash, hash);
+    // Review round: building the XDR alone must not record an opening yet
+    // ("Never mind" must leave no trace) -- only a matching submit does.
+    assert.equal(await getEscrowDisputeOpening(result.db, seed.bookingId), undefined);
+
+    await submitSignedTransaction(result.db, seed.bookingId, xdr, "client", adapter);
     const opening = await getEscrowDisputeOpening(result.db, seed.bookingId);
     assert.equal(opening?.openedByWallet, seed.clientWalletAddress);
+    assert.equal(opening?.openedByRole, "client");
     assert.equal(opening?.reason, "disagreement");
     assert.equal(opening?.suggestedOutcome, null);
   } finally {
@@ -374,7 +382,7 @@ test("openDispute: the provider can also open one, naming itself as the signer",
         return { unsignedXdr: "x", txHash: "dispute-tx-hash-2" };
       },
     };
-    await openDispute(result.db, seed.bookingId, seed.providerWalletAddress, "no-show", adapter);
+    await openDispute(result.db, seed.bookingId, seed.providerWalletAddress, "client-no-show", adapter);
     assert.ok(captured);
     assert.equal(captured.signerAddress, seed.providerWalletAddress);
   } finally {
@@ -396,7 +404,7 @@ test("openDispute: suggested outcome follows the cancellation policy (who cancel
     assert.equal(providerCancelResult.suggestedOutcome, "refund-client");
 
     const noShow = await seedLockedBooking(result, { lifecycleAction: "funded" });
-    const noShowResult = await openDispute(result.db, noShow.bookingId, noShow.providerWalletAddress, "no-show", adapter, now);
+    const noShowResult = await openDispute(result.db, noShow.bookingId, noShow.providerWalletAddress, "client-no-show", adapter, now);
     assert.equal(noShowResult.suggestedOutcome, "pay-provider");
 
     const clientCancelBeforeDeadline = await seedLockedBooking(result, { lifecycleAction: "funded", cancelDeadline: now + 3600 });
@@ -486,22 +494,26 @@ test("resolveBookingDispute stores its own txHash on the booking row (not only e
 // action (complete/approve/release/dispute/resolve), not only deploy/fund.
 // ---------------------------------------------------------------------------
 
-test("submitSignedTransaction relays a signed envelope matching any Story 3.6 action's stored txHash", async () => {
+test("submitSignedTransaction relays a signed envelope matching any Story 3.6 action's stored txHash, for the role that action belongs to", async () => {
   const result = openTestDatabase();
   try {
     const seed = await seedLockedBooking(result);
-    const cases: Array<{ column: "escrowCompleteTxHash" | "escrowApproveTxHash" | "escrowReleaseTxHash" | "escrowDisputeTxHash" | "escrowResolveTxHash" }> = [
-      { column: "escrowCompleteTxHash" },
-      { column: "escrowApproveTxHash" },
-      { column: "escrowReleaseTxHash" },
-      { column: "escrowDisputeTxHash" },
-      { column: "escrowResolveTxHash" },
+    const cases: Array<{
+      column: "escrowCompleteTxHash" | "escrowApproveTxHash" | "escrowReleaseTxHash" | "escrowDisputeTxHash" | "escrowResolveTxHash";
+      role: "client" | "provider" | "resolver";
+    }> = [
+      { column: "escrowCompleteTxHash", role: "provider" },
+      { column: "escrowApproveTxHash", role: "client" },
+      { column: "escrowReleaseTxHash", role: "provider" },
+      { column: "escrowDisputeTxHash", role: "provider" },
+      { column: "escrowResolveTxHash", role: "resolver" },
     ];
-    for (const { column } of cases) {
+    for (const { column, role } of cases) {
       const { xdr, hash } = buildFakeTransactionXdr();
       const { bookings } = await import("../src/db/schema.js");
       const { eq } = await import("drizzle-orm");
-      await result.db.update(bookings).set({ [column]: hash }).where(eq(bookings.id, seed.bookingId));
+      const extra = column === "escrowDisputeTxHash" ? { pendingDisputeOpenerRole: role as "client" | "provider" } : {};
+      await result.db.update(bookings).set({ [column]: hash, ...extra }).where(eq(bookings.id, seed.bookingId));
 
       let submitted: string | undefined;
       const adapter: EscrowAdapter = {
@@ -511,10 +523,46 @@ test("submitSignedTransaction relays a signed envelope matching any Story 3.6 ac
           return { txHash: `relayed-${column}` };
         },
       };
-      const submitResult = await submitSignedTransaction(result.db, seed.bookingId, xdr, adapter);
+      const submitResult = await submitSignedTransaction(result.db, seed.bookingId, xdr, role, adapter);
       assert.equal(submitResult.txHash, `relayed-${column}`);
       assert.equal(submitted, xdr, `submit must have been called for ${column}`);
     }
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("submitSignedTransaction refuses a hash match when the caller's role does not own that action kind (e.g. the client submitting the provider's release)", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedLockedBooking(result, { lifecycleAction: "approved" });
+    const { xdr, hash } = buildFakeTransactionXdr();
+    const { bookings } = await import("../src/db/schema.js");
+    const { eq } = await import("drizzle-orm");
+    await result.db.update(bookings).set({ escrowReleaseTxHash: hash }).where(eq(bookings.id, seed.bookingId));
+
+    await assert.rejects(
+      () => submitSignedTransaction(result.db, seed.bookingId, xdr, "client", unreachableEscrowAdapter()),
+      XdrMismatchError,
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("submitSignedTransaction refuses a dispute hash when the caller's role does not match who actually opened it", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedLockedBooking(result);
+    const { xdr, hash } = buildFakeTransactionXdr();
+    const { bookings } = await import("../src/db/schema.js");
+    const { eq } = await import("drizzle-orm");
+    await result.db.update(bookings).set({ escrowDisputeTxHash: hash, pendingDisputeOpenerRole: "provider" }).where(eq(bookings.id, seed.bookingId));
+
+    await assert.rejects(
+      () => submitSignedTransaction(result.db, seed.bookingId, xdr, "client", unreachableEscrowAdapter()),
+      XdrMismatchError,
+    );
   } finally {
     closeDatabase(result);
   }
@@ -525,7 +573,7 @@ test("submitSignedTransaction refuses a signed envelope matching none of the boo
   try {
     const seed = await seedLockedBooking(result);
     const { xdr } = buildFakeTransactionXdr();
-    await assert.rejects(() => submitSignedTransaction(result.db, seed.bookingId, xdr, unreachableEscrowAdapter()), XdrMismatchError);
+    await assert.rejects(() => submitSignedTransaction(result.db, seed.bookingId, xdr, "client", unreachableEscrowAdapter()), XdrMismatchError);
   } finally {
     closeDatabase(result);
   }
@@ -544,11 +592,22 @@ test("listOpenDisputes returns only bookings whose current lifecycle action is s
     };
 
     const openOne = await seedLockedBooking(result, { lifecycleAction: "funded" });
-    await openDispute(result.db, openOne.bookingId, openOne.providerWalletAddress, "no-show", disputeAdapter);
+    const openOneTx = buildFakeTransactionXdr();
+    const openOneAdapter: EscrowAdapter = {
+      ...unreachableEscrowAdapter(),
+      startDispute: async () => ({ unsignedXdr: "x", txHash: openOneTx.hash }),
+      submit: async () => ({ txHash: "relayed" }),
+    };
+    await openDispute(result.db, openOne.bookingId, openOne.providerWalletAddress, "client-no-show", openOneAdapter);
+    // Review round: the opening row is only ever written once a matching
+    // signed transaction is actually relayed, so the dispute must be
+    // "submitted" here before the reconciler's own chain confirmation is
+    // seeded below.
+    await submitSignedTransaction(result.db, openOne.bookingId, openOneTx.xdr, "provider", openOneAdapter);
     // The reconciler's own later chain confirmation that the dispute
-    // actually landed -- `openDispute` itself only relays the unsigned
-    // start-dispute XDR and records the *opening*, never the lifecycle
-    // action itself (that is always chain-derived).
+    // actually landed -- neither `openDispute` nor `submitSignedTransaction`
+    // ever records the lifecycle action itself (that is always
+    // chain-derived).
     await insertEscrowProcessedEventIfNew(result.db, {
       bookingId: openOne.bookingId,
       contractId: openOne.contractId,
@@ -598,7 +657,8 @@ test("listOpenDisputes returns only bookings whose current lifecycle action is s
     const [dispute] = disputes;
     assert.equal(dispute?.bookingId, openOne.bookingId);
     assert.equal(dispute?.openedByWallet, openOne.providerWalletAddress);
-    assert.equal(dispute?.reason, "no-show");
+    assert.equal(dispute?.openedByRole, "provider");
+    assert.equal(dispute?.reason, "client-no-show");
     assert.equal(dispute?.suggestedOutcome, "pay-provider");
     assert.equal(dispute?.clientWalletAddress, openOne.clientWalletAddress);
     assert.equal(dispute?.provider.displayName, "Test Provider");
@@ -612,6 +672,122 @@ test("listOpenDisputes returns an empty list when there are no disputes at all",
   const result = openTestDatabase();
   try {
     assert.deepEqual(await listOpenDisputes(result.db), []);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// Review round: completeAppointment/approveAppointment/releaseDeposit/
+// openDispute must all require `lifecycle.contractId === booking.
+// escrowContractId` with actual chain-confirmed evidence for it, exactly
+// like `resolveBookingDispute` already does -- a booking that is `locked`
+// with a persisted contractId but no recorded lifecycle action at all for
+// it (a stale/superseded-contract row, in effect: the reconciler has never
+// actually confirmed anything for the contract the booking currently
+// names) must never let any of the four actions proceed.
+// ---------------------------------------------------------------------------
+
+async function seedLockedWithNoLifecycleEvidence(
+  result: Awaited<ReturnType<typeof openTestDatabase>>,
+): Promise<{ bookingId: string; contractId: string; clientWalletAddress: string; providerWalletAddress: string }> {
+  const clientWalletAddress = Keypair.random().publicKey();
+  const providerWalletAddress = Keypair.random().publicKey();
+  const providerProfileId = await seedProviderProfile(result, { walletAddress: providerWalletAddress });
+  const bookingId = await seedBooking(result, { providerProfileId, clientWalletAddress });
+  const contractId = fakeContractId();
+  await updateEscrowContractId(result.db, bookingId, contractId);
+  updateEscrowStateSync(result.db, bookingId, "locked");
+  // Deliberately no escrow_processed_events row for this contractId -- the
+  // stale/no-evidence case.
+  return { bookingId, contractId, clientWalletAddress, providerWalletAddress };
+}
+
+test("completeAppointment refuses a booking with no chain-confirmed evidence for its current escrow contractId", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedLockedWithNoLifecycleEvidence(result);
+    await assert.rejects(
+      () => completeAppointment(result.db, seed.bookingId, seed.providerWalletAddress, unreachableEscrowAdapter()),
+      BookingEscrowStateError,
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("approveAppointment refuses a booking with no chain-confirmed evidence for its current escrow contractId", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedLockedWithNoLifecycleEvidence(result);
+    await assert.rejects(
+      () => approveAppointment(result.db, seed.bookingId, seed.clientWalletAddress, unreachableEscrowAdapter()),
+      BookingEscrowStateError,
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("releaseDeposit refuses a booking with no chain-confirmed evidence for its current escrow contractId", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedLockedWithNoLifecycleEvidence(result);
+    await assert.rejects(
+      () => releaseDeposit(result.db, seed.bookingId, seed.providerWalletAddress, unreachableEscrowAdapter()),
+      BookingEscrowStateError,
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("openDispute allows a locked booking with no lifecycle action recorded yet (unlike complete/approve/release, a dispute needs no positive prior state)", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedLockedWithNoLifecycleEvidence(result);
+    const adapter: EscrowAdapter = {
+      ...unreachableEscrowAdapter(),
+      startDispute: async () => ({ unsignedXdr: "x", txHash: "dispute-tx-hash" }),
+    };
+    const disputeResult = await openDispute(result.db, seed.bookingId, seed.clientWalletAddress, "disagreement", adapter);
+    assert.equal(disputeResult.reason, "disagreement");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+
+test("completeAppointment: building the same action twice before ever submitting overwrites the stored hash -- the first envelope then mismatches", async () => {
+  const result = openTestDatabase();
+  try {
+    const seed = await seedLockedBooking(result);
+    const first = buildFakeTransactionXdr();
+    const second = buildFakeTransactionXdr();
+
+    const firstAdapter: EscrowAdapter = { ...unreachableEscrowAdapter(), complete: async () => ({ unsignedXdr: "x", txHash: first.hash }) };
+    await completeAppointment(result.db, seed.bookingId, seed.providerWalletAddress, firstAdapter);
+
+    // Not yet submitted, so a second build is not "pending" -- it is
+    // allowed, and simply overwrites the stored hash ("last builder wins").
+    const secondAdapter: EscrowAdapter = { ...unreachableEscrowAdapter(), complete: async () => ({ unsignedXdr: "y", txHash: second.hash }) };
+    await completeAppointment(result.db, seed.bookingId, seed.providerWalletAddress, secondAdapter);
+
+    const booking = await getBookingById(result.db, seed.bookingId);
+    assert.equal(booking?.escrowCompleteTxHash, second.hash);
+
+    // The first envelope no longer matches the currently-stored hash --
+    // refused, never relayed.
+    await assert.rejects(
+      () => submitSignedTransaction(result.db, seed.bookingId, first.xdr, "provider", unreachableEscrowAdapter()),
+      XdrMismatchError,
+    );
+
+    // The second (current) envelope still relays fine.
+    const submitAdapter: EscrowAdapter = { ...unreachableEscrowAdapter(), submit: async () => ({ txHash: "relayed" }) };
+    const outcome = await submitSignedTransaction(result.db, seed.bookingId, second.xdr, "provider", submitAdapter);
+    assert.equal(outcome.txHash, "relayed");
   } finally {
     closeDatabase(result);
   }

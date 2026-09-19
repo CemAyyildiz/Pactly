@@ -45,12 +45,14 @@ import {
   getEscrowLifecycle,
   getEscrowLifecycleForBookings,
   type EscrowLifecycle,
+  type EscrowLifecycleAction,
 } from "../escrow/trustless-work/reconciler.js";
 import type { EscrowAdapter, SubmitTransactionResult, UnsignedTransaction } from "../escrow/interface.js";
 import {
   getBookingById,
   getBookingsByIds,
   getActiveBookingForWalletAndSlot,
+  getReconcilableBookings,
   countPendingHoldsForWallet,
   insertBooking,
   insertBookingHoldIfSlotFree,
@@ -60,8 +62,10 @@ import {
   listConflictingSlotBookings,
   clearUnsubmittedEscrowContractId,
   recordDeploySubmission,
+  setEscrowActionSubmittedAt,
   setEscrowActionTxHash,
   setEscrowFundTxHash,
+  setPendingDispute,
   updateBalanceState,
   updateEscrowContractId,
   type BookingRow,
@@ -69,12 +73,12 @@ import {
 } from "../db/bookings.js";
 import { getSlotById, getSlotByProviderAndStart, listOpenSlotsInRange } from "../db/availabilitySlots.js";
 import { recordEscrowDisputeResolution } from "../db/escrowDisputeResolutions.js";
-import { listAllEscrowDisputeOpenings, recordEscrowDisputeOpening } from "../db/escrowDisputeOpenings.js";
+import { getEscrowDisputeOpeningsForBookings, recordEscrowDisputeOpening } from "../db/escrowDisputeOpenings.js";
 import { getProviderProfileById, getProviderProfileByWallet } from "../db/providerProfiles.js";
 import { computeDepositAmount, NotAProviderError, ProviderNotFoundError } from "./profile.js";
 import { resolveUsdcAsset, type ResolveUsdcAssetOptions } from "../anchor/usdc.js";
 import type { Db } from "../db/client.js";
-import { BALANCE_STATES, type BalanceState, type DisputeOutcome, type DisputeReason } from "../db/schema.js";
+import { BALANCE_STATES, type BalanceState, type DisputeOpenerRole, type DisputeOutcome, type DisputeReason } from "../db/schema.js";
 
 /** Pactly's only supported asset for now (PRD): the deposit's trustline
  * symbol every `lockDeposit` deploy names. Not yet a per-booking or
@@ -423,6 +427,30 @@ export class XdrMismatchError extends Error {
   }
 }
 
+/** Story 3.6 (review round): a fresh build of an action was requested while
+ * an earlier signed transaction for that *same* action kind on this booking
+ * has already been relayed and the reconciler's own chain-derived lifecycle
+ * has not yet moved past what that action would produce -- refused rather
+ * than silently building a second, competing transaction for a signature
+ * that may already be in flight (`db/bookings.ts`'s per-kind
+ * `escrow*SubmittedAt` columns are what this checks). */
+export class BookingActionPendingError extends Error {
+  constructor(message = "This action is already awaiting on-chain confirmation.") {
+    super(message);
+    this.name = "BookingActionPendingError";
+  }
+}
+
+/** Story 3.6 (review round): a dispute `reason` that either does not exist
+ * at all, or is not one the caller's own role may claim (e.g. a client
+ * claiming `client-no-show`, which only the provider may claim). */
+export class InvalidDisputeReasonError extends Error {
+  constructor(message = "That reason isn't valid for your role on this booking.") {
+    super(message);
+    this.name = "InvalidDisputeReasonError";
+  }
+}
+
 async function requireBooking(db: Db, bookingId: string): Promise<BookingRow> {
   const booking = await getBookingById(db, bookingId);
   if (!booking) {
@@ -669,6 +697,13 @@ export async function resolveBookingDispute(
         "resolveBookingDispute refuses to build a resolution without it",
     );
   }
+  if (booking.escrowResolveSubmittedAt !== null) {
+    // A resolve for this same dispute is already awaiting chain
+    // confirmation (the lifecycle above is still "disputed", not yet
+    // "resolved") -- refuse a second, competing resolve XDR rather than
+    // building one nobody asked to replace the first with.
+    throw new BookingActionPendingError();
+  }
   const providerAddress = await requireProviderAddress(db, booking);
   const targetAddress = outcome === "refund-client" ? booking.clientWalletAddress : providerAddress;
 
@@ -677,12 +712,13 @@ export async function resolveBookingDispute(
     distributions: [{ address: targetAddress, amount: booking.depositAmount }],
   });
 
+  const decidedAt = Math.floor(Date.now() / 1000);
   await recordEscrowDisputeResolution(db, {
     bookingId,
     contractId: booking.escrowContractId,
     outcome,
     txHash: result.txHash,
-    decidedAt: Date.now(),
+    decidedAt,
   });
   // Also stored on the booking row itself (duplicated from the row above)
   // so `submitSignedTransaction`'s hash-matching rule can check every
@@ -727,9 +763,17 @@ export async function completeAppointment(
     );
   }
   const lifecycle = await getEscrowLifecycle(db, bookingId);
-  if (lifecycle?.action !== "funded") {
+  if (lifecycle?.contractId !== booking.escrowContractId) {
     throw new BookingEscrowStateError(
-      `Booking "${bookingId}" cannot be completed from its current lifecycle state ("${lifecycle?.action}")`,
+      `Booking "${bookingId}" has no chain-confirmed evidence yet for its current escrow contractId`,
+    );
+  }
+  if (booking.escrowCompleteSubmittedAt !== null && lifecycle.action === "funded") {
+    throw new BookingActionPendingError();
+  }
+  if (lifecycle.action !== "funded") {
+    throw new BookingEscrowStateError(
+      `Booking "${bookingId}" cannot be completed from its current lifecycle state ("${lifecycle.action}")`,
     );
   }
   const result = await adapter.complete({ contractId: booking.escrowContractId, providerAddress: providerWalletAddress });
@@ -758,9 +802,17 @@ export async function approveAppointment(
     );
   }
   const lifecycle = await getEscrowLifecycle(db, bookingId);
-  if (lifecycle?.action !== "funded" && lifecycle?.action !== "completed") {
+  if (lifecycle?.contractId !== booking.escrowContractId) {
     throw new BookingEscrowStateError(
-      `Booking "${bookingId}" cannot be approved from its current lifecycle state ("${lifecycle?.action}")`,
+      `Booking "${bookingId}" has no chain-confirmed evidence yet for its current escrow contractId`,
+    );
+  }
+  if (booking.escrowApproveSubmittedAt !== null && (lifecycle.action === "funded" || lifecycle.action === "completed")) {
+    throw new BookingActionPendingError();
+  }
+  if (lifecycle.action !== "funded" && lifecycle.action !== "completed") {
+    throw new BookingEscrowStateError(
+      `Booking "${bookingId}" cannot be approved from its current lifecycle state ("${lifecycle.action}")`,
     );
   }
   const result = await adapter.approve({ contractId: booking.escrowContractId, clientAddress: clientWalletAddress });
@@ -792,9 +844,17 @@ export async function releaseDeposit(
     );
   }
   const lifecycle = await getEscrowLifecycle(db, bookingId);
-  if (lifecycle?.action !== "approved") {
+  if (lifecycle?.contractId !== booking.escrowContractId) {
     throw new BookingEscrowStateError(
-      `Booking "${bookingId}" cannot be released from its current lifecycle state ("${lifecycle?.action}"); it must be "approved"`,
+      `Booking "${bookingId}" has no chain-confirmed evidence yet for its current escrow contractId`,
+    );
+  }
+  if (booking.escrowReleaseSubmittedAt !== null && lifecycle.action === "approved") {
+    throw new BookingActionPendingError();
+  }
+  if (lifecycle.action !== "approved") {
+    throw new BookingEscrowStateError(
+      `Booking "${bookingId}" cannot be released from its current lifecycle state ("${lifecycle.action}"); it must be "approved"`,
     );
   }
   const result = await adapter.release({ contractId: booking.escrowContractId, providerAddress: providerWalletAddress });
@@ -803,21 +863,40 @@ export async function releaseDeposit(
 }
 
 /**
+ * Story 3.6 (review round): each dispute reason is bound to whichever role
+ * may actually claim it -- a client may claim that the client is cancelling,
+ * that the provider did not show up, or a plain disagreement; a provider's
+ * own three mirror that. `openDispute` refuses (typed
+ * {@link InvalidDisputeReasonError}) any reason outside the caller's own
+ * role's set, including the other role's reasons and any unrecognized
+ * string.
+ */
+const CLIENT_DISPUTE_REASONS: readonly DisputeReason[] = ["client-cancel", "provider-no-show", "disagreement"];
+const PROVIDER_DISPUTE_REASONS: readonly DisputeReason[] = ["provider-cancel", "client-no-show", "disagreement"];
+
+function isDisputeReasonAllowedForRole(reason: DisputeReason, role: "client" | "provider"): boolean {
+  const allowed = role === "client" ? CLIENT_DISPUTE_REASONS : PROVIDER_DISPUTE_REASONS;
+  return (allowed as readonly string[]).includes(reason);
+}
+
+/**
  * The cancellation and no-show policy (decided 2026-09-18, "who cancels
  * decides", stated in EXPERIENCE.md before any dispute ever opens): the
- * professional cancelling, or the client cancelling before `cancelDeadline`,
- * both point at a full refund to the client; the client cancelling after
- * `cancelDeadline`, or a no-show the provider claims, both point at the full
- * deposit going to the provider. `"disagreement"` has no policy-implied
- * outcome at all -- `undefined`, never a guessed value -- so the admin picks
- * with no steer (Story 3.6's own Boundaries: "The suggestion is guidance,
- * never automatic" applies doubly here, since there is no suggestion).
+ * provider cancelling, or the provider not showing up, both point at a full
+ * refund to the client; the client not showing up points at the full
+ * deposit going to the provider; the client cancelling points at a full
+ * refund at or before `cancelDeadline`, and the full deposit to the provider
+ * after it. `"disagreement"` has no policy-implied outcome at all --
+ * `undefined`, never a guessed value -- so the admin picks with no steer
+ * (Story 3.6's own Boundaries: "The suggestion is guidance, never automatic"
+ * applies doubly here, since there is no suggestion).
  */
 function computeSuggestedOutcome(reason: DisputeReason, booking: BookingRow, now: number): DisputeOutcome | undefined {
   switch (reason) {
     case "provider-cancel":
+    case "provider-no-show":
       return "refund-client";
-    case "no-show":
+    case "client-no-show":
       return "pay-provider";
     case "client-cancel":
       return now <= booking.cancelDeadline ? "refund-client" : "pay-provider";
@@ -836,13 +915,23 @@ export interface OpenDisputeResult extends UnsignedTransaction {
  * booking is `locked` and no dispute is already open for it -- refused
  * (typed {@link BookingEscrowStateError}) once `escrowState` is not
  * `locked` at all (never locked yet, or already `released`/`refunded`,
- * covering the spec's own "Released or resolved: 409" row) or the
- * reconciler's own latest recorded action is already `"disputed"`. The
- * caller's own route is expected to have already validated `reason` against
- * {@link DISPUTE_REASONS} (a `400` before this is ever called, per the
- * spec's own "unknown reason: 400" row) -- this function trusts it.
- * `Pactly itself never opens a dispute (Story 1.8 AC7): `signerAddress` is
- * always the caller's own wallet, one of the two parties, never Pactly's.
+ * covering the spec's own "Released or resolved: 409" row), the reconciler's
+ * own chain-derived lifecycle has not yet caught up to the booking's current
+ * `contractId`, or the reconciler's own latest recorded action is already
+ * `"disputed"`. Refused (typed {@link InvalidDisputeReasonError}) for a
+ * `reason` outside the caller's own role's whitelist. Refused (typed
+ * {@link BookingActionPendingError}) while an earlier dispute build for this
+ * booking has already been submitted and the lifecycle has not yet observed
+ * it. Pactly itself never opens a dispute (Story 1.8 AC7): `signerAddress`
+ * is always the caller's own wallet, one of the two parties, never Pactly's.
+ *
+ * Review round: building the XDR no longer writes `escrow_dispute_openings`
+ * -- it only stores the pending hash/reason/opener on the booking row
+ * ({@link setPendingDispute}, "last builder wins": a "Never mind" that never
+ * signs leaves no opening record at all). The real record, with its
+ * `suggestedOutcome` computed against the *submit*-time clock, is written by
+ * `submitSignedTransaction` once a signed transaction matching this hash is
+ * actually relayed.
  */
 export async function openDispute(
   db: Db,
@@ -852,92 +941,112 @@ export async function openDispute(
   adapter: EscrowAdapter = defaultEscrowAdapter,
   now: number = Math.floor(Date.now() / 1000),
 ): Promise<OpenDisputeResult> {
-  const { booking } = await getBookingForClientOrProvider(db, bookingId, walletAddress);
+  const { booking, role } = await getBookingForClientOrProvider(db, bookingId, walletAddress);
+  if (!isDisputeReasonAllowedForRole(reason, role)) {
+    throw new InvalidDisputeReasonError();
+  }
   if (booking.escrowState !== "locked" || !booking.escrowContractId) {
     throw new BookingEscrowStateError(
       `Booking "${bookingId}" must be locked with a persisted escrow contractId to open a dispute (escrowState is "${booking.escrowState}")`,
     );
   }
   const lifecycle = await getEscrowLifecycle(db, bookingId);
-  if (lifecycle?.action === "disputed") {
+  if (lifecycle?.contractId !== booking.escrowContractId) {
+    throw new BookingEscrowStateError(
+      `Booking "${bookingId}" has no chain-confirmed evidence yet for its current escrow contractId`,
+    );
+  }
+  if (booking.escrowDisputeSubmittedAt !== null && lifecycle.action !== "disputed") {
+    throw new BookingActionPendingError();
+  }
+  if (lifecycle.action === "disputed") {
     throw new BookingEscrowStateError(`Booking "${bookingId}" already has an open dispute`);
   }
   const result = await adapter.startDispute({ contractId: booking.escrowContractId, signerAddress: walletAddress, reason });
   const suggestedOutcome = computeSuggestedOutcome(reason, booking, now);
-  await recordEscrowDisputeOpening(db, {
-    bookingId,
-    contractId: booking.escrowContractId,
-    openedByWallet: walletAddress,
-    reason,
-    suggestedOutcome,
-    txHash: result.txHash,
-    openedAt: Date.now(),
-  });
-  await setEscrowActionTxHash(db, bookingId, "dispute", result.txHash);
+  await setPendingDispute(db, bookingId, { txHash: result.txHash, reason, openerWallet: walletAddress, openerRole: role });
   return { ...result, reason, suggestedOutcome };
 }
 
 export interface AdminDisputeListItem {
   bookingId: string;
   contractId: string;
+  /** `""` when no opening record exists for this booking's current
+   * contract (a dispute raised outside Pactly's own route, in principle) --
+   * see this function's own doc comment. */
   openedByWallet: string;
-  reason: DisputeReason;
+  openedByRole?: DisputeOpenerRole;
+  reason: DisputeReason | "unknown";
   suggestedOutcome?: DisputeOutcome;
   amount: Money;
   provider: BookingProviderSummary;
   clientWalletAddress: string;
   slotStartsAt: number | null;
+  /** Story 3.6 (review round): `"resolve"` while an admin's resolve is
+   * already awaiting chain confirmation for this booking -- the admin UI
+   * hides/disables the row rather than let a second resolve be built. */
+  pendingAction: EscrowActionKind | null;
 }
 
 /**
- * `GET /admin/disputes`: every dispute the chain still shows as open (the
- * reconciler's own latest recorded lifecycle action reads `"disputed"` for
- * the booking's *current* `contractId` -- an opening recorded against a
- * superseded contract, or one the reconciler has since moved past to
- * `"resolved"`/`"released"`, is excluded), plus who opened it, the reason,
- * the policy's own suggested outcome (guidance only -- "The admin may pick
+ * `GET /admin/disputes`: every booking whose reconciler-derived lifecycle
+ * currently reads `"disputed"` for its own `contractId` (review round: driven
+ * from the bookings themselves, not from `escrow_dispute_openings`, since an
+ * opening is now only ever recorded once a dispute build is actually
+ * submitted -- a booking can be genuinely disputed on chain with no opening
+ * record at all if the dispute was raised outside Pactly's own route),
+ * left-joined to its own opening record (`reason: "unknown"` when none
+ * matches the booking's current contract), plus the opener's role, the
+ * policy's own suggested outcome (guidance only -- "The admin may pick
  * either outcome" per the spec's own "Always" rule), and the deposit amount.
- * Route-level authorization (an admin wallet) is the caller's job; this
- * function itself has no notion of "who is allowed to call it".
+ * Provider/slot lookups are batched (deduped ids, `Promise.all`), never one
+ * query per row. Route-level authorization (an admin wallet) is the
+ * caller's job; this function itself has no notion of "who is allowed to
+ * call it".
  */
 export async function listOpenDisputes(db: Db): Promise<AdminDisputeListItem[]> {
-  const openings = await listAllEscrowDisputeOpenings(db);
-  if (openings.length === 0) return [];
+  const candidates = await getReconcilableBookings(db);
+  if (candidates.length === 0) return [];
 
-  const bookingRows = await getBookingsByIds(
+  const candidateBookings = candidates.map((candidate) => candidate.booking);
+  const lifecycleByBooking = await getEscrowLifecycleForBookings(db, candidateBookings);
+  const disputedBookings = candidateBookings.filter((booking) => lifecycleByBooking.get(booking.id)?.action === "disputed");
+  if (disputedBookings.length === 0) return [];
+
+  const openingByBooking = await getEscrowDisputeOpeningsForBookings(
     db,
-    openings.map((opening) => opening.bookingId),
+    disputedBookings.map((booking) => booking.id),
   );
-  const bookingById = new Map(bookingRows.map((booking) => [booking.id, booking]));
-  const lifecycleByBooking = await getEscrowLifecycleForBookings(db, bookingRows);
 
-  const items: AdminDisputeListItem[] = [];
-  for (const opening of openings) {
-    const booking = bookingById.get(opening.bookingId);
-    // An opening recorded for a contractId the booking no longer names (an
-    // abandoned deploy long since rebuilt, in principle) is stale evidence,
-    // never shown as an open dispute against the booking's current escrow.
-    if (!booking || booking.escrowContractId !== opening.contractId) continue;
-    const lifecycle = lifecycleByBooking.get(opening.bookingId);
-    if (lifecycle?.action !== "disputed") continue;
+  const providerIds = [...new Set(disputedBookings.map((booking) => booking.providerProfileId))];
+  const profiles = await Promise.all(providerIds.map((id) => getProviderProfileById(db, id)));
+  const profileById = new Map(profiles.filter((profile): profile is NonNullable<typeof profile> => Boolean(profile)).map((profile) => [profile.id, profile]));
 
-    const profile = await getProviderProfileById(db, booking.providerProfileId);
-    const slot = booking.slotId ? await getSlotById(db, booking.slotId) : undefined;
-    items.push({
+  const slotIds = [...new Set(disputedBookings.map((booking) => booking.slotId).filter((id): id is string => id !== null))];
+  const slots = await Promise.all(slotIds.map((id) => getSlotById(db, id)));
+  const slotById = new Map(slots.filter((slot): slot is NonNullable<typeof slot> => Boolean(slot)).map((slot) => [slot.id, slot]));
+
+  return disputedBookings.map((booking) => {
+    const opening = openingByBooking.get(booking.id);
+    const matchesCurrentContract = opening !== undefined && opening.contractId === booking.escrowContractId;
+    const profile = profileById.get(booking.providerProfileId);
+    const slot = booking.slotId ? slotById.get(booking.slotId) : undefined;
+    return {
       bookingId: booking.id,
-      contractId: opening.contractId,
-      openedByWallet: opening.openedByWallet,
-      reason: opening.reason,
-      suggestedOutcome: opening.suggestedOutcome ?? undefined,
+      contractId: booking.escrowContractId as string,
+      openedByWallet: matchesCurrentContract ? opening.openedByWallet : "",
+      openedByRole: matchesCurrentContract ? (opening.openedByRole ?? undefined) : undefined,
+      reason: matchesCurrentContract ? opening.reason : "unknown",
+      suggestedOutcome: matchesCurrentContract ? (opening.suggestedOutcome ?? undefined) : undefined,
       amount: { amount: booking.depositAmount, asset: ASSET },
       provider: profile
         ? { id: profile.id, displayName: profile.displayName, title: profile.title }
         : { id: booking.providerProfileId, displayName: "", title: "" },
       clientWalletAddress: booking.clientWalletAddress,
       slotStartsAt: slot?.startsAt ?? null,
-    });
-  }
-  return items;
+      pendingAction: derivePendingAction(booking, "disputed"),
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1005,6 +1114,29 @@ export async function getBookingForClientOrProvider(
   throw new BookingNotFoundError();
 }
 
+/**
+ * Story 3.6 (review round): which of the five Story 3.6 actions this
+ * booking has a signed transaction already relayed for, but whose own
+ * chain-derived lifecycle has not yet moved past it -- `null` when no
+ * action is pending. Checked in this priority order (dispute first: it can
+ * be raised from any state, so a pending dispute matters more than whatever
+ * else was also mid-flight): `dispute` (submitted, lifecycle not yet
+ * `"disputed"`), `resolve` (submitted, lifecycle still `"disputed"`),
+ * `release` (submitted, lifecycle still `"approved"`), `approve` (submitted,
+ * lifecycle still `"funded"`/`"completed"`), `complete` (submitted,
+ * lifecycle still `"funded"`). Shared by `getBookingView` and the two list
+ * builders below so the three routes can never derive a different answer
+ * for the same booking.
+ */
+function derivePendingAction(booking: BookingRow, lifecycleAction: EscrowLifecycleAction | undefined): EscrowActionKind | null {
+  if (booking.escrowDisputeSubmittedAt !== null && lifecycleAction !== "disputed") return "dispute";
+  if (booking.escrowResolveSubmittedAt !== null && lifecycleAction === "disputed") return "resolve";
+  if (booking.escrowReleaseSubmittedAt !== null && lifecycleAction === "approved") return "release";
+  if (booking.escrowApproveSubmittedAt !== null && (lifecycleAction === "funded" || lifecycleAction === "completed")) return "approve";
+  if (booking.escrowCompleteSubmittedAt !== null && lifecycleAction === "funded") return "complete";
+  return null;
+}
+
 export interface BookingView {
   id: string;
   escrowState: BookingRow["escrowState"];
@@ -1012,6 +1144,8 @@ export interface BookingView {
    * `getEscrowLifecycle`) -- `undefined` fields when nothing has been
    * recorded yet. */
   lifecycle: { contractId?: string; action?: string; outcome?: DisputeOutcome };
+  /** Story 3.6 (review round): see {@link derivePendingAction}. */
+  pendingAction: EscrowActionKind | null;
   holdExpiresAt: number | null;
   contractId: string | null;
   deposit: Money;
@@ -1039,6 +1173,7 @@ export async function getBookingView(db: Db, bookingId: string, walletAddress: s
     id: booking.id,
     escrowState: booking.escrowState,
     lifecycle: { contractId: lifecycle.contractId, action: lifecycle.action, outcome: lifecycle.outcome },
+    pendingAction: derivePendingAction(booking, lifecycle.action),
     holdExpiresAt: booking.holdExpiresAt,
     contractId: booking.escrowContractId,
     deposit: { amount: booking.depositAmount, asset: ASSET },
@@ -1071,16 +1206,92 @@ function computeSignedTransactionHash(signedXdr: string): string {
 }
 
 /**
- * Relays a client-signed transaction to Trustless Work, over the adapter's
- * own `submit` -- but only once this booking's own records confirm the
- * signed envelope actually is one Pactly built for it. Review follow-up:
- * `submitSignedTransaction` previously relayed *any* signed XDR handed to
- * it, unchecked -- a stranger's (or a stale, or a wrong-booking) signed
- * transaction could be relayed through someone else's booking. This
- * decodes the envelope, computes its own hash, and requires that hash to
- * equal the booking's own stored `escrowDeployTxHash` or
- * `escrowFundTxHash`; anything else is refused (typed
- * {@link XdrMismatchError}) before the adapter is ever called.
+ * Story 3.6 (review round): who is submitting -- resolved once, here, from
+ * the booking and Pactly's own admin config, so both the route and
+ * {@link submitSignedTransaction} agree on it without re-deriving it twice.
+ * `"resolver"` is a global role (Pactly's own dispute-resolver wallet,
+ * `config.adminWallets` intersected with `config.trustlessWorkPlatformAddress`)
+ * -- unlike `"client"`/`"provider"`, it is not itself a role *on this
+ * booking*, so it is checked last, after ownership. A wallet holding none
+ * of the three gets the same {@link BookingNotFoundError} every other
+ * ownership check in this file gives.
+ */
+export type SubmitRole = "client" | "provider" | "resolver";
+
+export async function resolveSubmitRole(db: Db, bookingId: string, walletAddress: string): Promise<{ booking: BookingRow; role: SubmitRole }> {
+  const booking = await getBookingById(db, bookingId);
+  if (!booking) {
+    throw new BookingNotFoundError();
+  }
+  if (booking.clientWalletAddress === walletAddress) {
+    return { booking, role: "client" };
+  }
+  const providerAddress = await requireProviderAddress(db, booking);
+  if (providerAddress === walletAddress) {
+    return { booking, role: "provider" };
+  }
+  if (config.adminWallets.includes(walletAddress) && walletAddress === config.trustlessWorkPlatformAddress) {
+    return { booking, role: "resolver" };
+  }
+  throw new BookingNotFoundError();
+}
+
+/** Story 3.6: every action past deploy/fund that stores its own `txHash` on
+ * the booking row (see `db/bookings.ts`'s `EscrowActionKind`/
+ * `setEscrowActionTxHash`) -- named here alongside `deploy`/`fund` so
+ * {@link submitSignedTransaction} can match a signed envelope against every
+ * hash Pactly has ever built for this booking, from one row, in one place. */
+type CandidateActionKind = "deploy" | "fund" | EscrowActionKind;
+
+function candidateActionHashes(booking: BookingRow): ReadonlyArray<{ kind: CandidateActionKind; hash: string | null }> {
+  return [
+    { kind: "deploy", hash: booking.escrowDeployTxHash },
+    { kind: "fund", hash: booking.escrowFundTxHash },
+    { kind: "complete", hash: booking.escrowCompleteTxHash },
+    { kind: "approve", hash: booking.escrowApproveTxHash },
+    { kind: "release", hash: booking.escrowReleaseTxHash },
+    { kind: "dispute", hash: booking.escrowDisputeTxHash },
+    { kind: "resolve", hash: booking.escrowResolveTxHash },
+  ];
+}
+
+/**
+ * Story 3.6 (review round): which action kinds each {@link SubmitRole} may
+ * ever relay -- the client signs deploy/fund/approve (and a dispute, but
+ * only the one *it itself* built: see the `"dispute"` special case below);
+ * the provider signs complete/release (and, symmetrically, its own
+ * dispute); the resolver signs only resolve. Never `"deploy"`/`"fund"` for
+ * anyone but the client, never `"complete"`/`"release"` for anyone but the
+ * provider, never `"resolve"` for anyone but the resolver.
+ */
+const ROLE_ALLOWED_KINDS: Record<SubmitRole, ReadonlySet<CandidateActionKind>> = {
+  client: new Set<CandidateActionKind>(["deploy", "fund", "approve"]),
+  provider: new Set<CandidateActionKind>(["complete", "release"]),
+  resolver: new Set<CandidateActionKind>(["resolve"]),
+};
+
+/** A dispute's own hash may only be relayed by whichever role actually
+ * built it (`booking.pendingDisputeOpenerRole`) -- a client cannot relay a
+ * dispute the provider opened, and vice versa, even though both roles may
+ * open *some* dispute. */
+function isKindAllowedForRole(kind: CandidateActionKind, role: SubmitRole, booking: BookingRow): boolean {
+  if (kind === "dispute") {
+    return (role === "client" || role === "provider") && booking.pendingDisputeOpenerRole === role;
+  }
+  return ROLE_ALLOWED_KINDS[role].has(kind);
+}
+
+/**
+ * Relays a signed transaction to Trustless Work, over the adapter's own
+ * `submit` -- but only once this booking's own records confirm both that
+ * the signed envelope actually is one Pactly built for it, *and* that the
+ * caller's own resolved {@link SubmitRole} is the role that XDR was built
+ * for (review round: previously client-only, which 404'd every provider
+ * complete/release/dispute and every admin resolve). This decodes the
+ * envelope, computes its own hash, and requires that hash to equal one of
+ * the booking's own stored action hashes for a kind {@link isKindAllowedForRole}
+ * grants this role; anything else is refused (typed {@link XdrMismatchError})
+ * before the adapter is ever called.
  *
  * Never checks the hold's expiry (the spec's own "Never" rule: "Submit is
  * allowed after expiry, because a transaction the client already signed
@@ -1093,36 +1304,28 @@ function computeSignedTransactionHash(signedXdr: string): string {
  * `deploySubmittedAt` and extends the hold to ten minutes from now (a
  * write-once, best-effort record -- see {@link recordDeploySubmission}'s
  * own doc comment for why a race or a resubmit never turns into an error
- * here).
+ * here). On a dispute match, this is the one place `escrow_dispute_openings`
+ * is ever written (review round: no longer at build time -- see
+ * `openDispute`'s own doc comment): `suggestedOutcome` is computed fresh
+ * against *this* call's own clock, never a possibly-stale build-time one.
+ * On complete/approve/release/resolve, this records that action's own
+ * `submittedAt` so a fresh build of the same action is refused
+ * (`409 ACTION_PENDING`) until the reconciler observes it.
  */
-/** Story 3.6: every action past deploy/fund that stores its own `txHash` on
- * the booking row (see `db/bookings.ts`'s `EscrowActionKind`/
- * `setEscrowActionTxHash`) -- named here alongside `deploy`/`fund` so
- * {@link submitSignedTransaction} can match a signed envelope against every
- * hash Pactly has ever built for this booking, from one row, in one place. */
-function candidateActionHashes(booking: BookingRow): ReadonlyArray<{ kind: "deploy" | "fund" | EscrowActionKind; hash: string | null }> {
-  return [
-    { kind: "deploy", hash: booking.escrowDeployTxHash },
-    { kind: "fund", hash: booking.escrowFundTxHash },
-    { kind: "complete", hash: booking.escrowCompleteTxHash },
-    { kind: "approve", hash: booking.escrowApproveTxHash },
-    { kind: "release", hash: booking.escrowReleaseTxHash },
-    { kind: "dispute", hash: booking.escrowDisputeTxHash },
-    { kind: "resolve", hash: booking.escrowResolveTxHash },
-  ];
-}
-
 export async function submitSignedTransaction(
   db: Db,
   bookingId: string,
   signedXdr: string,
+  role: SubmitRole,
   adapter: EscrowAdapter = defaultEscrowAdapter,
   now: number = Math.floor(Date.now() / 1000),
 ): Promise<SubmitTransactionResult> {
   const booking = await requireBooking(db, bookingId);
   const hash = computeSignedTransactionHash(signedXdr);
 
-  const match = candidateActionHashes(booking).find((candidate) => candidate.hash !== null && candidate.hash.toLowerCase() === hash);
+  const match = candidateActionHashes(booking).find(
+    (candidate) => candidate.hash !== null && candidate.hash.toLowerCase() === hash && isKindAllowedForRole(candidate.kind, role, booking),
+  );
   if (!match) {
     throw new XdrMismatchError();
   }
@@ -1131,6 +1334,23 @@ export async function submitSignedTransaction(
 
   if (match.kind === "deploy" && booking.escrowContractId && booking.escrowDeployTxHash) {
     await recordDeploySubmission(db, bookingId, booking.escrowContractId, booking.escrowDeployTxHash, now + HOLD_DURATION_SECONDS, now);
+  } else if (match.kind === "dispute") {
+    if (booking.escrowContractId && booking.pendingDisputeReason && booking.pendingDisputeOpenerWallet && booking.pendingDisputeOpenerRole) {
+      const suggestedOutcome = computeSuggestedOutcome(booking.pendingDisputeReason, booking, now);
+      await recordEscrowDisputeOpening(db, {
+        bookingId,
+        contractId: booking.escrowContractId,
+        openedByWallet: booking.pendingDisputeOpenerWallet,
+        openedByRole: booking.pendingDisputeOpenerRole,
+        reason: booking.pendingDisputeReason,
+        suggestedOutcome,
+        txHash: hash,
+        openedAt: now,
+      });
+    }
+    await setEscrowActionSubmittedAt(db, bookingId, "dispute", now);
+  } else if (match.kind === "complete" || match.kind === "approve" || match.kind === "release" || match.kind === "resolve") {
+    await setEscrowActionSubmittedAt(db, bookingId, match.kind, now);
   }
 
   return result;
@@ -1199,6 +1419,8 @@ export interface BookingListItemBase {
   price: Money;
   escrowState: BookingRow["escrowState"];
   lifecycle: { contractId?: string; action?: string; outcome?: DisputeOutcome };
+  /** Story 3.6 (review round): see `derivePendingAction`'s own doc comment. */
+  pendingAction: EscrowActionKind | null;
   balanceState: BalanceState;
   cancelDeadline: number;
   contractId: string | null;
@@ -1256,6 +1478,7 @@ function toBookingListItemBase(
     price: { amount: (BigInt(booking.depositAmount) + BigInt(booking.balanceAmount)).toString(), asset: ASSET },
     escrowState: booking.escrowState,
     lifecycle: { contractId: lifecycle?.contractId, action: lifecycle?.action, outcome: lifecycle?.outcome },
+    pendingAction: derivePendingAction(booking, lifecycle?.action),
     balanceState: booking.balanceState,
     cancelDeadline: booking.cancelDeadline,
     contractId: booking.escrowContractId,
