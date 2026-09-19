@@ -9,6 +9,12 @@ description = "Pactly escrow contract: locks a booking deposit until release or 
 crate-type = ["cdylib", "rlib"]
 doctest = false
 
+# AC3 of Story 1.3: the wasm must build with no warnings. Denying them here is
+# what enforces it — in particular `deprecated`, which is why the contract's
+# events use `#[contractevent]` rather than the deprecated `events().publish`.
+[lints.rust]
+warnings = "deny"
+
 [dependencies]
 soroban-sdk = "=27.0.6"
 

@@ -25,4 +25,7 @@ pub enum Error {
     /// The cancellation deadline is not inside the window the contract accepts:
     /// it is already in the past, or further out than a stored booking's TTL.
     InvalidDeadline = 7,
+    /// The professional and the client are the same address, or a party is the
+    /// escrow contract itself. Neither describes a real booking.
+    InvalidParties = 8,
 }

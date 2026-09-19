@@ -12,7 +12,11 @@ use soroban_sdk::{
 
 use crate::storage::{self, DataKey, BUMP_LEDGERS};
 use crate::types::{Booking, BookingId, BookingState};
-use crate::{EscrowContract, EscrowContractClient, Error, MAX_DEADLINE_AHEAD_SECONDS};
+use crate::storage::LEDGER_CLOSE_SECONDS;
+use crate::{
+    EscrowContract, EscrowContractClient, Error, MAX_DEADLINE_AHEAD_SECONDS,
+    SETTLEMENT_MARGIN_SECONDS,
+};
 
 fn setup() -> (Env, Address, EscrowContractClient<'static>) {
     let env = Env::default();
@@ -49,6 +53,10 @@ impl Fixture {
         let (env, contract_id, client_contract) = setup();
         env.mock_all_auths();
         env.ledger().set_timestamp(NOW);
+
+        // `create_booking` refuses to lock a deposit in a contract with no
+        // admin, so every fixture starts initialized.
+        client_contract.initialize(&Address::generate(&env));
 
         let token_admin = Address::generate(&env);
         let token = env.register_stellar_asset_contract_v2(token_admin).address();
@@ -339,6 +347,24 @@ fn error_discriminants_are_stable() {
     assert_eq!(Error::InvalidAmount as u32, 5);
     assert_eq!(Error::InvalidState as u32, 6);
     assert_eq!(Error::InvalidDeadline as u32, 7);
+    assert_eq!(Error::InvalidParties as u32, 8);
+}
+
+// The deadline window is a product of three constants in two modules
+// (`BUMP_LEDGERS`, `LEDGER_CLOSE_SECONDS`, `SETTLEMENT_MARGIN_SECONDS`).
+// Pinning the result as wall-clock literals means a change to any one of them
+// has to be a deliberate change to the window, not a silent side effect.
+#[test]
+fn the_deadline_window_constants_are_stable() {
+    const DAY: u64 = 86_400;
+
+    assert_eq!(LEDGER_CLOSE_SECONDS, 5, "seconds per ledger");
+    assert_eq!(BUMP_LEDGERS as u64 * LEDGER_CLOSE_SECONDS, 120 * DAY, "TTL");
+    assert_eq!(SETTLEMENT_MARGIN_SECONDS, 30 * DAY, "settlement margin");
+
+    // A deadline may sit up to 90 days out: the 120-day storage lifetime less
+    // the 30 days a booking must stay settleable after its deadline.
+    assert_eq!(MAX_DEADLINE_AHEAD_SECONDS, 90 * DAY);
 }
 
 // ---------------------------------------------------------------------------
@@ -422,10 +448,60 @@ fn duplicate_booking_id_is_rejected_and_changes_nothing() {
         f.own_events().events().is_empty(),
         "a rejected call must emit no event"
     );
-    assert_eq!(f.token_client().balance(&f.contract_id), balance_after_first);
+    let token = f.token_client();
+    assert_eq!(token.balance(&f.contract_id), balance_after_first);
+    assert_eq!(
+        token.balance(&f.client),
+        1_000_000_000 - f.amount,
+        "the rejected second call charged the client again"
+    );
     f.env.as_contract(&f.contract_id, || {
         let stored = storage::get_booking(&f.env, &f.booking_id).unwrap();
         assert_eq!(stored.amount, f.amount, "the stored record was overwritten");
+    });
+}
+
+// Bookings are independent records keyed by id: a second one under a distinct
+// id coexists with the first, and the contract custodies the sum.
+#[test]
+fn a_second_booking_under_a_distinct_id_coexists_with_the_first() {
+    let f = Fixture::new(1_000_000_000);
+    f.create().unwrap().unwrap();
+
+    let second_id = BytesN::from_array(&f.env, &[0x2e; 16]);
+    let second_amount = 75_000_000_i128;
+    let second_deadline = f.cancel_deadline + 3_600;
+    let second_professional = Address::generate(&f.env);
+
+    assert_eq!(
+        f.client_contract.try_create_booking(
+            &second_id,
+            &second_professional,
+            &f.client,
+            &f.token,
+            &second_amount,
+            &second_deadline,
+        ),
+        Ok(Ok(()))
+    );
+
+    let token = f.token_client();
+    assert_eq!(token.balance(&f.contract_id), f.amount + second_amount);
+    assert_eq!(
+        token.balance(&f.client),
+        1_000_000_000 - f.amount - second_amount
+    );
+
+    // Both records are intact and distinct.
+    f.env.as_contract(&f.contract_id, || {
+        let first = storage::get_booking(&f.env, &f.booking_id).unwrap();
+        let second = storage::get_booking(&f.env, &second_id).unwrap();
+        assert_eq!(first.amount, f.amount);
+        assert_eq!(first.professional, f.professional);
+        assert_eq!(second.amount, second_amount);
+        assert_eq!(second.professional, second_professional);
+        assert_eq!(second.cancel_deadline, second_deadline);
+        assert_eq!(second.state, BookingState::Locked);
     });
 }
 
@@ -472,14 +548,99 @@ fn deadline_beyond_the_ttl_window_is_rejected_and_stores_nothing() {
 }
 
 // The edge of that window is still accepted, so the boundary is exact rather
-// than approximately right.
+// than approximately right. The bound sits a settlement margin short of the
+// storage lifetime, so a booking created here still has 30 days of readable
+// life after its deadline — the window `resolve_cancel` acts in.
 #[test]
-fn deadline_at_the_edge_of_the_ttl_window_is_accepted() {
+fn deadline_at_the_edge_of_the_accepted_window_is_accepted() {
     let mut f = Fixture::new(1_000_000_000);
     f.cancel_deadline = NOW + MAX_DEADLINE_AHEAD_SECONDS;
 
     assert_eq!(f.create(), Ok(Ok(())));
     assert_eq!(f.token_client().balance(&f.contract_id), f.amount);
+
+    // The record outlives its own deadline by the full margin.
+    let entry_expires_at = NOW + BUMP_LEDGERS as u64 * LEDGER_CLOSE_SECONDS;
+    assert_eq!(
+        entry_expires_at - f.cancel_deadline,
+        SETTLEMENT_MARGIN_SECONDS
+    );
+}
+
+// The deadline bound is computed from the ledger timestamp, so a timestamp near
+// the end of the u64 range must not wrap it into a value that rejects
+// everything.
+#[test]
+fn a_ledger_timestamp_near_the_end_of_time_does_not_wrap_the_deadline_bound() {
+    let f = Fixture::new(1_000_000_000);
+    f.env.ledger().set_timestamp(u64::MAX - 1);
+
+    // One second ahead of `now`: comfortably inside the window, and only
+    // reachable if the upper bound saturates instead of wrapping.
+    let result = f.client_contract.try_create_booking(
+        &f.booking_id,
+        &f.professional,
+        &f.client,
+        &f.token,
+        &f.amount,
+        &u64::MAX,
+    );
+
+    assert_eq!(result, Ok(Ok(())));
+}
+
+// A contract with no admin holds no deposits: `initialize` is the gate.
+#[test]
+fn create_booking_before_initialize_reports_not_initialized() {
+    // A bare contract, deliberately not the initialized `Fixture`.
+    let (env, contract_id, contract) = setup();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(NOW);
+
+    let token_admin = Address::generate(&env);
+    let token = env.register_stellar_asset_contract_v2(token_admin).address();
+    let client = Address::generate(&env);
+    StellarAssetClient::new(&env, &token).mint(&client, &1_000_000_000);
+
+    let booking_id = BytesN::from_array(&env, &[0x1d; 16]);
+    let result = contract.try_create_booking(
+        &booking_id,
+        &Address::generate(&env),
+        &client,
+        &token,
+        &250_000_000_i128,
+        &(NOW + 86_400),
+    );
+
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
+    assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), 0);
+    env.as_contract(&contract_id, || {
+        assert!(!storage::has_booking(&env, &booking_id));
+    });
+}
+
+// A booking whose professional is its own client pays the deposit straight back
+// to the payer, and would still count as a session that provider delivered.
+#[test]
+fn a_client_cannot_be_their_own_professional() {
+    let mut f = Fixture::new(1_000_000_000);
+    f.professional = f.client.clone();
+
+    assert_eq!(f.create(), Err(Ok(Error::InvalidParties)));
+
+    assert_no_effect(&f, 1_000_000_000);
+}
+
+// The escrow is the custodian, never a counterparty: a deposit owed to the
+// contract itself could not be reached by release or by resolve_cancel.
+#[test]
+fn the_escrow_contract_cannot_be_the_professional() {
+    let mut f = Fixture::new(1_000_000_000);
+    f.professional = f.contract_id.clone();
+
+    assert_eq!(f.create(), Err(Ok(Error::InvalidParties)));
+
+    assert_no_effect(&f, 1_000_000_000);
 }
 
 // Matrix row: client did not authorize.
@@ -497,6 +658,35 @@ fn without_the_clients_authorization_nothing_is_stored_or_transferred() {
     );
 
     assert_no_effect(&f, 1_000_000_000);
+}
+
+// `require_auth` must run before any validation or storage read. Otherwise an
+// unsigned call that gets back `BookingExists` rather than an auth failure is a
+// free oracle for whether a given booking id is in use.
+#[test]
+fn create_booking_checks_authorization_before_validation_and_storage() {
+    let f = Fixture::new(1_000_000_000);
+    f.create().unwrap().unwrap();
+
+    // Switch to enforcing auth with no signatures supplied.
+    f.env.set_auths(&[]);
+
+    // An id that exists *and* an amount that fails validation: whichever check
+    // ran first would return its own contract error and answer the question.
+    let result = f.client_contract.try_create_booking(
+        &f.booking_id,
+        &f.professional,
+        &f.client,
+        &f.token,
+        &0_i128,
+        &f.cancel_deadline,
+    );
+
+    assert_eq!(
+        result,
+        Err(Err(InvokeError::Abort)),
+        "expected the host auth error, not Error::BookingExists or Error::InvalidAmount"
+    );
 }
 
 // Only the client's own signature authorizes the deposit: neither the
@@ -546,6 +736,11 @@ fn only_the_clients_own_authorization_creates_a_booking() {
     assert_eq!(f.token_client().balance(&f.contract_id), f.amount);
 }
 
+/// The Stellar Asset Contract's `BalanceError`, raised when a transfer would
+/// take a balance below zero. Numbered in the host, not in this crate:
+/// `soroban_env_host::builtin_contracts::contract_error::ContractError::BalanceError = 10`.
+const SAC_BALANCE_ERROR: u32 = 10;
+
 // Matrix row: client cannot cover the amount. The token contract's own error
 // propagates and aborts the call, so nothing is stored.
 #[test]
@@ -553,10 +748,12 @@ fn an_underfunded_client_cannot_lock_a_deposit() {
     // Funded with one unit less than the deposit.
     let f = Fixture::new(250_000_000 - 1);
 
-    let result = f.create();
-    assert!(
-        matches!(result, Err(Err(_))),
-        "expected the token contract's error to abort the call, got {result:?}"
+    // Pinned to the token's insufficient-balance error specifically: accepting
+    // any host error would also accept an auth failure or a panic in this
+    // contract, which is the opposite of what this row is about.
+    assert_eq!(
+        f.create(),
+        Err(Err(InvokeError::Contract(SAC_BALANCE_ERROR)))
     );
 
     assert_no_effect(&f, 250_000_000 - 1);
@@ -564,8 +761,12 @@ fn an_underfunded_client_cannot_lock_a_deposit() {
 
 /// A rejected call moved no tokens, stored no booking and emitted no event.
 ///
-/// The event check comes first: `events().all()` reports only the last contract
-/// invocation, and reading a balance is one.
+/// The event check comes first because `events().all()` only ever describes the
+/// most recent contract invocation, and reading a balance is one — asking after
+/// a balance read would find an empty list whatever `create_booking` did. Note
+/// this assertion alone is weak evidence: the host discards the events of a
+/// failed invocation anyway. The storage and balance checks below are what
+/// actually show nothing happened.
 fn assert_no_effect(f: &Fixture, funding: i128) {
     assert!(
         f.own_events().events().is_empty(),

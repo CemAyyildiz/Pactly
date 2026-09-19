@@ -18,18 +18,25 @@ pub use types::{Booking, BookingId, BookingState};
 
 use soroban_sdk::{contract, contractimpl, token::TokenClient, Address, Env};
 
-/// The network's target ledger close time, in seconds.
+use storage::LEDGER_CLOSE_SECONDS;
+
+/// How long a booking must stay readable *after* its `cancel_deadline`.
 ///
-/// Used only to turn [`storage::BUMP_LEDGERS`] into a span of wall-clock time;
-/// the contract never assumes ledgers close on schedule for anything else.
-const LEDGER_CLOSE_SECONDS: u64 = 5;
+/// The deadline is when a booking becomes settleable, not when it is settled:
+/// Story 1.5's `resolve_cancel` transfers a no-show to the professional only
+/// once the deadline has passed. A booking whose entry expires at the deadline
+/// would therefore archive exactly as its settlement window opens, stranding
+/// the deposit. 30 days is the grace period between the two.
+const SETTLEMENT_MARGIN_SECONDS: u64 = 30 * 86_400;
 
 /// How far into the future a `cancel_deadline` may sit, in seconds.
 ///
 /// A booking's storage entry lives for [`storage::BUMP_LEDGERS`] ledgers past
-/// its last write. A deadline beyond that could outlive the record itself,
-/// which would strand a locked deposit, so such a booking is never created.
-const MAX_DEADLINE_AHEAD_SECONDS: u64 = storage::BUMP_LEDGERS as u64 * LEDGER_CLOSE_SECONDS;
+/// its last write. The accepted deadline stops a full
+/// [`SETTLEMENT_MARGIN_SECONDS`] short of that, so the record outlives not just
+/// the deadline but the window in which the deadline can still be acted on.
+const MAX_DEADLINE_AHEAD_SECONDS: u64 =
+    storage::BUMP_LEDGERS as u64 * LEDGER_CLOSE_SECONDS - SETTLEMENT_MARGIN_SECONDS;
 
 #[contract]
 pub struct EscrowContract;
@@ -70,11 +77,15 @@ impl EscrowContract {
     /// `amount` is in the token's smallest unit; `cancel_deadline` is UTC epoch
     /// seconds, the same unit as the ledger timestamp.
     ///
-    /// Validation runs cheapest-first and the transfer is last, so a rejected
-    /// call has never moved tokens: [`Error::InvalidAmount`] for a non-positive
-    /// amount, [`Error::InvalidDeadline`] for a deadline already past or
-    /// further out than a stored record's lifetime, [`Error::BookingExists`]
-    /// for an id already in use.
+    /// Authorization is checked first, then every validation, and only then is
+    /// anything done: the transfer, the write and the event all come after the
+    /// last check, so a rejected call has moved no tokens and left no trace.
+    /// [`Error::NotInitialized`] before `initialize` has run,
+    /// [`Error::InvalidAmount`] for a non-positive amount,
+    /// [`Error::InvalidDeadline`] for a deadline already past or further out
+    /// than a stored record's settleable lifetime, [`Error::InvalidParties`]
+    /// when the professional is the client or this contract, and
+    /// [`Error::BookingExists`] for an id already in use.
     pub fn create_booking(
         env: Env,
         booking_id: BookingId,
@@ -85,6 +96,12 @@ impl EscrowContract {
         cancel_deadline: u64,
     ) -> Result<(), Error> {
         client.require_auth();
+
+        // Auth first, so an unsigned call never learns anything; this guard
+        // next, so no deposit can be locked in a contract that has no admin.
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
 
         if amount <= 0 {
             return Err(Error::InvalidAmount);
@@ -100,17 +117,23 @@ impl EscrowContract {
             return Err(Error::InvalidDeadline);
         }
 
+        // A booking whose professional is its own client would round-trip the
+        // deposit back to whoever paid it, and still count as a completed
+        // session for that provider. The contract cannot be a party either: it
+        // is the custodian, and paying itself would make the deposit
+        // unreachable by either settlement path.
+        let escrow = env.current_contract_address();
+        if professional == client || professional == escrow {
+            return Err(Error::InvalidParties);
+        }
+
         if storage::has_booking(&env, &booking_id) {
             return Err(Error::BookingExists);
         }
 
         // The money moves before anything is written, so a failed transfer —
         // an underfunded client, say — leaves no record behind.
-        TokenClient::new(&env, &token).transfer(
-            &client,
-            &env.current_contract_address(),
-            &amount,
-        );
+        TokenClient::new(&env, &token).transfer(&client, &escrow, &amount);
 
         storage::set_booking(
             &env,

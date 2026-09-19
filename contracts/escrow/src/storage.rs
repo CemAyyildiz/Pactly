@@ -15,8 +15,16 @@ use soroban_sdk::{contracttype, Address, Env};
 use crate::error::Error;
 use crate::types::{Booking, BookingId};
 
-/// Ledgers closed in roughly one day at the ~5 second target close time.
-const DAY_IN_LEDGERS: u32 = 17_280;
+/// The network's target ledger close time, in seconds.
+///
+/// The single source of the seconds-per-ledger assumption: [`DAY_IN_LEDGERS`]
+/// is derived from it below, and `lib.rs` imports it to turn [`BUMP_LEDGERS`]
+/// back into a span of wall-clock time. Two copies of this number could drift
+/// apart and silently widen the deadline window past the TTL it is bounded by.
+pub const LEDGER_CLOSE_SECONDS: u64 = 5;
+
+/// Ledgers closed in roughly one day at the target close time.
+const DAY_IN_LEDGERS: u32 = (86_400 / LEDGER_CLOSE_SECONDS) as u32;
 
 /// How far ahead a persistent entry's TTL is pushed when it is written.
 ///
