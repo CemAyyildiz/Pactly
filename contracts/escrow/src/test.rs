@@ -7,10 +7,10 @@ use soroban_sdk::{
         MockAuthInvoke,
     },
     token::{StellarAssetClient, TokenClient},
-    vec, Address, BytesN, ConversionError, Env, IntoVal, InvokeError, Val, Vec,
+    vec, Address, BytesN, ConversionError, Env, IntoVal, InvokeError, Symbol, Val, Vec,
 };
 
-use crate::storage::{self, DataKey, BUMP_LEDGERS};
+use crate::storage::{self, DataKey, BUMP_LEDGERS, BUMP_THRESHOLD_LEDGERS};
 use crate::types::{Booking, BookingId, BookingState};
 use crate::storage::LEDGER_CLOSE_SECONDS;
 use crate::{
@@ -28,10 +28,11 @@ fn setup() -> (Env, Address, EscrowContractClient<'static>) {
 /// A ledger timestamp far enough from zero that "before now" is expressible.
 const NOW: u64 = 1_767_225_600;
 
-/// What `try_create_booking` returns: `Ok(Ok(()))` on success, `Err(Ok(error))`
-/// for a contract error, `Err(Err(..))` for a host error such as a failed
-/// `require_auth` or a token contract that trapped.
-type CreateResult = Result<Result<(), ConversionError>, Result<Error, InvokeError>>;
+/// What every `try_*` entry point returns: `Ok(Ok(()))` on success,
+/// `Err(Ok(error))` for a contract error, `Err(Err(..))` for a host error such
+/// as a failed `require_auth` or a token contract that trapped. One alias for
+/// all of them, so a change to the client's error representation is made once.
+type CallResult = Result<Result<(), ConversionError>, Result<Error, InvokeError>>;
 
 /// What `create_booking` is called with, so a test only states what it changes.
 struct Fixture {
@@ -81,7 +82,7 @@ impl Fixture {
         }
     }
 
-    fn create(&self) -> CreateResult {
+    fn create(&self) -> CallResult {
         self.client_contract.try_create_booking(
             &self.booking_id,
             &self.professional,
@@ -90,6 +91,10 @@ impl Fixture {
             &self.amount,
             &self.cancel_deadline,
         )
+    }
+
+    fn release(&self) -> CallResult {
+        self.client_contract.try_release(&self.booking_id)
     }
 
     fn token_client(&self) -> TokenClient<'_> {
@@ -101,9 +106,13 @@ impl Fixture {
         self.env.events().all().filter_by_contract(&self.contract_id)
     }
 
-    fn expected_locked_event(&self) -> Vec<(Address, Vec<Val>, Val)> {
-        let topics: Vec<Val> =
-            (symbol_short!("locked"), self.booking_id.clone()).into_val(&self.env);
+    /// The one money event this fixture's booking produces under `name`.
+    ///
+    /// `locked` and `released` share a wire shape by design — topics
+    /// `(name, booking_id)`, data `amount` — so one builder describes both, and
+    /// a divergence in either would fail here.
+    fn expected_event(&self, name: Symbol) -> Vec<(Address, Vec<Val>, Val)> {
+        let topics: Vec<Val> = (name, self.booking_id.clone()).into_val(&self.env);
         vec![
             &self.env,
             (
@@ -113,6 +122,37 @@ impl Fixture {
             ),
         ]
     }
+
+    fn expected_locked_event(&self) -> Vec<(Address, Vec<Val>, Val)> {
+        self.expected_event(symbol_short!("locked"))
+    }
+
+    fn expected_released_event(&self) -> Vec<(Address, Vec<Val>, Val)> {
+        self.expected_event(symbol_short!("released"))
+    }
+
+    /// Everything a rejected call must leave exactly as it found it.
+    fn snapshot(&self) -> Snapshot {
+        let token = self.token_client();
+        Snapshot {
+            escrow: token.balance(&self.contract_id),
+            professional: token.balance(&self.professional),
+            client: token.balance(&self.client),
+            booking: self.env.as_contract(&self.contract_id, || {
+                storage::get_booking(&self.env, &self.booking_id).ok()
+            }),
+        }
+    }
+}
+
+/// The three balances and the stored record at one point in time.
+#[derive(Debug, Eq, PartialEq)]
+struct Snapshot {
+    escrow: i128,
+    professional: i128,
+    client: i128,
+    /// `None` when nothing is stored under the fixture's booking id.
+    booking: Option<Booking>,
 }
 
 #[test]
@@ -783,6 +823,378 @@ fn assert_no_effect(f: &Fixture, funding: i128) {
         assert!(
             !storage::has_booking(&f.env, &f.booking_id),
             "a rejected call wrote a booking"
+        );
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Story 1.4 — release
+// ---------------------------------------------------------------------------
+
+/// How much the fixture's client starts with, and what every balance assertion
+/// in this section is measured against.
+const FUNDING: i128 = 1_000_000_000;
+
+/// A fixture whose deposit is already locked — `release`'s only precondition.
+fn locked_fixture() -> Fixture {
+    let f = Fixture::new(FUNDING);
+    f.create().unwrap().unwrap();
+    f
+}
+
+/// A rejected `release` moved no tokens and left the record exactly as it was.
+///
+/// `before` is taken *before* the call. The event check comes first because
+/// `events().all()` only ever describes the most recent contract invocation, and
+/// reading a balance is one; on its own it is also weak evidence, since the host
+/// discards a failed invocation's events anyway. The snapshot comparison is what
+/// actually shows nothing happened.
+fn assert_release_changed_nothing(f: &Fixture, before: &Snapshot) {
+    assert!(
+        f.own_events().events().is_empty(),
+        "a rejected release emitted an event"
+    );
+    assert_eq!(
+        f.snapshot(),
+        *before,
+        "a rejected release moved tokens or rewrote the record"
+    );
+}
+
+// Matrix row: deposit released.
+#[test]
+fn deposit_is_released_and_the_professional_is_paid() {
+    let f = locked_fixture();
+
+    assert_eq!(f.release(), Ok(Ok(())));
+
+    // The `released` event carries the booking id in its topics and the amount
+    // as data — `locked`'s shape exactly. Checked first: `events().all()` only
+    // covers the last invocation, and reading a balance is one.
+    assert_eq!(f.own_events(), f.expected_released_event());
+
+    // The professional holds exactly the deposit and the escrow holds nothing
+    // for it: no fee, no cut, no partial release.
+    let token = f.token_client();
+    assert_eq!(token.balance(&f.professional), f.amount);
+    assert_eq!(
+        token.balance(&f.contract_id),
+        0,
+        "the escrow still holds the deposit"
+    );
+    assert_eq!(token.balance(&f.client), FUNDING - f.amount);
+
+    // Only `state` moved; every other field is as it was stored.
+    f.env.as_contract(&f.contract_id, || {
+        let stored = storage::get_booking(&f.env, &f.booking_id).unwrap();
+        assert_eq!(
+            stored,
+            Booking {
+                professional: f.professional.clone(),
+                client: f.client.clone(),
+                token: f.token.clone(),
+                amount: f.amount,
+                cancel_deadline: f.cancel_deadline,
+                state: BookingState::Released,
+            }
+        );
+    });
+}
+
+// The release write must bump the TTL too, or a released record could be
+// archived while the backend still needs to read the outcome.
+#[test]
+fn releasing_a_deposit_bumps_the_bookings_ttl() {
+    let f = locked_fixture();
+
+    // Advance past the bump threshold first: straight after `create_booking`
+    // the TTL is already at its ceiling, so a `release` that never bumped would
+    // still look correct.
+    let sequence = f.env.ledger().sequence();
+    f.env
+        .ledger()
+        .set_sequence_number(sequence + 2 * (BUMP_LEDGERS - BUMP_THRESHOLD_LEDGERS));
+
+    let key = DataKey::Booking(f.booking_id.clone());
+    f.env.as_contract(&f.contract_id, || {
+        assert!(
+            f.env.storage().persistent().get_ttl(&key) < BUMP_THRESHOLD_LEDGERS,
+            "the entry was not yet due for a bump, so this test proves nothing"
+        );
+    });
+
+    f.release().unwrap().unwrap();
+
+    f.env.as_contract(&f.contract_id, || {
+        assert_eq!(f.env.storage().persistent().get_ttl(&key), BUMP_LEDGERS);
+    });
+}
+
+// Matrix row: unknown booking id.
+#[test]
+fn releasing_an_unknown_booking_id_is_rejected_and_changes_nothing() {
+    let f = locked_fixture();
+    let before = f.snapshot();
+
+    let unknown_id = BytesN::from_array(&f.env, &[0x77; 16]);
+
+    assert_eq!(
+        f.client_contract.try_release(&unknown_id),
+        Err(Ok(Error::BookingNotFound))
+    );
+
+    assert_release_changed_nothing(&f, &before);
+    // The snapshot only watches the fixture's own id, so the id that was asked
+    // for needs its own check: a rejected call must not have created it either.
+    f.env.as_contract(&f.contract_id, || {
+        assert!(
+            !storage::has_booking(&f.env, &unknown_id),
+            "a rejected release wrote a booking under the unknown id"
+        );
+    });
+}
+
+// `release` must read the record before it can know whose signature to demand,
+// so an unknown id is answerable without one. Deliberate, not accidental:
+// booking ids are generated off chain and carry no secret.
+#[test]
+fn an_unknown_booking_id_is_reported_without_any_authorization() {
+    let f = locked_fixture();
+    let before = f.snapshot();
+    // Switch from `mock_all_auths` to enforcing auth with no signatures supplied.
+    f.env.set_auths(&[]);
+
+    let unknown_id = BytesN::from_array(&f.env, &[0x77; 16]);
+
+    assert_eq!(
+        f.client_contract.try_release(&unknown_id),
+        Err(Ok(Error::BookingNotFound))
+    );
+
+    // What it may disclose is the id's absence — never anyone's money.
+    assert_release_changed_nothing(&f, &before);
+}
+
+// Matrix row: already released.
+#[test]
+fn releasing_an_already_released_booking_is_rejected_and_changes_nothing() {
+    let f = locked_fixture();
+    f.release().unwrap().unwrap();
+
+    let before = f.snapshot();
+
+    assert_eq!(f.release(), Err(Ok(Error::InvalidState)));
+
+    assert_release_changed_nothing(&f, &before);
+    assert_eq!(
+        before.booking.as_ref().map(|b| b.state),
+        Some(BookingState::Released),
+        "the record should still read Released"
+    );
+}
+
+// Matrix row: released twice in a row. The state check is what stands between a
+// repeated call and a second payout.
+#[test]
+fn releasing_twice_pays_the_professional_exactly_once() {
+    let f = locked_fixture();
+
+    assert_eq!(f.release(), Ok(Ok(())));
+    assert_eq!(f.release(), Err(Ok(Error::InvalidState)));
+
+    assert!(
+        f.own_events().events().is_empty(),
+        "the second release emitted an event"
+    );
+
+    let token = f.token_client();
+    assert_eq!(
+        token.balance(&f.professional),
+        f.amount,
+        "the professional was paid more than once"
+    );
+    assert_eq!(token.balance(&f.contract_id), 0);
+    assert_eq!(token.balance(&f.client), FUNDING - f.amount);
+}
+
+// Matrix row: already refunded. Story 1.5 owns the refund path, so the terminal
+// state is written directly here — what this row is about is that `release`
+// refuses it, not how the booking got there.
+#[test]
+fn releasing_a_refunded_booking_is_rejected_and_changes_nothing() {
+    let f = locked_fixture();
+    f.env.as_contract(&f.contract_id, || {
+        let mut booking = storage::get_booking(&f.env, &f.booking_id).unwrap();
+        booking.state = BookingState::Refunded;
+        storage::set_booking(&f.env, &f.booking_id, &booking);
+    });
+
+    let before = f.snapshot();
+
+    assert_eq!(f.release(), Err(Ok(Error::InvalidState)));
+
+    assert_release_changed_nothing(&f, &before);
+}
+
+// Matrix row: client did not authorize.
+#[test]
+fn release_without_the_clients_authorization_changes_nothing() {
+    let f = locked_fixture();
+    let before = f.snapshot();
+
+    // Switch from `mock_all_auths` to enforcing auth with no signatures supplied.
+    f.env.set_auths(&[]);
+
+    // A host auth error (`Err(Err(..))`), not a contract error (`Err(Ok(..))`).
+    assert_eq!(
+        f.release(),
+        Err(Err(InvokeError::Abort)),
+        "expected the host auth error, not a contract error"
+    );
+
+    assert_release_changed_nothing(&f, &before);
+}
+
+// Matrix row: someone else authorizes. Only the client recorded on the booking
+// can release it — not the payee, and not the platform's own key.
+#[test]
+fn only_the_clients_own_authorization_releases_the_deposit() {
+    let f = locked_fixture();
+    let before = f.snapshot();
+    let args: Vec<Val> = (f.booking_id.clone(),).into_val(&f.env);
+
+    // The professional signing the same call does not authorize it: the payee
+    // must never be able to pay themselves.
+    f.env.mock_auths(&[MockAuth {
+        address: &f.professional,
+        invoke: &MockAuthInvoke {
+            contract: &f.contract_id,
+            fn_name: "release",
+            args: args.clone(),
+            sub_invokes: &[],
+        },
+    }]);
+    assert_eq!(f.release(), Err(Err(InvokeError::Abort)));
+    assert_release_changed_nothing(&f, &before);
+
+    // Nor does a third party's — the backend's signing key, in practice.
+    let stranger = Address::generate(&f.env);
+    f.env.mock_auths(&[MockAuth {
+        address: &stranger,
+        invoke: &MockAuthInvoke {
+            contract: &f.contract_id,
+            fn_name: "release",
+            args: args.clone(),
+            sub_invokes: &[],
+        },
+    }]);
+    assert_eq!(f.release(), Err(Err(InvokeError::Abort)));
+    assert_release_changed_nothing(&f, &before);
+
+    // The client's own signature for that same call does. The payout itself
+    // needs no signature: the escrow is paying from its own address.
+    f.env.mock_auths(&[MockAuth {
+        address: &f.client,
+        invoke: &MockAuthInvoke {
+            contract: &f.contract_id,
+            fn_name: "release",
+            args,
+            sub_invokes: &[],
+        },
+    }]);
+    assert_eq!(f.release(), Ok(Ok(())));
+    assert_eq!(f.own_events(), f.expected_released_event());
+    let token = f.token_client();
+    assert_eq!(token.balance(&f.professional), f.amount);
+    assert_eq!(
+        token.balance(&f.contract_id),
+        0,
+        "the escrow still holds the deposit"
+    );
+    f.env.as_contract(&f.contract_id, || {
+        assert_eq!(
+            storage::get_booking(&f.env, &f.booking_id).unwrap().state,
+            BookingState::Released
+        );
+    });
+}
+
+// Story 1.5 owns the deadline: `release` deliberately makes no comparison
+// against it, so a client who settles late still pays their professional.
+// Without this test a deadline guard could be added to `release` and the whole
+// suite would stay green.
+#[test]
+fn a_deposit_is_still_releasable_after_the_cancel_deadline() {
+    let f = locked_fixture();
+    f.env.ledger().set_timestamp(f.cancel_deadline + 1);
+
+    assert_eq!(f.release(), Ok(Ok(())));
+
+    assert_eq!(f.own_events(), f.expected_released_event());
+    assert_eq!(f.token_client().balance(&f.professional), f.amount);
+    f.env.as_contract(&f.contract_id, || {
+        assert_eq!(
+            storage::get_booking(&f.env, &f.booking_id).unwrap().state,
+            BookingState::Released
+        );
+    });
+}
+
+// A signed client is the only party who may learn whether their own booking is
+// still releasable, so a terminal state must not be reported to an unsigned
+// caller — the ordering mirrors `initialize`.
+#[test]
+fn release_checks_authorization_before_the_state_check() {
+    let f = locked_fixture();
+    f.release().unwrap().unwrap();
+
+    let before = f.snapshot();
+
+    // Switch to enforcing auth with no signatures supplied.
+    f.env.set_auths(&[]);
+
+    assert_eq!(
+        f.release(),
+        Err(Err(InvokeError::Abort)),
+        "expected the host auth error, not Error::InvalidState"
+    );
+
+    assert_release_changed_nothing(&f, &before);
+}
+
+// Bookings settle one at a time: releasing one pays its own professional and
+// leaves every other deposit in the contract's custody.
+#[test]
+fn releasing_one_booking_leaves_another_untouched() {
+    let f = locked_fixture();
+
+    let second_id = BytesN::from_array(&f.env, &[0x2e; 16]);
+    let second_amount = 75_000_000_i128;
+    let second_professional = Address::generate(&f.env);
+    f.client_contract.create_booking(
+        &second_id,
+        &second_professional,
+        &f.client,
+        &f.token,
+        &second_amount,
+        &(f.cancel_deadline + 3_600),
+    );
+
+    assert_eq!(f.release(), Ok(Ok(())));
+
+    let token = f.token_client();
+    assert_eq!(token.balance(&f.professional), f.amount);
+    assert_eq!(token.balance(&second_professional), 0);
+    assert_eq!(
+        token.balance(&f.contract_id),
+        second_amount,
+        "the other booking's deposit left the escrow"
+    );
+
+    f.env.as_contract(&f.contract_id, || {
+        assert_eq!(
+            storage::get_booking(&f.env, &second_id).unwrap().state,
+            BookingState::Locked
         );
     });
 }
