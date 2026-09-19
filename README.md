@@ -18,8 +18,14 @@ The hero story: **Aisha**, a client abroad, locks a meaningful deposit for an in
 | Node.js | 22 LTS (>= 22.12) | backend and frontend |
 | npm | 10 or newer | workspaces |
 | A Stellar testnet wallet (e.g. [Freighter](https://www.freighter.app/)) | any [Stellar Wallets Kit](https://stellarwalletskit.dev/)-supported wallet | signing every booking/escrow action; holds testnet XLM for fees and the anchor's testnet USDC (trustline + balance) |
-| Rust (rustup) | 1.97.1, pinned in `rust-toolchain.toml` | only if you touch `contracts/escrow/` (the pre-pivot, undeployed contract — see below) |
-| Stellar CLI | current release — [install guide](https://developers.stellar.org/docs/tools/cli/install-cli) | only `npm run setup:testnet`'s account/trustline funding step; not needed to run the app |
+| Rust (rustup) | 1.97.1, pinned in `rust-toolchain.toml` | `npm run setup:testnet` builds and deploys `contracts/escrow/` (the pre-pivot, undeployed-in-production contract — see below) with `cargo` whenever `ESCROW_CONTRACT_ID` is empty, which is `.env.example`'s own default — so a fresh clone running that command needs Rust too, unless you skip the build (see the note below the table) |
+| Stellar CLI | current release — [install guide](https://developers.stellar.org/docs/tools/cli/install-cli) | `npm run setup:testnet`'s deploy step only; not needed to run the app |
+
+**Skipping the Rust/Stellar CLI install:** nothing in the running app reads `ESCROW_CONTRACT_ID` (see [The pre-pivot Soroban contract](#the-pre-pivot-soroban-contract)), so you can set any validly-shaped placeholder before running `setup:testnet` and it will skip building and deploying the contract entirely, while still funding the demo accounts and trustlines you actually need:
+
+```bash
+echo "ESCROW_CONTRACT_ID=CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" >> .env
+```
 
 A real, funded Trustless Work operator key is needed for the deposit lock/fund/complete/approve/release/dispute/resolve steps to actually work — see [Trustless Work variables](#trustless-work-variables) below. Without one, discovery, provider profiles and holding a slot still work; every escrow action after that refuses up front with `503 ESCROW_UNAVAILABLE`.
 
@@ -45,24 +51,46 @@ A one-command rehearsal reset (Story 3.8): deletes the SQLite database file, reo
 npm run demo:reset
 ```
 
+This is what it prints on a fresh clone, right after `cp .env.example .env` (every variable still at its shipped default):
+
 ```
 [demo:reset] upserted 4 categories and 7 providers
+[demo:reset] SEED_PROVIDER_WALLET not set -- skipping the tester's own profile
+[demo:reset] SEED_ADMIN_WALLET not set -- skipping the admin-resolver expectations check (see .env.example / README for Story 3.6's resolve action).
 [demo:reset] done -- seeded provider links:
   http://localhost:5173/providers/demo-marmara-hair-clinic
   http://localhost:5173/providers/demo-elif-aydin
-  ...
+  http://localhost:5173/providers/demo-northside-barber
+  http://localhost:5173/providers/demo-atelier-lale
+  http://localhost:5173/providers/demo-kaan-demir
+  http://localhost:5173/providers/demo-mehmet-can-yilmaz
+  http://localhost:5173/providers/demo-zeynep-aksoy
 [demo:reset] wallets the demo expects:
   SEED_PROVIDER_WALLET = (not set)
   SEED_ADMIN_WALLET = (not set)
   PACTLY_ADMIN_WALLETS = (not set)
   TRUSTLESS_WORK_PLATFORM_ADDRESS = (not set)
+[demo:reset] Trustless Work variables are incomplete -- discovery, profiles and holding a slot still work; locking, funding, completing, releasing and resolving a deposit will 503 ESCROW_UNAVAILABLE until TRUSTLESS_WORK_API_URL, TRUSTLESS_WORK_API_KEY and TRUSTLESS_WORK_PLATFORM_ADDRESS are all set (see .env.example).
+[demo:reset] if `npm run dev` is already running, restart the backend so it picks up the fresh database.
+[demo:reset] ready
 ```
+
+**If `npm run dev` is already running when you reset, restart the backend afterward.** It still has the old (now-deleted) database file open and keeps reading/writing it, so the freshly seeded data never shows up until it reopens the new one — the command's own last line says so.
 
 Running it again is safe: the same categories, providers and slots come back, never duplicated. Set `SEED_PROVIDER_WALLET=G...` and `SEED_ADMIN_WALLET=G...` in `.env` first (see [Wallets and roles](#wallets-and-roles)) so the printed report tells you whether your own provider/admin wallets are actually wired up before you rehearse.
 
 ### Trustless Work variables
 
-Four variables in `.env` gate every escrow action (`TRUSTLESS_WORK_API_URL`, `TRUSTLESS_WORK_API_KEY`, `TRUSTLESS_WORK_PLATFORM_ID`, `TRUSTLESS_WORK_PLATFORM_ADDRESS`). They stay empty until a real Trustless Work operator key exists — the adapter (`backend/src/escrow/trustless-work/`) refuses before any network call while any of them is missing, the same discipline the old `ESCROW_CONTRACT_ID` variable already used.
+Four variables exist in `.env`; they do not all gate the same thing (`backend/src/escrow/trustless-work/client.ts`):
+
+| Variable | What it blocks when empty |
+|---|---|
+| `TRUSTLESS_WORK_API_URL` | Every escrow call (deploy, fund, complete, approve, release, dispute, resolve) — the adapter refuses before any network access |
+| `TRUSTLESS_WORK_API_KEY` | Same as above — every escrow call |
+| `TRUSTLESS_WORK_PLATFORM_ADDRESS` | Only `deploy` (the lock step) and `resolveDispute` (the resolve step) — the two calls that bake Pactly's own address into the role map |
+| `TRUSTLESS_WORK_PLATFORM_ID` | Nothing — it is optional; when blank the adapter just omits the `X-TW-Platform` attribution header |
+
+All three required variables stay empty until a real Trustless Work operator key exists, the same discipline the old `ESCROW_CONTRACT_ID` variable already used.
 
 **`TRUSTLESS_WORK_API_URL` must be whichever host the operator's key was actually issued against.** Two hosts exist in the wild: the installed `@trustless-work/escrow-js@1.0.0-beta.1` package's own `development` constant points at `https://beta.api.trustlesswork.com`, while Trustless Work's own docs separately describe `https://dev.api.trustlesswork.com` as the testnet host. Check with whoever issued the key rather than guessing from either source alone (`.env.example` carries this same note next to the variable).
 
@@ -80,14 +108,15 @@ Every booking assigns each Trustless Work role explicitly (`backend/src/escrow/t
 
 ## Demo script
 
-Five steps a presenter can run through in about five minutes. Reset first (`npm run demo:reset`) and have two or three testnet wallets ready (client, provider, and Pactly's own resolver wallet for the last step).
+Seven steps a presenter can run through in about five minutes. Reset first (`npm run demo:reset`) and have two or three testnet wallets ready (client, provider, and Pactly's own resolver wallet for the last step). **If the backend was already running from `npm run dev`, restart it after the reset** — it keeps the old database file open otherwise and the fresh seed never shows up.
 
 1. **Discover** (no wallet) — open <http://localhost:5173>. Browse categories (therapy, education, consulting, fitness and beauty); each provider card shows the deposit pill (amount + free-cancellation window) and its next open slots.
 2. **Provider profile** (no wallet) — open Marmara Hair Clinic's profile (`/providers/demo-marmara-hair-clinic`), the hero scenario. Pick a slot.
 3. **Hold → Lock with Pactly** (**client wallet**) — on the booking screen (`/book/:providerId?slot=...`), review the summary, then tap **Continue** to connect a wallet and hold the slot for 10 minutes. Tap **Lock with Pactly**: two prompts follow, "Create your escrow" then "Lock your deposit" — both signed by the client. The screen reads "Locking with Pactly…" until the reconciler confirms funding on chain, then the seal stamps and the escrow proof (contract id, explorer link) appears.
 4. **My bookings** (**client wallet**) — <http://localhost:5173/me/bookings> shows the booking's escrow state (Funded) and balance state (unpaid) as two separate lines, plus the free-cancellation countdown.
-5. **Complete → approve → release** (**provider wallet**, then **client wallet**, then **provider wallet**) — sign in as the provider at `/panel/bookings` and tap **Mark appointment complete**; sign in as the client at `/me/bookings` and tap **Approve**; back as the provider, tap **Release deposit**. Both sides read **Released** once the reconciler confirms it.
-6. **Resolution (optional branch)** (**either wallet**, then **Pactly's resolver wallet**) — before releasing, either side can tap **Open a dispute** on their own booking row; the screen states the booking-policy outcome in words first. Sign in with the wallet that is both listed in `PACTLY_ADMIN_WALLETS` and equal to `TRUSTLESS_WORK_PLATFORM_ADDRESS`, open `/admin/resolutions`, and resolve it. Both sides then read **Resolved**.
+5. **Pay the balance** (**client wallet**) — still on `/me/bookings`, tap **Pay balance**. This signs a plain Stellar USDC payment straight to the provider (not an escrow action), independent of the deposit; the balance line moves to "paid through Pactly". As the provider at `/panel/bookings`, **Mark paid in person** is the alternative when a client pays in cash instead.
+6. **Complete → approve → release** (**provider wallet**, then **client wallet**, then **provider wallet**) — sign in as the provider at `/panel/bookings` and tap **Mark appointment complete**; sign in as the client at `/me/bookings` and tap **Approve**; back as the provider, tap **Release deposit**. Both sides read **Released** once the reconciler confirms it.
+7. **Resolution (optional branch)** (**either wallet**, then **Pactly's resolver wallet**) — before releasing, either side can tap **Open a dispute** on their own booking row; the screen states the booking-policy outcome in words first. Sign in with the wallet that is both listed in `PACTLY_ADMIN_WALLETS` and equal to `TRUSTLESS_WORK_PLATFORM_ADDRESS`, open `/admin/resolutions`, and resolve it. Both sides then read **Resolved**.
 
 The client never needs a wallet before step 3; the whole flow avoids implementation vocabulary (Soroban, trustline, SEP-6, milestone, hash and smart contract never appear on screen).
 
@@ -138,7 +167,7 @@ Full architecture decision record: [`ARCHITECTURE-SPINE.md`](_bmad-output/planni
 
 ### The pre-pivot Soroban contract
 
-`contracts/escrow/` is a hand-written Soroban escrow contract from before Story 1.8's Trustless Work pivot. **It is not deployed and nothing in the running app calls it.** It is kept as a record of the original design (and its tests still run under `npm run contracts:test`). The matching `backend/src/chain/` client, event reader and `ESCROW_CONTRACT_ID`/`SOROBAN_RPC_URL` variables are the same leftover: still present, imported by nothing outside `backend/src/chain/` itself. `npm run setup:testnet` still builds and deploys this contract as a side effect of funding the demo's testnet accounts and trustlines — the account funding and trustline steps are what the demo actually needs; the printed `ESCROW_CONTRACT_ID` can be ignored.
+`contracts/escrow/` is a hand-written Soroban escrow contract from before Story 1.8's Trustless Work pivot. **It is not deployed and nothing in the running app calls it.** It is kept as a record of the original design (and its tests still run under `npm run contracts:test`). The matching `backend/src/chain/` client, event reader and the `ESCROW_CONTRACT_ID` variable are the same leftover: still present, imported by nothing outside `backend/src/chain/` itself, and safely ignorable (see [Skipping the Rust/Stellar CLI install](#prerequisites) above). `SOROBAN_RPC_URL`, by contrast, is genuinely live: Story 3.7's balance payment (`backend/src/payments/stellar.ts`) submits its own plain USDC payment straight to Soroban RPC, entirely separate from Trustless Work.
 
 ## Repository layout
 
@@ -151,7 +180,7 @@ scripts/            # testnet account/trustline funding (npm run setup:testnet)
 
 ## What's built
 
-Built against [`sprint-status.yaml`](_bmad-output/implementation-artifacts/sprint-status.yaml) and each story's own spec frontmatter. A row is "Built" only when both the sprint-status entry and the actual code (routes, services, frontend screens) agree; "Built, in review" means the flow works end to end in this checkout but the story's own spec status is still `in-progress` and hasn't reached `done` in sprint tracking.
+Built against [`sprint-status.yaml`](_bmad-output/implementation-artifacts/sprint-status.yaml) and each story's own spec frontmatter — a row is "Built" only when both agree and the actual code (routes, services, frontend screens) backs them up.
 
 | Capability | Status | Notes |
 |---|---|---|
@@ -159,8 +188,8 @@ Built against [`sprint-status.yaml`](_bmad-output/implementation-artifacts/sprin
 | Provider profile, availability panel (Story 3.1) | **Built** | Deposit pill, open slots, wallet sign-in only for the provider's own panel |
 | Slot hold + Lock with Pactly (Story 3.4) | **Built** | Backend-issued 10-minute hold; deploy + fund XDR signed by the client; confirmation only after reconciled chain evidence |
 | Two-sided status panel, countdown, explorer link (Story 3.5) | **Built** | `escrow_state`/`balance_state` always shown separately |
-| Complete → approve → release, dispute → resolve (Story 3.6) | **Built, in review** | Routes and UI actions exist and work in this checkout (`backend/src/app.ts`, `frontend/src/components/BookingActions.tsx`); the story's own spec is still `in-progress` and sprint-status has not marked it `done` |
-| Paying the balance before the session (Story 3.7) | **Not built** | The balance amount and its three-way state (unpaid / paid via Pactly / paid in person) are tracked and shown on both panels; there is no route or button yet to actually pay it through Pactly or mark it received in person — `setBalanceState` exists in `backend/src/services/booking.ts` but nothing calls it |
+| Complete → approve → release, dispute → resolve (Story 3.6) | **Built** | `backend/src/app.ts`'s `/bookings/:id/{complete,approve,release,dispute}` and `/admin/bookings/:id/resolve`, wired to `frontend/src/components/BookingActions.tsx` |
+| Paying the balance before the session (Story 3.7) | **Built** | The client pays the balance in USDC directly to the provider (`POST /bookings/:id/balance/pay`+`/submit`, a plain Stellar payment independent of the escrow — `backend/src/payments/stellar.ts`); the provider can mark it paid in person (`/bookings/:id/balance/mark-cash`); both panels show unpaid / paid through Pactly / paid in person |
 | Local-currency pay-in / cash-out via SEP-6 (Stories 2.2–2.4) | **Not built** | The demo pays and settles entirely in USDC; the anchor's SEP-1/SEP-10 modules exist (Story 2.1) but SEP-6 deposit/withdraw routes do not |
 | Trustless Work live compatibility, real operator key (Story 1.8) | **In progress** | The adapter and reconciler are built and unit-tested against a fake Trustless Work server; no lock, release or resolve has yet run against a real operator key on testnet — the first live lock is unproven |
 | Provider application + admin approval queue (Epic 4) | **Not built** | Demo providers are seeded pre-approved (`backend/src/seed/demoData.ts`); there is no application form or approval queue yet |

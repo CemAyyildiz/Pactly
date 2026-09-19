@@ -18,6 +18,15 @@ import { DEMO_PROVIDERS } from "../src/seed/demoData.js";
 import { openDatabase, closeDatabase } from "../src/db/client.js";
 import { listApprovedProviderProfiles } from "../src/db/providerProfiles.js";
 
+// A developer's own shell may already export these for local `seed:demo`
+// runs (see demoData.ts). Cleared here so this file's exact-count
+// assertions (always `DEMO_PROVIDERS.length` approved providers) hold
+// regardless of the environment it happens to run in -- an inherited
+// SEED_PROVIDER_WALLET would otherwise seed one extra approved profile and
+// fail every count assertion below.
+delete process.env.SEED_PROVIDER_WALLET;
+delete process.env.SEED_ADMIN_WALLET;
+
 function tempDatabasePath(): string {
   return join(mkdtempSync(join(tmpdir(), "pactly-demo-reset-")), "pactly.db");
 }

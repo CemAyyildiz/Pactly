@@ -19,6 +19,7 @@
  * instead of the real dev database.
  */
 import { existsSync, rmSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { config } from "../config.js";
 import { openDatabase, closeDatabase } from "../db/client.js";
@@ -31,12 +32,21 @@ const FRONTEND_ORIGIN = "http://localhost:5173";
 
 /** better-sqlite3's own on-disk siblings for a single logical database
  * file -- deleting only the base path would leave stale WAL/journal
- * fragments behind if a prior process ever switched journal modes. */
+ * fragments behind if a prior process ever switched journal modes.
+ *
+ * A candidate that exists but cannot actually be removed (it is a
+ * directory, or permissions refuse it) throws a plain, single-line message
+ * naming the path -- never `rmSync`'s own raw native error/stack, per the
+ * spec's "never a stack trace" discipline. */
 function deleteDatabaseFile(databasePath: string): void {
   for (const suffix of ["", "-wal", "-shm", "-journal"]) {
     const candidate = `${databasePath}${suffix}`;
-    if (existsSync(candidate)) {
+    if (!existsSync(candidate)) continue;
+    try {
       rmSync(candidate);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`Could not remove "${candidate}" before reseeding: ${reason}`);
     }
   }
 }
@@ -87,20 +97,33 @@ async function main(): Promise<void> {
         "TRUSTLESS_WORK_API_URL, TRUSTLESS_WORK_API_KEY and TRUSTLESS_WORK_PLATFORM_ADDRESS are all set (see .env.example).",
     );
   }
+
+  // The database file just got deleted and recreated on disk -- a backend
+  // process already running from `npm run dev` still has the *old* file
+  // open and keeps serving/writing to it, so the fresh seed never appears
+  // until that process reopens the new one.
+  console.log("[demo:reset] if `npm run dev` is already running, restart the backend so it picks up the fresh database.");
 }
 
-// Only run as a CLI entry point (`tsx src/seed/reset.ts`), never as a side
-// effect of a test importing `resetDemoDatabase` -- a test points that
-// function at its own throwaway file and must never touch the real
-// `config.databasePath`.
-const isCliEntry = process.argv[1] !== undefined && import.meta.url === `file://${process.argv[1]}`;
+/** Whether this module is being run directly (`tsx src/seed/reset.ts`), as
+ * opposed to imported for `resetDemoDatabase` (every test does this, and
+ * must never trigger `main()`'s side effects against the real
+ * `config.databasePath`). Compares real filesystem paths via
+ * `fileURLToPath` rather than hand-building a `file://` URL from
+ * `process.argv[1]`, which breaks for a path containing a space or a
+ * non-ASCII character (URL-encoding rules would apply to one side and not
+ * the other). */
+const isCliEntry = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1];
 if (isCliEntry) {
   main()
     .then(() => {
       console.log("[demo:reset] ready");
     })
     .catch((error) => {
-      console.error("[demo:reset] failed", error);
+      // A plain message, never the raw error/stack (the spec's "never a
+      // stack trace" discipline) -- this is a presenter-facing CLI, not a
+      // debug log.
+      console.error(`[demo:reset] failed: ${error instanceof Error ? error.message : String(error)}`);
       process.exitCode = 1;
     });
 }
