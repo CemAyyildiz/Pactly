@@ -435,6 +435,25 @@ test("listDiscoverProviders sorts by soonest open slot ascending, slotless provi
   }
 });
 
+test("listDiscoverProviders breaks a tie between two providers with the same earliest slot by displayName ascending", async () => {
+  const result = openTestDatabase();
+  try {
+    const now = 1_000_000;
+    const zeta = await seedProviderProfile(result, { isApproved: true, displayName: "Zeta Provider" });
+    const alpha = await seedProviderProfile(result, { isApproved: true, displayName: "Alpha Provider" });
+    await replaceFutureSlots(result.db, zeta, [now + 900], now);
+    await replaceFutureSlots(result.db, alpha, [now + 900], now);
+
+    const cards = await listDiscoverProviders(result.db, undefined, now);
+    assert.deepEqual(
+      cards.map((card) => card.id),
+      [alpha, zeta],
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
 test("listDiscoverProviders lists a provider whose slots are all in the past with earliestSlots: [] and sorts it last", async () => {
   const result = openTestDatabase();
   try {

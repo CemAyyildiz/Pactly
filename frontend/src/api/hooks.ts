@@ -13,15 +13,24 @@ export function useCategories() {
   });
 }
 
+export interface UseDiscoverProvidersOptions {
+  /** Defaults to `true`. `DiscoverPage` sets this `false` while a
+   * `?category=` slug in the URL has not yet been checked against the
+   * loaded category list -- firing this query too early would fetch (and
+   * briefly show) the unfiltered list before the real filter is known. */
+  enabled?: boolean;
+}
+
 /** `GET /providers[?category=<slug>]` -- the Discover list, no auth, no
  * retry (an unknown slug will not become known by retrying; a genuine
  * network failure is handled by the page's own error state, not a silent
  * background retry that would delay it). */
-export function useDiscoverProviders(categorySlug: string | undefined) {
+export function useDiscoverProviders(categorySlug: string | undefined, options: UseDiscoverProvidersOptions = {}) {
   return useQuery({
     queryKey: ["providers", categorySlug ?? null],
     queryFn: () =>
       apiGet<ProvidersResponse>(categorySlug ? `/providers?category=${encodeURIComponent(categorySlug)}` : "/providers"),
+    enabled: options.enabled ?? true,
     retry: false,
   });
 }

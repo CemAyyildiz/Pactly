@@ -12,20 +12,23 @@ export interface ProviderCardProps {
 
 /** Two-letter initials for the monogram tile -- there is no photo field
  * (Story 3.2's own Design Notes: "badges cannot be invented", and neither
- * can a photo). Drops a leading title-like word ("Dr.") so "Dr. Elif
- * Aydın" reads as "EA", not "DE". */
+ * can a photo). Drops only a *leading* title-like word ("Dr.") so "Dr.
+ * Elif Aydın" reads as "EA", not "DE" -- a trailing suffix ("Jr.") or an
+ * abbreviation elsewhere in the name is never dropped, only ever used.
+ * Falls back to the bare name's first letter if nothing else is left to
+ * take initials from (e.g. an all-abbreviation name). */
 function initialsFor(displayName: string): string {
-  const words = displayName
-    .trim()
-    .split(/\s+/)
-    .filter((word) => word.length > 0 && !word.endsWith("."));
-  if (words.length === 0) {
-    return "";
+  const trimmed = displayName.trim();
+  const words = trimmed.split(/\s+/).filter((word) => word.length > 0);
+  const nameWords = words.length > 1 && words[0]!.endsWith(".") ? words.slice(1) : words;
+
+  let initials = "";
+  if (nameWords.length === 1) {
+    initials = nameWords[0]!.replace(/\./g, "").slice(0, 2).toUpperCase();
+  } else if (nameWords.length > 1) {
+    initials = `${nameWords[0]![0]}${nameWords[1]![0]}`.toUpperCase();
   }
-  if (words.length === 1) {
-    return words[0]!.slice(0, 2).toUpperCase();
-  }
-  return `${words[0]![0]}${words[1]![0]}`.toUpperCase();
+  return initials || trimmed.slice(0, 1).toUpperCase();
 }
 
 /** DESIGN.md's `card-provider`, per Story 3.2's own card content order:
