@@ -2,8 +2,9 @@
 title: 'Story 3.4 — Client booking flow (Lock with Pactly)'
 type: 'feature'
 created: '2026-09-19'
-status: 'ready-for-dev'
+status: 'in-progress'
 review_loop_iteration: 0
+baseline_revision: 'ba00a8b4467f54643b4c45eff3bb745fa08ebc02'
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
