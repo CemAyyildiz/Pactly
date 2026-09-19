@@ -29,21 +29,21 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 09-17-2026 10:00
-last_updated: 09-18-2026 14:00
+last_updated: 09-18-2026 23:47
 project: Pactly
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
 development_status:
   epic-1: in-progress
-  1-1-monorepo-skeleton-and-development-environment: review
-  1-2-escrow-contract-data-model-and-initialize: review
-  1-3-locking-the-deposit-create_booking: review
-  1-4-releasing-the-deposit-release: review
-  1-5-cancelling-and-settling-a-booking: review
-  1-6-contract-unit-tests: review
-  1-7-testnet-setup-scripts: review
-  epic-1-retrospective: optional
+  1-1-monorepo-skeleton-and-development-environment: done
+  1-2-escrow-contract-data-model-and-initialize: done
+  1-3-locking-the-deposit-create_booking: done
+  1-4-releasing-the-deposit-release: done
+  1-5-cancelling-and-settling-a-booking: done
+  1-6-contract-unit-tests: done
+  1-7-testnet-setup-scripts: done
+  epic-1-retrospective: done
 
   epic-2: backlog
   2-1-sep-1-discovery-and-sep-10-authentication: backlog
@@ -70,3 +70,82 @@ development_status:
   4-3-verified-session-counter: backlog
   4-4-reviews: backlog
   epic-4-retrospective: optional
+action_items:
+  - id: "epic-1-retro-item-1-run-npm-run-silent-setup-testnet-against"
+    epic: 1
+    action: "Run npm run --silent setup:testnet against testnet for the first time
+      and record the outcome; three high-severity Story 1.7 fixes live on that unexecuted
+      path"
+    owner: "Cem"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-18.md"
+  - id: "epic-1-retro-item-2-give-the-setup-command-a-way-to-initiali"
+    epic: 1
+    action: "Give the setup command a way to initialize the deployed contract, or
+      document the exact command and admin address to run next"
+    owner: "dev loop"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-18.md"
+  - id: "epic-1-retro-item-3-fix-the-two-story-1-2-tests-using-bytesn"
+    epic: 1
+    action: "Fix the two Story 1.2 tests using BytesN::random so cargo test stops
+      rewriting committed snapshots"
+    owner: "dev loop"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-18.md"
+  - id: "epic-1-retro-item-4-delete-the-two-committed-snapshots-whose"
+    epic: 1
+    action: "Delete the two committed snapshots whose tests no longer exist, and exclude
+      generated paths from review diffs by default"
+    owner: "dev loop"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-18.md"
+  - id: "epic-1-retro-item-5-reconcile-the-deferred-backlog-into-one"
+    epic: 1
+    action: "Reconcile the deferred backlog into one authoritative list: close what
+      is done, carry the 13 per-story items that never reached deferred-work.md"
+    owner: "Cem"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-18.md"
+  - id: "epic-1-retro-item-6-update-types-rs-storage-rs-and-error-rs"
+    epic: 1
+    action: "Update types.rs, storage.rs and error.rs docs to the as-built model:
+      second refund path, 90-day deadline bound, InvalidParties real check"
+    owner: "dev loop"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-18.md"
+  - id: "epic-1-retro-item-7-add-a-story-3-6-acceptance-criterion-and"
+    epic: 1
+    action: "Add a Story 3.6 acceptance criterion and UX copy for the professional
+      claiming a no-show; the settlement path has no consumer story"
+    owner: "Cem"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-18.md"
+  - id: "epic-1-retro-item-8-make-one-command-type-check-every-worksp"
+    epic: 1
+    action: "Make one command type-check every workspace including its tests: give
+      scripts a build script, bring backend/test into its tsconfig"
+    owner: "dev loop"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-18.md"
+  - id: "epic-1-retro-item-9-require-a-spec-testing-constraint-to-nam"
+    epic: 1
+    action: "Require a spec testing constraint to name its surface when the I/O matrix
+      states rows about a command or entry point"
+    owner: "Cem"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-18.md"
+  - id: "epic-1-retro-item-10-run-an-explicit-who-can-be-harmed-pass-a"
+    epic: 1
+    action: "Run an explicit who-can-be-harmed pass at planning for money-path stories,
+      not at review"
+    owner: "Cem"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-18.md"
+  - id: "epic-1-retro-item-11-decide-who-advances-a-story-from-review"
+    epic: 1
+    action: "Decide who advances a story from review to done in sprint tracking, or
+      drop the unused state"
+    owner: "Cem"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-18.md"
