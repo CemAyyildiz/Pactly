@@ -35,6 +35,14 @@ export interface SeedProviderProfileOptions {
   id?: string;
   categoryId?: string;
   walletAddress?: string;
+  displayName?: string;
+  title?: string;
+  location?: string;
+  sessionFormat?: string;
+  sessionLengthMinutes?: number;
+  priceAmount?: string;
+  depositRateBps?: number;
+  cancellationWindowHours?: number;
   /** Defaults to `false`, matching the real default -- a profile this
    * story creates is unapproved until Story 4.1/4.2 decides otherwise
    * (PRD Story 4.1 AC4: an unapproved profile must never appear in a
@@ -52,11 +60,14 @@ export async function seedProviderProfile(
     id,
     walletAddress: options.walletAddress ?? `GPROVIDER${id.replace(/-/g, "").toUpperCase().slice(0, 20)}`,
     categoryId,
-    sessionFormat: "video",
-    sessionLengthMinutes: 50,
-    priceAmount: "10000000",
-    depositRateBps: 2000,
-    cancellationWindowHours: 24,
+    displayName: options.displayName ?? "Test Provider",
+    title: options.title ?? "Licensed Professional",
+    location: options.location ?? "Istanbul",
+    sessionFormat: options.sessionFormat ?? "video",
+    sessionLengthMinutes: options.sessionLengthMinutes ?? 50,
+    priceAmount: options.priceAmount ?? "10000000",
+    depositRateBps: options.depositRateBps ?? 2000,
+    cancellationWindowHours: options.cancellationWindowHours ?? 24,
     isApproved: options.isApproved ?? false,
     createdAt: Date.now(),
   });

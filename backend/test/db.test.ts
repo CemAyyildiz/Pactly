@@ -13,6 +13,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { eq } from "drizzle-orm";
 
 import { getBookingById, updateBalanceState, updateEscrowContractId, updateEscrowState } from "../src/db/bookings.js";
+import { getProviderProfileById, updateProviderProfileRules } from "../src/db/providerProfiles.js";
 import { getAnchorJwt, upsertAnchorJwt } from "../src/db/anchorJwts.js";
 import { redeemChallengeNonceIfUnused } from "../src/db/challengeNonces.js";
 import { getCursor, setCursor } from "../src/db/cursor.js";
@@ -246,6 +247,80 @@ test("runMigrations adds escrow_contract_id to a bookings table created before S
     const booking = await getBookingById(db, bookingId);
     assert.equal(booking?.escrowContractId, contractId);
     assert.equal(booking?.clientWalletAddress, "GCLIENTPRE26", "the pre-existing row must survive the migration");
+  } finally {
+    sqlite.close();
+  }
+});
+
+test("runMigrations adds display_name/title/location to a provider_profiles table created before Story 3.1 (ALTER, not a no-op CREATE)", async () => {
+  const sqlite = new Database(":memory:");
+  try {
+    sqlite.pragma("foreign_keys = ON");
+    // The pre-3.1 DDL: no display_name/title/location columns.
+    sqlite.exec(`CREATE TABLE categories (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, parent_category_id TEXT
+    )`);
+    sqlite.exec(`CREATE TABLE provider_profiles (
+      id TEXT PRIMARY KEY, wallet_address TEXT NOT NULL UNIQUE, category_id TEXT NOT NULL REFERENCES categories(id),
+      bio TEXT NOT NULL DEFAULT '', languages TEXT NOT NULL DEFAULT '[]', session_format TEXT NOT NULL,
+      session_length_minutes INTEGER NOT NULL, price_amount TEXT NOT NULL, deposit_rate_bps INTEGER NOT NULL,
+      cancellation_window_hours INTEGER NOT NULL, is_approved INTEGER NOT NULL DEFAULT 0,
+      verified_session_count INTEGER NOT NULL DEFAULT 0, provider_cancellation_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )`);
+    sqlite.exec(`CREATE TABLE bookings (
+      id TEXT PRIMARY KEY, provider_profile_id TEXT NOT NULL REFERENCES provider_profiles(id),
+      client_wallet_address TEXT NOT NULL, token_address TEXT NOT NULL, deposit_amount TEXT NOT NULL,
+      balance_amount TEXT NOT NULL DEFAULT '0', cancel_deadline INTEGER NOT NULL, escrow_state TEXT,
+      balance_state TEXT NOT NULL DEFAULT 'unpaid', created_at INTEGER NOT NULL
+    )`);
+
+    const categoryId = randomUUID();
+    sqlite.prepare(`INSERT INTO categories (id, name, slug) VALUES (?, 'Consulting', ?)`).run(categoryId, `consulting-${categoryId}`);
+    const providerProfileId = randomUUID();
+    sqlite
+      .prepare(
+        `INSERT INTO provider_profiles
+          (id, wallet_address, category_id, session_format, session_length_minutes, price_amount, deposit_rate_bps, cancellation_window_hours, created_at)
+         VALUES (?, ?, ?, 'video', 50, '10000000', 2000, 24, ?)`,
+      )
+      .run(providerProfileId, `GPROVIDERPRE31${providerProfileId.replace(/-/g, "").toUpperCase()}`, categoryId, Date.now());
+
+    // The migration under test: must add the three missing columns in
+    // place, without touching the row already there.
+    runMigrations(sqlite);
+
+    const db = drizzle(sqlite, { schema });
+    const profile = await getProviderProfileById(db, providerProfileId);
+    assert.equal(profile?.displayName, "", "a pre-existing row gets the column's default, not an error");
+    assert.equal(profile?.title, "");
+    assert.equal(profile?.location, "");
+    assert.equal(profile?.sessionFormat, "video", "the pre-existing row must survive the migration");
+
+    await updateProviderProfileRules(db, providerProfileId, {
+      priceAmount: "20000000",
+      depositRateBps: 3000,
+      cancellationWindowHours: 48,
+    });
+    const updated = await getProviderProfileById(db, providerProfileId);
+    assert.equal(updated?.priceAmount, "20000000");
+  } finally {
+    sqlite.close();
+  }
+});
+
+test("runMigrations creates availability_slots for a database created before Story 3.1", async () => {
+  const sqlite = new Database(":memory:");
+  try {
+    sqlite.pragma("foreign_keys = ON");
+    // No availability_slots table at all -- simulates a database from
+    // before this story existed.
+    sqlite.exec(`CREATE TABLE categories (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, parent_category_id TEXT
+    )`);
+    runMigrations(sqlite);
+    const columns = sqlite.prepare(`PRAGMA table_info(availability_slots)`).all() as Array<{ name: string }>;
+    assert.ok(columns.some((column) => column.name === "starts_at"));
   } finally {
     sqlite.close();
   }

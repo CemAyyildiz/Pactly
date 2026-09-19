@@ -14,7 +14,7 @@
  * `migrations.ts` is this schema's hand-written DDL (no drizzle-kit in this
  * workspace); a column added here must be added there too.
  */
-import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, primaryKey, unique } from "drizzle-orm/sqlite-core";
 
 /** Initial set: therapy and wellbeing, education and lessons, consulting,
  * fitness and beauty (PRD Data Model Additions). */
@@ -62,6 +62,14 @@ export const providerProfiles = sqliteTable("provider_profiles", {
   categoryId: text("category_id")
     .notNull()
     .references(() => categories.id),
+  /** Story 3.1: the name a card/profile shows. Defaults to `''` only for a
+   * row created before this story -- a real profile always sets it. */
+  displayName: text("display_name").notNull().default(""),
+  /** Story 3.1: a short professional title, e.g. "Clinical psychologist". */
+  title: text("title").notNull().default(""),
+  /** Story 3.1: free-text location shown on the card (no geocoding in this
+   * story -- Istanbul strings for the demo seed). */
+  location: text("location").notNull().default(""),
   bio: text("bio").notNull().default(""),
   /** JSON-encoded array of language codes/names. */
   languages: text("languages").notNull().default("[]"),
@@ -79,6 +87,30 @@ export const providerProfiles = sqliteTable("provider_profiles", {
   providerCancellationCount: integer("provider_cancellation_count").notNull().default(0),
   createdAt: integer("created_at").notNull(),
 });
+
+/**
+ * Story 3.1: a concrete, bookable slot (architecture ERD:
+ * `PROVIDER_PROFILE ||--o{ AVAILABILITY_SLOT`) -- a specific start time, not
+ * a recurring rule, because Story 3.4 must hold and consume exactly one row
+ * (see the story's own Design Notes, "Why concrete slots, not weekly
+ * rules"). `startsAt` is UTC epoch seconds; the slot lasts the owning
+ * profile's own `sessionLengthMinutes`. The unique pair keeps
+ * `services/availability.ts`'s replace-all-future save idempotent under a
+ * retry: saving the same set twice can never produce two rows for the same
+ * start time.
+ */
+export const availabilitySlots = sqliteTable(
+  "availability_slots",
+  {
+    id: text("id").primaryKey(),
+    providerProfileId: text("provider_profile_id")
+      .notNull()
+      .references(() => providerProfiles.id),
+    startsAt: integer("starts_at").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [unique().on(table.providerProfileId, table.startsAt)],
+);
 
 /** Booking states the contract can never produce. `escrowState` is `null`
  * until the event worker processes the booking's first event -- the row is

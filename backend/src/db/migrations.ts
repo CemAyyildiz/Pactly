@@ -52,6 +52,13 @@ const STATEMENTS: readonly string[] = [
     provider_cancellation_count INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS availability_slots (
+    id TEXT PRIMARY KEY,
+    provider_profile_id TEXT NOT NULL REFERENCES provider_profiles(id),
+    starts_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE (provider_profile_id, starts_at)
+  )`,
   `CREATE TABLE IF NOT EXISTS bookings (
     id TEXT PRIMARY KEY,
     provider_profile_id TEXT NOT NULL REFERENCES provider_profiles(id),
@@ -140,7 +147,11 @@ function hasColumn(sqlite: Database, table: string, column: string): boolean {
  * -- `bookings.escrow_contract_id` (Story 2.6): a database created before
  * this column existed has a `bookings` table the `CREATE TABLE IF NOT
  * EXISTS` above never touches, so without this every query that reads or
- * writes `escrow_contract_id` against it fails with "no such column". */
+ * writes `escrow_contract_id` against it fails with "no such column".
+ * Story 3.1 adds three more this same way: `provider_profiles.display_name`,
+ * `.title` and `.location`, all `NOT NULL DEFAULT ''` so a pre-existing row
+ * keeps working (it just shows an empty name/title/location until its
+ * owner fills the rules form in). */
 export function runMigrations(sqlite: Database): void {
   sqlite.pragma("foreign_keys = ON");
   for (const statement of STATEMENTS) {
@@ -148,5 +159,14 @@ export function runMigrations(sqlite: Database): void {
   }
   if (!hasColumn(sqlite, "bookings", "escrow_contract_id")) {
     sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_contract_id TEXT`);
+  }
+  if (!hasColumn(sqlite, "provider_profiles", "display_name")) {
+    sqlite.exec(`ALTER TABLE provider_profiles ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!hasColumn(sqlite, "provider_profiles", "title")) {
+    sqlite.exec(`ALTER TABLE provider_profiles ADD COLUMN title TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!hasColumn(sqlite, "provider_profiles", "location")) {
+    sqlite.exec(`ALTER TABLE provider_profiles ADD COLUMN location TEXT NOT NULL DEFAULT ''`);
   }
 }

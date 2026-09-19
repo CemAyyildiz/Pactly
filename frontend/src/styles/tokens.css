@@ -1,0 +1,60 @@
+/**
+ * DESIGN.md's tokens (frontmatter), as CSS custom properties. This file
+ * only ever defines values -- no selectors beyond `:root` -- so every
+ * component reads the same source of truth DESIGN.md itself names.
+ */
+:root {
+  /* Colors -- DESIGN.md "Colors" */
+  --color-stone: #dcdad3;
+  --color-paper: #f2f1ec;
+  --color-card: #ffffff;
+  --color-ink: #111111;
+  --color-faint: #6b6960;
+  --color-line: #cfcdc5;
+  --color-you: #e8b93a;
+  --color-you-ink: #3a2a00;
+  --color-you-soft: #f7eac6;
+  --color-pro: #164e4a;
+  --color-pro-text: #d8ece8;
+  --color-pro-soft: #dceae7;
+  --color-escrow: #111111;
+  --color-escrow-text: #f2f1ec;
+  --color-alert: #b4462a;
+  --color-alert-soft: #f5e0d9;
+  --color-focus: #1f3be0;
+
+  /* Typography -- DESIGN.md "Typography" */
+  --font-display: "Darker Grotesque", system-ui, sans-serif;
+  --font-heading: "Familjen Grotesk", system-ui, sans-serif;
+  --font-body: "Familjen Grotesk", system-ui, sans-serif;
+  --font-label: "Martian Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* Scale -- DESIGN.md "12 . 14 . 16 . 18 . 24 . 32 . 48, no in-between values" */
+  --text-12: 12px;
+  --text-14: 14px;
+  --text-16: 16px;
+  --text-18: 18px;
+  --text-24: 24px;
+  --text-32: 32px;
+  --text-48: 48px;
+
+  /* Radii -- DESIGN.md "rounded" */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+  --radius-full: 9999px;
+
+  /* Spacing -- DESIGN.md "spacing" */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-gutter: 24px;
+  --space-gutter-mobile: 16px;
+  --space-card-pad: 14px;
+}

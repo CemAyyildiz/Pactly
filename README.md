@@ -91,9 +91,22 @@ npm run dev                 # backend + frontend together
 ```
 
 - Backend: <http://localhost:3001/health> returns `{"status":"ok"}`.
-- Frontend: <http://localhost:5173> shows the placeholder screen.
+- Frontend: <http://localhost:5173> shows the home page (see "Try it locally" below for the seeded providers).
 
 The backend reads every variable once in `backend/src/config.ts` and exits, naming the variable, if one is missing from `.env`.
+
+### Try it locally
+
+Story 3.1 adds a public provider profile and a provider's own availability panel, plus a demo seed so both can be opened in a browser immediately:
+
+```bash
+npm run -w backend seed:demo   # idempotent -- upserts 4 categories and 7 approved sample providers with slots over the next 7 days
+npm run dev                    # backend + frontend together
+```
+
+- <http://localhost:5173> — a temporary home page linking to each seeded provider's public profile.
+- A provider profile shows the deposit pill (amount + free-cancellation window, always together) and upcoming slots grouped by day.
+- <http://localhost:5173/panel/availability> — sign in with a Stellar wallet (Freighter or any wallet Stellar Wallets Kit supports) to set price, deposit rate, cancellation window and open slots. Set `SEED_PROVIDER_WALLET=G...` (your own wallet's public key) before running `seed:demo` to get an approved profile you can sign in as and edit.
 
 ### Other commands
 
@@ -112,7 +125,7 @@ npm run contracts:build     # release wasm → contracts/escrow/target/wasm32v1-
 |---|---|
 | Contract | Rust · soroban-sdk 27.0.6 |
 | Backend | Node.js 22 · TypeScript · Hono 4 · Drizzle ORM · SQLite |
-| Frontend | React 19 · Vite 8 · TanStack Query 5 · Motion 13 |
+| Frontend | React 19 · Vite 8 · React Router 7 · TanStack Query 5 · Motion 13 |
 | Stellar | @stellar/stellar-sdk 17 · Stellar Wallets Kit 2.6 |
 
 ## Planning documents

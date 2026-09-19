@@ -27,6 +27,17 @@ import {
   PactlyJwtError,
 } from "./auth/errors.js";
 import type { Db } from "./db/client.js";
+import { listCategories } from "./db/categories.js";
+import {
+  InvalidAvailabilitySlotsError,
+  InvalidProviderRulesError,
+  NotAProviderError,
+  ProviderNotFoundError,
+  getOwnProviderProfile,
+  getPublicProviderProfile,
+  updateProviderAvailability,
+  updateProviderRules,
+} from "./services/profile.js";
 
 export interface Variables {
   /** Set by `requirePactlyAuth` once a request's Pactly JWT verifies --
@@ -119,6 +130,89 @@ export function createApp(db: Db): App {
       }
       if (error instanceof PactlyChallengeInvalidError) {
         return c.json({ code: "challenge_invalid", message: error.message }, 401);
+      }
+      throw error;
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // Story 3.1: provider profile and availability. Public reads need no
+  // auth (`/categories`, `/providers/:id`); provider writes go through
+  // `requirePactlyAuth` and resolve "which profile" from the caller's
+  // wallet, never from a body/query id -- there is nothing for a caller to
+  // lie about (same shape as `auth/challenge.ts`'s own comment on this).
+  // ---------------------------------------------------------------------
+
+  app.get("/categories", async (c) => {
+    const categories = await listCategories(db);
+    return c.json({ categories });
+  });
+
+  /** Approved profiles only; an unapproved or unknown id gives the same
+   * 404 either way so nothing about an unapproved profile leaks. */
+  app.get("/providers/:id", async (c) => {
+    try {
+      const profile = await getPublicProviderProfile(db, c.req.param("id"));
+      return c.json(profile);
+    } catch (error) {
+      if (error instanceof ProviderNotFoundError) {
+        return c.json({ code: "PROVIDER_NOT_FOUND", message: error.message }, 404);
+      }
+      throw error;
+    }
+  });
+
+  app.get("/me/provider", requirePactlyAuth, async (c) => {
+    try {
+      const profile = await getOwnProviderProfile(db, c.get("walletAddress"));
+      return c.json(profile);
+    } catch (error) {
+      if (error instanceof NotAProviderError) {
+        return c.json({ code: "NOT_A_PROVIDER", message: error.message }, 404);
+      }
+      throw error;
+    }
+  });
+
+  app.put("/me/provider/rules", requirePactlyAuth, async (c) => {
+    const body = await c.req.json().catch(() => undefined);
+    try {
+      const profile = await updateProviderRules(db, c.get("walletAddress"), {
+        priceAmount: typeof body?.priceAmount === "string" ? body.priceAmount : "",
+        depositRateBps: typeof body?.depositRateBps === "number" ? body.depositRateBps : Number.NaN,
+        cancellationWindowHours:
+          typeof body?.cancellationWindowHours === "number" ? body.cancellationWindowHours : Number.NaN,
+      });
+      return c.json(profile);
+    } catch (error) {
+      if (error instanceof NotAProviderError) {
+        return c.json({ code: "NOT_A_PROVIDER", message: error.message }, 404);
+      }
+      if (error instanceof InvalidProviderRulesError) {
+        return c.json({ code: "INVALID_RULES", message: error.message, details: error.details }, 400);
+      }
+      throw error;
+    }
+  });
+
+  app.put("/me/provider/availability", requirePactlyAuth, async (c) => {
+    const body = await c.req.json().catch(() => undefined);
+    const slots: unknown = body?.slots;
+    if (!Array.isArray(slots)) {
+      return c.json(
+        { code: "INVALID_SLOTS", message: "slots must be an array of epoch seconds.", details: { slots: "required" } },
+        400,
+      );
+    }
+    try {
+      const profile = await updateProviderAvailability(db, c.get("walletAddress"), slots);
+      return c.json(profile);
+    } catch (error) {
+      if (error instanceof NotAProviderError) {
+        return c.json({ code: "NOT_A_PROVIDER", message: error.message }, 404);
+      }
+      if (error instanceof InvalidAvailabilitySlotsError) {
+        return c.json({ code: "INVALID_SLOTS", message: error.message, details: error.details }, 400);
       }
       throw error;
     }

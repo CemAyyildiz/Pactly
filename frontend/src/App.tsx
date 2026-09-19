@@ -1,9 +1,35 @@
-/** Placeholder screen. Real pages and the design system arrive in Epic 3. */
+import { Link, Route, Routes } from "react-router";
+
+import { HomePage } from "./pages/home/HomePage";
+import { ProviderProfilePage } from "./pages/provider/ProviderProfilePage";
+import { AvailabilityPage } from "./pages/panel/AvailabilityPage";
+
+/** The minimal top bar every screen shares (Task list): brand, and the
+ * escrow-provenance note DESIGN.md/EXPERIENCE.md require to be visible
+ * even before any booking exists. */
+function TopBar() {
+  return (
+    <div className="top-bar">
+      <Link to="/" className="top-bar__brand">
+        Pactly
+      </Link>
+      <span className="top-bar__escrow-note">Escrow powered by Trustless Work · Stellar</span>
+      <nav className="top-bar__nav">
+        <Link to="/panel/availability">Provider panel</Link>
+      </nav>
+    </div>
+  );
+}
+
 export function App() {
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: "3rem 1.5rem", maxWidth: "40rem", margin: "0 auto" }}>
-      <h1>Pactly</h1>
-      <p>Trust-backed bookings. The deposit waits in a contract neither side controls.</p>
-    </main>
+    <>
+      <TopBar />
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/providers/:id" element={<ProviderProfilePage />} />
+        <Route path="/panel/availability" element={<AvailabilityPage />} />
+      </Routes>
+    </>
   );
 }
