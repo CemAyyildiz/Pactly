@@ -2,9 +2,10 @@
 title: 'Story 1.3 — Locking the deposit (create_booking)'
 type: 'feature'
 created: '2026-09-18'
-status: 'ready-for-dev'
+status: 'in-progress'
 route: 'dispatch'
 review_loop_iteration: 0
+baseline_commit: '07ee8a697706684193a5d687344c53b122a048aa'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-1-context.md'
 ---
@@ -59,10 +60,10 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `contracts/escrow/src/error.rs` -- append `InvalidDeadline = 7` with a doc line -- a deadline outside the allowed window is its own outcome, not an amount or state problem.
-- [ ] `contracts/escrow/src/lib.rs` -- add `create_booking(env, booking_id, professional, client, token, amount, cancel_deadline) -> Result<(), Error>`: `client.require_auth()`, validate amount and deadline, reject a duplicate id, transfer through `TokenClient` into the contract address, store the `Locked` record, then emit the event -- the single money-locking path.
-- [ ] `contracts/escrow/src/events.rs` -- emit the `locked` event with topics `(symbol_short!("locked"), booking_id)` and the amount as data -- one place owns event shapes, so Stories 1.4 and 1.5 stay consistent and Epic 2's worker has a stable contract.
-- [ ] `contracts/escrow/src/test.rs` -- add a test per matrix row, using `register_stellar_asset_contract_v2` plus `mint` for a funded client, and assert the event payload and both balances on the happy path -- the matrix is this story's contract.
+- [x] `contracts/escrow/src/error.rs` -- append `InvalidDeadline = 7` with a doc line -- a deadline outside the allowed window is its own outcome, not an amount or state problem.
+- [x] `contracts/escrow/src/lib.rs` -- add `create_booking(env, booking_id, professional, client, token, amount, cancel_deadline) -> Result<(), Error>`: `client.require_auth()`, validate amount and deadline, reject a duplicate id, transfer through `TokenClient` into the contract address, store the `Locked` record, then emit the event -- the single money-locking path.
+- [x] `contracts/escrow/src/events.rs` -- emit the `locked` event with topics `(symbol_short!("locked"), booking_id)` and the amount as data -- one place owns event shapes, so Stories 1.4 and 1.5 stay consistent and Epic 2's worker has a stable contract.
+- [x] `contracts/escrow/src/test.rs` -- add a test per matrix row, using `register_stellar_asset_contract_v2` plus `mint` for a funded client, and assert the event payload and both balances on the happy path -- the matrix is this story's contract.
 
 **Acceptance Criteria:**
 - Given a locked deposit, when the contract's token balance is read, then it holds exactly the deposited amount and the client's balance dropped by it.
@@ -70,6 +71,16 @@ context:
 - Given the crate, when `npm run contracts:test` runs, then every test passes, and the release build for `wasm32v1-none` produces a `.wasm` with no warnings.
 
 ## Implementation Notes
+
+- `create_booking` validates in the order the Design Notes fix — amount, deadline, duplicate id, transfer, store, emit — with `client.require_auth()` first, before any storage read, so an unsigned call is rejected without touching the ledger.
+- The deadline's upper bound is derived from the storage TTL policy rather than hard-coded: `MAX_DEADLINE_AHEAD_SECONDS = storage::BUMP_LEDGERS * LEDGER_CLOSE_SECONDS` (2_073_600 ledgers x 5s = 10_368_000s = 120 days), both private consts in `lib.rs`. Widening `BUMP_LEDGERS` widens the accepted window automatically, so the two can never drift apart. `storage.rs` was left untouched, as the Code Map asks.
+- `now.saturating_add(MAX_DEADLINE_AHEAD_SECONDS)` guards the bound so a near-`u64::MAX` ledger timestamp cannot wrap it.
+- **Deviation from the Execution task, wire shape unchanged:** `env.events().publish(topics, data)` is deprecated in soroban-sdk 27 ("use the #[contractevent] macro"), and using it makes both the test and release builds emit a warning, which AC3 forbids. `events.rs` therefore declares `#[contractevent(topics = ["locked"], data_format = "single-value")] pub struct Locked { #[topic] booking_id, amount }` and `create_booking` calls `.publish(&env)` on it. The bytes on the wire are exactly the topics and data the spec froze; `deposit_is_locked_and_the_balances_move` asserts the emitted event equals `(contract_id, (symbol_short!("locked"), booking_id), amount)` and was mutation-checked by renaming the topic to `"lockedx"`, which fails the test. Stories 1.4 and 1.5 add their events as sibling structs in the same module.
+- The transfer runs before the storage write, so a token failure (an underfunded client) aborts the whole invocation and leaves no record; the event is last, after both, so it only exists if the money really moved.
+- Tests share a `Fixture` that registers the escrow, registers a Stellar asset contract, mints the client a balance and holds the default arguments; a test mutates only the field it is about. The `CreateResult` type alias spells out `try_create_booking`'s nested result, which distinguishes a contract error (`Err(Ok(..))`) from a host error (`Err(Err(..))`).
+- Every rejection path runs through one `assert_no_effect` helper: no event, contract balance 0, client's balance unchanged, no stored booking. The event check has to come first — `env.events().all()` reports only the last contract invocation, and reading a balance is one — which is why the happy-path test also asserts its event before it reads balances.
+- Extra coverage beyond the matrix, all cheap and all on boundaries this story owns: the deadline exactly equal to `now` (rejected — a booking must have a window to cancel in), the deadline exactly at the edge of the TTL window (accepted, so the bound is exact rather than approximately right), the booking entry's TTL after a successful lock, and `mock_auths`-based proof that the professional's signature for the same call does not authorize it while the client's does.
+- Test snapshots under `contracts/escrow/test_snapshots/` are regenerated by `cargo test` and committed, as in Stories 1.1 and 1.2. Note they are not reproducible: tests using `BytesN::random` / `Address::generate` write different bytes on every run, so two pre-existing snapshots show a diff after any test run. Pre-existing behaviour, not introduced here.
 
 ## Spec Change Log
 

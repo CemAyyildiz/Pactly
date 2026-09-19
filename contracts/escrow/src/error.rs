@@ -22,4 +22,7 @@ pub enum Error {
     InvalidAmount = 5,
     /// The booking is not in a state that allows the requested transition.
     InvalidState = 6,
+    /// The cancellation deadline is not inside the window the contract accepts:
+    /// it is already in the past, or further out than a stored booking's TTL.
+    InvalidDeadline = 7,
 }
