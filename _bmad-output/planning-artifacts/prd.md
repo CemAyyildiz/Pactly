@@ -201,6 +201,8 @@ Bir profesyonel olarak, seans gerçekleştiğinde kaporanın bana geçmesini ist
 
 **Kabul Kriterleri**
 1. `release(booking_id)` yalnızca `Locked` durumundaki kayıtlarda çalışmalı; aksi halde `InvalidState` dönmeli.
+1a. `release` danışanın yetkisini (`require_auth`) istemeli; başka bir hesabın çağrısı reddedilmeli (AD-2).
+1b. `resolve_cancel` izin gerektirmemeli; sonucu yalnızca ledger timestamp ile `cancel_deadline` karşılaştırması belirlemeli (AD-2).
 2. Kilitli tutar contract adresinden profesyonelin adresine aktarılmalı.
 3. Kayıt `Released` durumuna geçmeli.
 4. `released` event'i yayınlanmalı.
@@ -282,7 +284,10 @@ Bir danışan olarak, kripto kullanmadan doğrudan TL ile kapora ödemek istiyor
 1. SEP-6 deposit başlatılmalı; anchor'dan banka bilgisi ve referans alınmalı.
 2. Mock ödeme tamamlandığında cüzdana USDC geçmeli.
 3. Gelen USDC ile contract'ta kapora kilitlenmeli.
-4. Trustline yoksa akış kullanıcıyı önce trustline kurmaya yönlendirmeli.
+4. Trustline yoksa akış otomatik kurmalı; kullanıcıya teknik terim gösterilmemeli (AD-11).
+5. Danışanın cüzdanı yoksa backend onun adına yönetilen bir Stellar hesabı açmalı; deposit oraya düşmeli ve kapora oradan kilitlenmeli (AD-6).
+6. Yönetilen hesaptan kilitlenen bir kapora iade edildiğinde backend, `refunded` event'i üzerine kullanıcı için SEP-6 withdraw akışını başlatmalı; para yönetilen hesapta sahipsiz kalmamalı (AD-14).
+7. Yönetilen hesabın anahtarı yalnızca iki iş için kullanılmalı: kaporayı kilitlemek ve iadeyi TL olarak çıkarmak.
 
 ### Story 2.5 — Backend servis katmanı ve veri modeli
 
@@ -345,6 +350,9 @@ Bir danışan olarak, uygun bir saat seçip kaporayı ödeyerek randevumu kesinl
 5. Ödeme sonrası randevu onaylanmalı ve saat kapanmalı.
 6. Kapora tutarı anchor limitleri dışındaysa (50 TRY altı, 3.000 TRY üstü) kullanıcı ödeme adımından önce uyarılmalı.
 7. Seçilen saat bu sırada başkası tarafından alınırsa anlaşılır bir mesaj ve aynı günün diğer saatleri gösterilmeli.
+8. Ödemeye geçişte backend bir tutma kaydı açmalı: `booking_id` üretmeli, saati 10 dakika bloke etmeli ve randevuyu `pending_lock` durumunda yazmalı (AD-13).
+9. Zincire yalnızca backend'in ürettiği `booking_id` ile gidilmeli.
+10. Tutma süresi imzasız dolarsa kayıt düşmeli ve saat yeniden satışa açılmalı; kullanıcıya süre bilgisi gösterilmeli.
 
 ### Story 3.5 — İki taraflı durum paneli
 

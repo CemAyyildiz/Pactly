@@ -1,0 +1,72 @@
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created, ready for development
+#   - in-progress: Developer actively working on implementation
+#   - review: Implementation complete, ready for review
+#   - done: Story completed
+
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when its first story starts (via build's sprint sync)
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates the next story after the previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; the status view surfaces open ones
+generated: 09-17-2026 10:00
+last_updated: 09-17-2026 10:00
+project: Pactly
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+development_status:
+  epic-1: backlog
+  1-1-monorepo-iskeleti-ve-geliştirme-ortamı: backlog
+  1-2-escrow-contract-veri-modeli-ve-initialize: backlog
+  1-3-kapora-kilitleme-create_booking: backlog
+  1-4-serbest-bırakma-release: backlog
+  1-5-i-ptal-çözümü-resolve_cancel: backlog
+  1-6-contract-birim-testleri: backlog
+  1-7-testnet-kurulum-scriptleri: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-sep-1-keşif-ve-sep-10-kimlik-doğrulama: backlog
+  2-2-sep-38-kur-sorgusu: backlog
+  2-3-sep-6-withdraw-profesyonelin-tl-çekmesi: backlog
+  2-4-sep-6-deposit-danışanın-try-ile-ödemesi: backlog
+  2-5-backend-servis-katmanı-ve-veri-modeli: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-uzman-profili-ve-müsaitlik-tanımlama: backlog
+  3-2-keşif-sayfası-ve-kategoriler: backlog
+  3-3-arama-ve-filtreler: backlog
+  3-4-danışan-rezervasyon-akışı: backlog
+  3-5-i-ki-taraflı-durum-paneli: backlog
+  3-6-seans-onayı-ve-iptal-akışı: backlog
+  3-7-kalan-tutarın-görüşme-öncesi-ödenmesi: backlog
+  3-8-demo-hazırlığı-ve-dokümantasyon: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-uzman-başvuru-akışı: backlog
+  4-2-yönetim-onay-listesi: backlog
+  4-3-doğrulanmış-seans-sayacı: backlog
+  4-4-değerlendirmeler: backlog
+  epic-4-retrospective: optional
