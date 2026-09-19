@@ -12,7 +12,8 @@
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
-    "seed:demo": "tsx src/seed/demo.ts"
+    "seed:demo": "tsx src/seed/demo.ts",
+    "demo:reset": "tsx src/seed/reset.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.1.1",

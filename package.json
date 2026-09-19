@@ -17,7 +17,8 @@
     "test": "npm run contracts:test && npm run test --workspaces --if-present",
     "contracts:build": "cargo build --manifest-path contracts/escrow/Cargo.toml --target wasm32v1-none --release",
     "contracts:test": "cargo test --manifest-path contracts/escrow/Cargo.toml",
-    "setup:testnet": "npm run --silent setup:testnet -w scripts"
+    "setup:testnet": "npm run --silent setup:testnet -w scripts",
+    "demo:reset": "npm run demo:reset -w backend"
   },
   "devDependencies": {
     "concurrently": "10.0.5"
