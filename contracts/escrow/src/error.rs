@@ -28,4 +28,8 @@ pub enum Error {
     /// The professional and the client are the same address, or a party is the
     /// escrow contract itself. Neither describes a real booking.
     InvalidParties = 8,
+    /// A no-show was claimed while the free-cancellation window was still open.
+    /// A timing refusal, not an illegal state: the same call becomes legal once
+    /// the booking's `cancel_deadline` has passed.
+    TooEarly = 9,
 }
