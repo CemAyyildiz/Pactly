@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 
 import type { Db } from "./client.js";
 import { providerProfiles } from "./schema.js";
@@ -70,6 +70,19 @@ export async function listApprovedProviderProfiles(db: Db, categoryId?: string):
       .where(and(eq(providerProfiles.isApproved, true), eq(providerProfiles.categoryId, categoryId)));
   }
   return db.select().from(providerProfiles).where(eq(providerProfiles.isApproved, true));
+}
+
+/** Story 3.2's `GET /categories` extension: `providerCount` per category,
+ * counting only approved profiles (AC1). One grouped query rather than a
+ * per-category count. A category with zero approved providers is simply
+ * absent from the map -- callers read it with `?? 0`. */
+export async function countApprovedProvidersByCategory(db: Db): Promise<Map<string, number>> {
+  const rows = await db
+    .select({ categoryId: providerProfiles.categoryId, providerCount: count() })
+    .from(providerProfiles)
+    .where(eq(providerProfiles.isApproved, true))
+    .groupBy(providerProfiles.categoryId);
+  return new Map(rows.map((row) => [row.categoryId, row.providerCount]));
 }
 
 export interface ProviderRulesValues {

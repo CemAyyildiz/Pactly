@@ -3,13 +3,26 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPut } from "./client";
-import type { CategoriesResponse, ProviderProfile } from "./types";
+import type { CategoriesResponse, ProviderProfile, ProvidersResponse } from "./types";
 import type { Session } from "../wallet";
 
 export function useCategories() {
   return useQuery({
     queryKey: ["categories"],
     queryFn: () => apiGet<CategoriesResponse>("/categories"),
+  });
+}
+
+/** `GET /providers[?category=<slug>]` -- the Discover list, no auth, no
+ * retry (an unknown slug will not become known by retrying; a genuine
+ * network failure is handled by the page's own error state, not a silent
+ * background retry that would delay it). */
+export function useDiscoverProviders(categorySlug: string | undefined) {
+  return useQuery({
+    queryKey: ["providers", categorySlug ?? null],
+    queryFn: () =>
+      apiGet<ProvidersResponse>(categorySlug ? `/providers?category=${encodeURIComponent(categorySlug)}` : "/providers"),
+    retry: false,
   });
 }
 

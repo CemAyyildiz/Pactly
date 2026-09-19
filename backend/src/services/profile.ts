@@ -14,6 +14,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  countApprovedProvidersByCategory,
   getProviderProfileById,
   getProviderProfileByWallet,
   insertProviderProfile,
@@ -21,8 +22,13 @@ import {
   updateProviderProfileRules,
   type ProviderProfileRow,
 } from "../db/providerProfiles.js";
-import { listFutureSlots, replaceFutureSlots, type AvailabilitySlotRow } from "../db/availabilitySlots.js";
-import { getCategoryById, type CategoryRow } from "../db/categories.js";
+import {
+  listEarliestFutureSlotsByProvider,
+  listFutureSlots,
+  replaceFutureSlots,
+  type AvailabilitySlotRow,
+} from "../db/availabilitySlots.js";
+import { getCategoryById, getCategoryBySlug, listCategories, type CategoryRow } from "../db/categories.js";
 import type { Db } from "../db/client.js";
 
 /** Pactly's only supported asset for now (matches `services/booking.ts`'s
@@ -370,4 +376,145 @@ export async function updateProviderAvailability(
   }
   await replaceFutureSlots(db, profile.id, slots, now);
   return getOwnProviderProfile(db, walletAddress, now);
+}
+
+// ---------------------------------------------------------------------------
+// Story 3.2: the Discover list's card objects and the category counts.
+// ---------------------------------------------------------------------------
+
+/** How many of a provider's earliest open slots a Discover card shows
+ * (PRD 3.2 AC3, DESIGN.md's provider card). */
+const CARD_EARLIEST_SLOTS_LIMIT = 3;
+
+export interface ProviderCardView {
+  id: string;
+  displayName: string;
+  title: string;
+  category: { slug: string; name: string };
+  location: string;
+  sessionFormat: string;
+  sessionLengthMinutes: number;
+  price: { amount: string; asset: string };
+  deposit: { amount: string; asset: string };
+  cancellationWindowHours: number;
+  verifiedSessionCount: number;
+  providerCancellationCount: number;
+  /** UTC epoch seconds, ascending, at most {@link CARD_EARLIEST_SLOTS_LIMIT}. */
+  earliestSlots: number[];
+}
+
+/** One approved profile's card shape (the I/O matrix's "List all" row) --
+ * a narrower, differently-shaped sibling of {@link ProviderProfileView}
+ * (no `depositRateBps`/`isApproved`/full `slots`; adds
+ * `providerCancellationCount` and the capped `earliestSlots`), since the
+ * Discover list and the profile page answer different questions. */
+export function buildProviderCardView(
+  profile: ProviderProfileRow,
+  category: CategoryRow,
+  earliestSlots: number[],
+): ProviderCardView {
+  return {
+    id: profile.id,
+    displayName: profile.displayName,
+    title: profile.title,
+    category: { slug: category.slug, name: category.name },
+    location: profile.location,
+    sessionFormat: profile.sessionFormat,
+    sessionLengthMinutes: profile.sessionLengthMinutes,
+    price: { amount: profile.priceAmount, asset: ASSET },
+    deposit: { amount: computeDepositAmount(profile.priceAmount, profile.depositRateBps), asset: ASSET },
+    cancellationWindowHours: profile.cancellationWindowHours,
+    verifiedSessionCount: profile.verifiedSessionCount,
+    providerCancellationCount: profile.providerCancellationCount,
+    earliestSlots,
+  };
+}
+
+/** `GET /providers[?category=<slug>]`: approved providers as card objects
+ * (AC1 -- enforced by `listApprovedProviderProfiles`, never by filtering
+ * here), sorted by soonest open slot ascending; a provider with no open
+ * slot sorts last, and ties (including "both slotless") break by
+ * `displayName` (the spec's own "Always" sort rule). An unknown category
+ * slug returns an empty list, never an error (the I/O matrix's own row) --
+ * this is the one place a slug is resolved to a category id for the
+ * list's own filter. */
+export async function listDiscoverProviders(
+  db: Db,
+  categorySlug?: string,
+  now: number = Math.floor(Date.now() / 1000),
+): Promise<ProviderCardView[]> {
+  let categoryId: string | undefined;
+  if (categorySlug !== undefined) {
+    const category = await getCategoryBySlug(db, categorySlug);
+    if (!category) {
+      return [];
+    }
+    categoryId = category.id;
+  }
+
+  const profiles = await listApprovedProviderProfiles(db, categoryId);
+  if (profiles.length === 0) {
+    return [];
+  }
+
+  const allCategories = await listCategories(db);
+  const categoryById = new Map(allCategories.map((row) => [row.id, row]));
+  const earliestSlotsByProvider = await listEarliestFutureSlotsByProvider(
+    db,
+    profiles.map((profile) => profile.id),
+    { now, limit: CARD_EARLIEST_SLOTS_LIMIT },
+  );
+
+  const cards = profiles.map((profile) => {
+    const category = categoryById.get(profile.categoryId);
+    if (!category) {
+      // Unreachable in practice: `category_id` is a foreign key (see
+      // `loadCategoryOrThrow`'s own comment on the same guarantee).
+      throw new TypeError(`No category exists with id "${profile.categoryId}"`);
+    }
+    return buildProviderCardView(profile, category, earliestSlotsByProvider.get(profile.id) ?? []);
+  });
+
+  cards.sort((a, b) => {
+    const aSlot = a.earliestSlots[0];
+    const bSlot = b.earliestSlots[0];
+    if (aSlot === undefined && bSlot === undefined) {
+      return a.displayName.localeCompare(b.displayName);
+    }
+    if (aSlot === undefined) {
+      return 1;
+    }
+    if (bSlot === undefined) {
+      return -1;
+    }
+    if (aSlot !== bSlot) {
+      return aSlot - bSlot;
+    }
+    return a.displayName.localeCompare(b.displayName);
+  });
+
+  return cards;
+}
+
+export interface CategoryWithProviderCount {
+  id: string;
+  name: string;
+  slug: string;
+  /** Approved providers in this category (AC1) -- never a raw application
+   * or unapproved-profile count. */
+  providerCount: number;
+}
+
+/** `GET /categories`: every category plus `providerCount` (Story 3.2's own
+ * extension of Story 4.1's plain list). A category with no approved
+ * provider still appears, with `providerCount: 0` -- the Discover rail
+ * shows every category, not just the populated ones. */
+export async function listCategoriesWithProviderCounts(db: Db): Promise<CategoryWithProviderCount[]> {
+  const [allCategories, counts] = await Promise.all([listCategories(db), countApprovedProvidersByCategory(db)]);
+  return allCategories.map((category) => ({
+    id: category.id,
+    name: category.name,
+    slug: category.slug,
+    providerCount: counts.get(category.id) ?? 0,
+  }));
 }

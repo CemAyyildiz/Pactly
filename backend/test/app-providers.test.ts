@@ -29,6 +29,86 @@ test("GET /categories returns every category", async () => {
   }
 });
 
+test("GET /categories includes providerCount, approved providers only (Story 3.2 AC1)", async () => {
+  const result = openTestDatabase();
+  try {
+    const categoryId = await seedCategory(result, "cat-counted");
+    await seedProviderProfile(result, { categoryId, isApproved: true });
+    await seedProviderProfile(result, { categoryId, isApproved: false });
+    const app = createApp(result.db);
+    const response = await app.request("/categories");
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { categories: Array<{ id: string; providerCount: number }> };
+    const category = body.categories.find((c) => c.id === categoryId);
+    assert.equal(category?.providerCount, 1);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("GET /providers lists only approved providers as card objects, with the deposit pill's two facts and earliestSlots", async () => {
+  const result = openTestDatabase();
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const approvedId = await seedProviderProfile(result, {
+      isApproved: true,
+      displayName: "Dr. Elif Aydın",
+      priceAmount: "10000000",
+      depositRateBps: 2000,
+      cancellationWindowHours: 24,
+    });
+    await replaceFutureSlots(result.db, approvedId, [now + 900, now + 1800], now);
+    await seedProviderProfile(result, { isApproved: false });
+    const app = createApp(result.db);
+    const response = await app.request("/providers");
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as {
+      providers: Array<{ id: string; deposit: { amount: string; asset: string }; cancellationWindowHours: number; earliestSlots: number[] }>;
+    };
+    assert.equal(body.providers.length, 1);
+    const provider = body.providers[0]!;
+    assert.equal(provider.id, approvedId);
+    assert.deepEqual(provider.deposit, { amount: "2000000", asset: "USDC" });
+    assert.equal(provider.cancellationWindowHours, 24);
+    assert.deepEqual(provider.earliestSlots, [now + 900, now + 1800]);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("GET /providers?category=<slug> filters to that category's approved providers", async () => {
+  const result = openTestDatabase();
+  try {
+    const categoryId = await seedCategory(result, "cat-filter");
+    const inCategory = await seedProviderProfile(result, { categoryId, isApproved: true });
+    await seedProviderProfile(result, { isApproved: true });
+    const app = createApp(result.db);
+    const response = await app.request("/providers?category=consulting-cat-filter");
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { providers: Array<{ id: string }> };
+    assert.deepEqual(
+      body.providers.map((p) => p.id),
+      [inCategory],
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("GET /providers?category=<unknown-slug> gives 200 with an empty list, never an error", async () => {
+  const result = openTestDatabase();
+  try {
+    await seedProviderProfile(result, { isApproved: true });
+    const app = createApp(result.db);
+    const response = await app.request("/providers?category=does-not-exist");
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { providers: unknown[] };
+    assert.deepEqual(body.providers, []);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
 test("GET /providers/:id returns the public view for an approved provider, with the deposit pill's two facts", async () => {
   const result = openTestDatabase();
   try {

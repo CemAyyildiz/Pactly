@@ -5,7 +5,7 @@
  * concrete slots, not weekly rules").
  */
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, gt, lte } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lte } from "drizzle-orm";
 
 import type { Db } from "./client.js";
 import { availabilitySlots } from "./schema.js";
@@ -39,6 +39,54 @@ export async function listFutureSlots(
     .from(availabilitySlots)
     .where(and(...conditions))
     .orderBy(asc(availabilitySlots.startsAt));
+}
+
+export interface EarliestFutureSlotsOptions {
+  /** Injectable clock (UTC epoch seconds) -- defaults to the real one. */
+  now?: number;
+  /** Caps how many of each provider's earliest slots are kept -- the
+   * card's "up to three earliest open slots" (Story 3.2 AC3). Unset keeps
+   * every future slot for every requested provider. */
+  limit?: number;
+}
+
+/**
+ * Story 3.2: for every id in `providerProfileIds`, its earliest future
+ * slots ascending, capped at `options.limit` -- one query for every
+ * provider on the Discover list, not one query per provider (the spec's
+ * own Code Map note), grouped into a per-provider array in code since this
+ * workspace has no window-function query builder wired up. Also the
+ * "soonest open slot" the list's own sort order reads from -- the first
+ * entry of each provider's array is that provider's next slot, or `undefined`
+ * if the map has no entry for it at all.
+ */
+export async function listEarliestFutureSlotsByProvider(
+  db: Db,
+  providerProfileIds: string[],
+  options: EarliestFutureSlotsOptions = {},
+): Promise<Map<string, number[]>> {
+  const result = new Map<string, number[]>();
+  if (providerProfileIds.length === 0) {
+    return result;
+  }
+  const now = options.now ?? Math.floor(Date.now() / 1000);
+  const limit = options.limit ?? Number.POSITIVE_INFINITY;
+  const rows = await db
+    .select()
+    .from(availabilitySlots)
+    .where(and(inArray(availabilitySlots.providerProfileId, providerProfileIds), gt(availabilitySlots.startsAt, now)))
+    .orderBy(asc(availabilitySlots.providerProfileId), asc(availabilitySlots.startsAt));
+  for (const row of rows) {
+    const existing = result.get(row.providerProfileId);
+    if (existing) {
+      if (existing.length < limit) {
+        existing.push(row.startsAt);
+      }
+    } else {
+      result.set(row.providerProfileId, [row.startsAt]);
+    }
+  }
+  return result;
 }
 
 /**

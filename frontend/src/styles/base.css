@@ -403,3 +403,298 @@ button {
   border-style: dashed;
   cursor: not-allowed;
 }
+
+/* ---------------------------------------------------------------------
+ * Discover page -- Story 3.2. DESIGN.md Layout & Spacing: a 232px left
+ * rail plus a two-column grid from 1024px; below that, the category list
+ * becomes horizontally-scrolling tabs above a single column.
+ * --------------------------------------------------------------------- */
+
+.discover {
+  max-width: 1120px;
+}
+
+.discover__heading {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: var(--text-48);
+  line-height: 0.85;
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--space-4);
+}
+
+.discover__layout {
+  display: block;
+}
+
+@media (min-width: 1024px) {
+  .discover__layout {
+    display: grid;
+    grid-template-columns: 232px 1fr;
+    gap: var(--space-6);
+    align-items: start;
+  }
+}
+
+.discover__results {
+  margin-top: var(--space-4);
+}
+
+@media (min-width: 1024px) {
+  .discover__results {
+    margin-top: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------
+ * Category tabs / rail -- one component, two layouts by breakpoint.
+ * --------------------------------------------------------------------- */
+
+.category-nav {
+  display: flex;
+  flex-direction: row;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+}
+
+@media (min-width: 1024px) {
+  .category-nav {
+    flex-direction: column;
+    overflow-x: visible;
+    padding-bottom: 0;
+    position: sticky;
+    top: var(--space-6);
+  }
+}
+
+.category-tab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 10px 16px;
+  border-radius: var(--radius-full);
+  border: 1.5px solid var(--color-line);
+  background: var(--color-card);
+  color: var(--color-ink);
+  font-size: var(--text-14);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+@media (min-width: 1024px) {
+  .category-tab {
+    justify-content: space-between;
+    width: 100%;
+    border-radius: var(--radius-md);
+  }
+}
+
+.category-tab--selected {
+  background: var(--color-ink);
+  color: var(--color-escrow-text);
+  border-color: var(--color-ink);
+}
+
+.category-tab__count {
+  opacity: 0.65;
+  font-weight: 500;
+}
+
+/* ---------------------------------------------------------------------
+ * Provider card grid and card -- DESIGN.md Components: card-provider.
+ * --------------------------------------------------------------------- */
+
+.provider-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+@media (min-width: 1024px) {
+  .provider-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+  }
+}
+
+.provider-card {
+  position: relative;
+  background: var(--color-card);
+  border: 1.5px solid var(--color-ink);
+  border-radius: var(--radius-lg);
+  padding: var(--space-card-pad);
+  display: flex;
+  gap: var(--space-4);
+}
+
+/* The stretched link: painted first, covers the whole card, carries the
+ * card's own navigation and its own visible focus ring. Interactive
+ * children below (the slot chips) are lifted above it with
+ * `position: relative` so they keep their own click target instead of
+ * triggering this link too -- see `ProviderCard.tsx`'s own top comment. */
+.provider-card__link {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+}
+
+.provider-card__monogram {
+  position: relative;
+  flex: none;
+  width: 76px;
+  height: 96px;
+  border-radius: var(--radius-md);
+  background: var(--color-pro);
+  color: var(--color-pro-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.provider-card__initials {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: var(--text-32);
+  line-height: 1;
+}
+
+.provider-card__approved-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  font-size: 10px;
+  padding: 2px 6px;
+}
+
+.provider-card__body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.provider-card__name {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: var(--text-24);
+  line-height: 0.95;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.provider-card__meta {
+  font-size: var(--text-14);
+  color: var(--color-faint);
+  margin: 0;
+}
+
+.provider-card__badges {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* The provider's own cancellation count: one fact among the others, never
+ * an alarm (DESIGN.md Components) -- plain faint text, no badge ground, no
+ * alert colour. */
+.provider-card__cancellations {
+  font-size: var(--text-12);
+  color: var(--color-faint);
+}
+
+.provider-card__location {
+  font-size: var(--text-14);
+  color: var(--color-faint);
+  margin: 0;
+}
+
+.provider-card__price {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: var(--text-32);
+}
+
+.provider-card__slots {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* ---------------------------------------------------------------------
+ * Provider card skeleton -- matches the real card's layout (AC5), honours
+ * prefers-reduced-motion.
+ * --------------------------------------------------------------------- */
+
+.skeleton-block {
+  background: var(--color-line);
+  border-radius: var(--radius-sm);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-block {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
+.provider-card__monogram--skeleton {
+  border-radius: var(--radius-md);
+}
+
+.skeleton-block--name {
+  height: 28px;
+  width: 60%;
+}
+
+.skeleton-block--meta {
+  height: 14px;
+  width: 80%;
+}
+
+.skeleton-block--badges {
+  height: 20px;
+  width: 50%;
+}
+
+.skeleton-block--location {
+  height: 14px;
+  width: 40%;
+}
+
+.skeleton-block--price {
+  height: 30px;
+  width: 35%;
+}
+
+.skeleton-block--pill {
+  height: 28px;
+  width: 70%;
+  border-radius: var(--radius-full);
+}
+
+.skeleton-block--chip {
+  height: 44px;
+  width: 72px;
+  border-radius: var(--radius-sm);
+}

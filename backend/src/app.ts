@@ -27,7 +27,6 @@ import {
   PactlyJwtError,
 } from "./auth/errors.js";
 import type { Db } from "./db/client.js";
-import { listCategories } from "./db/categories.js";
 import {
   InvalidAvailabilitySlotsError,
   InvalidProviderRulesError,
@@ -35,6 +34,8 @@ import {
   ProviderNotFoundError,
   getOwnProviderProfile,
   getPublicProviderProfile,
+  listCategoriesWithProviderCounts,
+  listDiscoverProviders,
   updateProviderAvailability,
   updateProviderRules,
 } from "./services/profile.js";
@@ -143,9 +144,23 @@ export function createApp(db: Db): App {
   // lie about (same shape as `auth/challenge.ts`'s own comment on this).
   // ---------------------------------------------------------------------
 
+  /** Story 3.2: `providerCount` per category, approved providers only
+   * (AC1). */
   app.get("/categories", async (c) => {
-    const categories = await listCategories(db);
+    const categories = await listCategoriesWithProviderCounts(db);
     return c.json({ categories });
+  });
+
+  /** Story 3.2: the Discover list. Approved providers only (enforced in
+   * `listDiscoverProviders`, never by filtering here) as card objects,
+   * soonest-open-slot first. `?category=<slug>` filters to that category;
+   * an unknown slug is a `200` with an empty list, never an error (the
+   * spec's own "Unknown slug" row) -- there is nothing here for the route
+   * to catch. */
+  app.get("/providers", async (c) => {
+    const category = c.req.query("category");
+    const providers = await listDiscoverProviders(db, category);
+    return c.json({ providers });
   });
 
   /** Approved profiles only; an unapproved or unknown id gives the same

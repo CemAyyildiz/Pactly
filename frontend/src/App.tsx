@@ -1,6 +1,6 @@
 import { Link, Route, Routes } from "react-router";
 
-import { HomePage } from "./pages/home/HomePage";
+import { DiscoverPage } from "./pages/discover/DiscoverPage";
 import { ProviderProfilePage } from "./pages/provider/ProviderProfilePage";
 import { AvailabilityPage } from "./pages/panel/AvailabilityPage";
 
@@ -26,7 +26,7 @@ export function App() {
     <>
       <TopBar />
       <Routes>
-        <Route path="/" element={<HomePage />} />
+        <Route path="/" element={<DiscoverPage />} />
         <Route path="/providers/:id" element={<ProviderProfilePage />} />
         <Route path="/panel/availability" element={<AvailabilityPage />} />
       </Routes>

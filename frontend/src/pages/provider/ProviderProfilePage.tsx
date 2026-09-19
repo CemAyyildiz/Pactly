@@ -7,12 +7,8 @@ import { DepositPill } from "../../components/DepositPill";
 import { ProviderHeader } from "../../components/ProviderHeader";
 import { SlotChip } from "../../components/SlotChip";
 import { formatMoney } from "../../lib/money";
+import { formatSessionFormat } from "../../lib/sessionFormat";
 import { groupSlotsByDay } from "../../lib/time";
-
-const SESSION_FORMAT_LABEL: Record<string, string> = {
-  video: "Video call",
-  in_person: "In person",
-};
 
 /** `/providers/:id` -- a public profile, no sign-in required
  * (EXPERIENCE.md: "Discovery, search, profile viewing ... need no
@@ -84,7 +80,7 @@ export function ProviderProfilePage() {
         <div className="price-row">
           <span className="price-row__amount tabular-nums">{formatMoney(profile.price.amount, profile.price.asset)}</span>
           <span className="price-row__meta">
-            {SESSION_FORMAT_LABEL[profile.sessionFormat] ?? profile.sessionFormat} · {profile.sessionLengthMinutes} min
+            {formatSessionFormat(profile.sessionFormat)} · {profile.sessionLengthMinutes} min
           </span>
         </div>
 

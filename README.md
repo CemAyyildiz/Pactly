@@ -91,20 +91,20 @@ npm run dev                 # backend + frontend together
 ```
 
 - Backend: <http://localhost:3001/health> returns `{"status":"ok"}`.
-- Frontend: <http://localhost:5173> shows the home page (see "Try it locally" below for the seeded providers).
+- Frontend: <http://localhost:5173> shows the Discover page (see "Try it locally" below for the seeded providers).
 
 The backend reads every variable once in `backend/src/config.ts` and exits, naming the variable, if one is missing from `.env`.
 
 ### Try it locally
 
-Story 3.1 adds a public provider profile and a provider's own availability panel, plus a demo seed so both can be opened in a browser immediately:
+Story 3.1 adds a public provider profile and a provider's own availability panel; Story 3.2 adds the Discover marketplace list. A demo seed makes all of it browsable immediately:
 
 ```bash
 npm run -w backend seed:demo   # idempotent -- upserts 4 categories and 7 approved sample providers with slots over the next 7 days
 npm run dev                    # backend + frontend together
 ```
 
-- <http://localhost:5173> — a temporary home page linking to each seeded provider's public profile.
+- <http://localhost:5173> — Discover: category tabs/rail with counts, provider cards with the deposit pill and up to three open slots, no sign-in required.
 - A provider profile shows the deposit pill (amount + free-cancellation window, always together) and upcoming slots grouped by day.
 - <http://localhost:5173/panel/availability> — sign in with a Stellar wallet (Freighter or any wallet Stellar Wallets Kit supports) to set price, deposit rate, cancellation window and open slots. Set `SEED_PROVIDER_WALLET=G...` (your own wallet's public key) before running `seed:demo` to get an approved profile you can sign in as and edit.
 

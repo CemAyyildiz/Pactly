@@ -21,6 +21,8 @@ import {
   getPublicProviderProfile,
   InvalidAvailabilitySlotsError,
   InvalidProviderRulesError,
+  listCategoriesWithProviderCounts,
+  listDiscoverProviders,
   listMarketplaceProfiles,
   NotAProviderError,
   ProviderNotFoundError,
@@ -346,6 +348,131 @@ test("updateProviderAvailability throws NotAProviderError for a wallet with no p
   const result = openTestDatabase();
   try {
     await assert.rejects(() => updateProviderAvailability(result.db, "GNOTAPROVIDER", []), NotAProviderError);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Story 3.2: the Discover list's card objects and category counts.
+// ---------------------------------------------------------------------------
+
+test("listDiscoverProviders returns only approved providers, as card objects with the deposit and slots", async () => {
+  const result = openTestDatabase();
+  try {
+    const now = 1_000_000;
+    const approvedId = await seedProviderProfile(result, {
+      isApproved: true,
+      displayName: "Dr. Elif Aydın",
+      priceAmount: "10000000",
+      depositRateBps: 2000,
+      cancellationWindowHours: 24,
+    });
+    await replaceFutureSlots(result.db, approvedId, [now + 900, now + 1800, now + 2700, now + 3600], now);
+    await seedProviderProfile(result, { isApproved: false });
+
+    const cards = await listDiscoverProviders(result.db, undefined, now);
+    assert.equal(cards.length, 1);
+    const card = cards[0]!;
+    assert.equal(card.id, approvedId);
+    assert.equal(card.displayName, "Dr. Elif Aydın");
+    assert.deepEqual(card.deposit, { amount: "2000000", asset: "USDC" });
+    assert.equal(card.cancellationWindowHours, 24);
+    assert.equal(card.providerCancellationCount, 0);
+    // At most three, even though four are open.
+    assert.deepEqual(card.earliestSlots, [now + 900, now + 1800, now + 2700]);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("listDiscoverProviders filters by category slug", async () => {
+  const result = openTestDatabase();
+  try {
+    const categoryA = await seedCategory(result, "cat-a");
+    const categoryB = await seedCategory(result, "cat-b");
+    const inA = await seedProviderProfile(result, { categoryId: categoryA, isApproved: true });
+    await seedProviderProfile(result, { categoryId: categoryB, isApproved: true });
+
+    // `seedCategory`'s own slug shape: `consulting-${id}`.
+    const cards = await listDiscoverProviders(result.db, `consulting-${categoryA}`);
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0]?.id, inA);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("listDiscoverProviders gives an empty list for an unknown category slug, never an error", async () => {
+  const result = openTestDatabase();
+  try {
+    await seedProviderProfile(result, { isApproved: true });
+    const cards = await listDiscoverProviders(result.db, "does-not-exist");
+    assert.deepEqual(cards, []);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("listDiscoverProviders sorts by soonest open slot ascending, slotless providers last, ties by name", async () => {
+  const result = openTestDatabase();
+  try {
+    const now = 1_000_000;
+    const soonest = await seedProviderProfile(result, { isApproved: true, displayName: "Soonest Provider" });
+    const later = await seedProviderProfile(result, { isApproved: true, displayName: "Later Provider" });
+    const slotlessB = await seedProviderProfile(result, { isApproved: true, displayName: "Zeta Slotless" });
+    const slotlessA = await seedProviderProfile(result, { isApproved: true, displayName: "Alpha Slotless" });
+    await replaceFutureSlots(result.db, soonest, [now + 900], now);
+    await replaceFutureSlots(result.db, later, [now + 3600], now);
+
+    const cards = await listDiscoverProviders(result.db, undefined, now);
+    assert.deepEqual(
+      cards.map((card) => card.id),
+      [soonest, later, slotlessA, slotlessB],
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("listDiscoverProviders lists a provider whose slots are all in the past with earliestSlots: [] and sorts it last", async () => {
+  const result = openTestDatabase();
+  try {
+    const now = 1_000_000;
+    const hasFutureSlot = await seedProviderProfile(result, { isApproved: true, displayName: "Has A Slot" });
+    const allPast = await seedProviderProfile(result, { isApproved: true, displayName: "All Past" });
+    await replaceFutureSlots(result.db, hasFutureSlot, [now + 900], now);
+    // Planted as "future" relative to an earlier reference point, then
+    // viewed as of `now` -- same technique the availability-slots tests use
+    // to seed a genuinely past-relative-to-now row.
+    await replaceFutureSlots(result.db, allPast, [now - 3600], now - 7200);
+
+    const cards = await listDiscoverProviders(result.db, undefined, now);
+    const allPastCard = cards.find((card) => card.id === allPast);
+    assert.deepEqual(allPastCard?.earliestSlots, []);
+    assert.deepEqual(
+      cards.map((card) => card.id),
+      [hasFutureSlot, allPast],
+    );
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("listCategoriesWithProviderCounts counts only approved providers per category", async () => {
+  const result = openTestDatabase();
+  try {
+    const categoryId = await seedCategory(result);
+    await seedProviderProfile(result, { categoryId, isApproved: true });
+    await seedProviderProfile(result, { categoryId, isApproved: true });
+    await seedProviderProfile(result, { categoryId, isApproved: false });
+    const emptyCategoryId = await seedCategory(result);
+
+    const categories = await listCategoriesWithProviderCounts(result.db);
+    const populated = categories.find((category) => category.id === categoryId);
+    const empty = categories.find((category) => category.id === emptyCategoryId);
+    assert.equal(populated?.providerCount, 2);
+    assert.equal(empty?.providerCount, 0);
   } finally {
     closeDatabase(result);
   }
