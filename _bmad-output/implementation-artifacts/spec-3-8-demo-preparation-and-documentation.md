@@ -2,7 +2,7 @@
 title: 'Story 3.8 — Demo preparation and documentation'
 type: 'chore'
 created: '2026-09-20'
-status: 'in-progress'
+status: 'in-review'
 review_loop_iteration: 0
 baseline_revision: 'dff079fe9211f0bad19ac69f17b482a82b019d02'
 followup_review_recommended: false

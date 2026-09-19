@@ -2,10 +2,10 @@
 title: 'Story 3.7 — Paying the balance before the session'
 type: 'feature'
 created: '2026-09-20'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: '567484280a797b6b6c46cd3c8f682fdf959def80'
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-3-4-client-booking-flow.md'
@@ -109,3 +109,17 @@ This payment is independent of the escrow (AD-3). It never touches `escrow_state
 **Commands:**
 - `npm run -w backend typecheck && npm run -w backend test && npm run -w backend build` -- expected: clean, all pass
 - `npm run -w frontend typecheck && npm run -w frontend build` -- expected: clean
+
+## Auto Run Result
+
+Status: done
+
+**Özet:** Müşteri, seans öncesinde kalan bakiyeyi USDC ile ödeyebiliyor: Pactly ödemeyi kuruyor, müşteri cüzdanında imzalıyor, Pactly Soroban RPC ile gönderip onaylanana kadar bekliyor ve ancak ondan sonra `paid_platform` yazıyor. Sağlayıcı elden ödemeyi işaretleyebiliyor. İki yol da korumalı yazma kullanıyor ve kurulu hash'i temizliyor, böylece aynı bakiye iki kez ödenemiyor. Ödeme escrow'dan bağımsız (AD-3).
+
+**Commit'ler:** `9f4878b` spec, `dff079f` start, `7376902` feat, `897105b` fix (worktree'de yazıldı, 3.6 ve 3.8'in üstüne rebase edildi; çakışmalar birleştirmede çözüldü).
+
+**Review:** 38 bulgu (high 6, medium 17, low 11, false 1, maybe-false 3). G1–G8 patch edildi. Reddedilenler: `chain/`'in poll fonksiyonunu yeniden kullanmak, sıfır bakiyede kod önceliği, tamsayı olmayan tutarın HTTP karşılığı, frontend testsizliği. Takip review önerisi: `true`; gönderimdeki durum kontrolü ve çift ödeme korumaları bir sonraki turdan geçmedi. Kullanıcının kuralı gereği takip turu çalıştırılmadı.
+
+**Doğrulama:** backend typecheck ve build temiz, test 448/448; frontend typecheck ve build temiz.
+
+**Kalan riskler:** Gerçek bir Stellar ödemesi hiç denenmedi (testnet cüzdanı ve RPC gerektirir). Frontend testi yok. Yerel para ile ödeme hâlâ Story 2.4'e bağlı.
