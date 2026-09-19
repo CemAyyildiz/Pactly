@@ -2,8 +2,9 @@
 title: 'Story 3.6 — Appointment completion, release and resolution'
 type: 'feature'
 created: '2026-09-20'
-status: 'ready-for-dev'
+status: 'in-progress'
 review_loop_iteration: 0
+baseline_revision: 'b85e8d8dfa8bf205f8b64085f66034c652c8d50d'
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
