@@ -121,12 +121,16 @@ export interface HoldSlotResponse {
   /** UTC epoch seconds. */
   cancelDeadline: number;
   provider: BookingProviderSummary;
+  /** `true` only when the free-cancellation window had already passed at
+   * the moment of the hold -- omitted (never `false`) otherwise. */
+  freeCancellationEnded?: boolean;
 }
 
-export interface LockResponse {
-  unsignedXdr: string;
-  contractId: string;
-}
+/** Review follow-up: `deployed: true` means a signed deploy was already
+ * submitted and accepted for this booking -- there is no XDR to sign
+ * again, skip straight to `fund`. `deployed: false` carries the unsigned
+ * deploy XDR (and its own real `txHash`) still waiting for a signature. */
+export type LockResponse = { deployed: true; contractId: string } | { deployed: false; contractId: string; unsignedXdr: string; txHash: string };
 
 export interface FundResponse {
   unsignedXdr: string;

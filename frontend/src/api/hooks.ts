@@ -141,16 +141,28 @@ export function useUpdateProviderAvailability(session: Session | undefined) {
 export interface HoldSlotInput {
   providerId: string;
   slotStartsAt: number;
+  tzOffsetMinutes?: number;
 }
 
-export function useHoldSlot(session: Session | undefined) {
+/**
+ * Review follow-up: `mutateAsync` takes the token as part of its own call
+ * arguments now, rather than closing over whatever `session` this hook was
+ * *rendered* with. `BookingPage.tsx`'s first-time sign-in flow calls
+ * `signIn()`, then immediately holds the slot in the very same function --
+ * `setSession(activeSession)` only takes effect on the *next* render, so a
+ * `useHoldSlot(session)`-style hook would still capture the old (absent)
+ * session in its `mutationFn` closure for that same call. Passing the
+ * fresh token explicitly avoids relying on a render that has not happened
+ * yet.
+ */
+export function useHoldSlot() {
   return useMutation({
-    mutationFn: (input: HoldSlotInput) => apiPost<HoldSlotResponse>("/bookings/hold", input, session?.token),
+    mutationFn: ({ token, ...input }: HoldSlotInput & { token: string }) => apiPost<HoldSlotResponse>("/bookings/hold", input, token),
   });
 }
 
-export function lockDeposit(bookingId: string, session: Session): Promise<LockResponse> {
-  return apiPost<LockResponse>(`/bookings/${bookingId}/lock`, {}, session.token);
+export function lockDeposit(bookingId: string, session: Session, rebuild = false): Promise<LockResponse> {
+  return apiPost<LockResponse>(`/bookings/${bookingId}/lock`, rebuild ? { rebuild: true } : {}, session.token);
 }
 
 export function fundDeposit(bookingId: string, session: Session): Promise<FundResponse> {
@@ -166,22 +178,38 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * `fundDeposit`, retried a few times on `ESCROW_REJECTED`/`ESCROW_UNAVAILABLE`
- * -- the Design Notes' own documented alternative to polling for "the
- * deploy is visible": Trustless Work's build-fund step can only succeed
- * once the just-submitted deploy transaction has actually landed on
- * Soroban (a few seconds after submission, not instant), and nothing in
- * the read API surfaces a finer-grained "deployed but not yet funded"
- * signal (the reconciler's own lifecycle only ever starts at "funded").
- * Any other failure (a genuine `BOOKING_STATE`, a network drop) is
- * rethrown immediately, unretried.
+ * `fundDeposit`, retried a few times -- the Design Notes' own documented
+ * alternative to polling for "the deploy is visible": Trustless Work's
+ * build-fund step can only succeed once the just-submitted deploy
+ * transaction has actually landed on Soroban (a few seconds after
+ * submission, not instant), and nothing in the read API surfaces a
+ * finer-grained "deployed but not yet funded" signal (the reconciler's own
+ * lifecycle only ever starts at "funded").
+ *
+ * Review follow-up on the retry policy itself: `ESCROW_UNAVAILABLE` (a
+ * transient Trustless Work outage) is always retried. `ESCROW_REJECTED`
+ * (a real refusal) is only retried within the first 30 seconds after the
+ * deploy was submitted -- the window where "the contract doesn't exist
+ * yet" is the most likely explanation; past that, continuing to retry
+ * would just mask a genuine, permanent refusal as a slow success. Any
+ * other failure (`BOOKING_STATE`, a network drop, `401`) is rethrown
+ * immediately, unretried.
  */
-export async function fundDepositWithRetry(bookingId: string, session: Session, attempts = 5, delayMs = 2500): Promise<FundResponse> {
+export async function fundDepositWithRetry(
+  bookingId: string,
+  session: Session,
+  deploySubmittedAtMs: number,
+  attempts = 5,
+  delayMs = 2500,
+): Promise<FundResponse> {
+  const REJECTED_RETRY_WINDOW_MS = 30_000;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       return await fundDeposit(bookingId, session);
     } catch (error) {
-      const retryable = error instanceof ApiError && (error.code === "ESCROW_REJECTED" || error.code === "ESCROW_UNAVAILABLE");
+      const withinRejectedWindow = Date.now() - deploySubmittedAtMs < REJECTED_RETRY_WINDOW_MS;
+      const retryable =
+        error instanceof ApiError && (error.code === "ESCROW_UNAVAILABLE" || (error.code === "ESCROW_REJECTED" && withinRejectedWindow));
       if (!retryable || attempt === attempts) {
         throw error;
       }
@@ -206,6 +234,11 @@ export function useBooking(bookingId: string | undefined, session: Session | und
     queryFn: () => apiGet<BookingView>(`/bookings/${bookingId}`, session?.token),
     enabled: Boolean(bookingId && session) && (options.enabled ?? true),
     retry: false,
-    refetchInterval: (query) => (query.state.data?.escrowState ? false : BOOKING_POLL_INTERVAL_MS),
+    // Review follow-up: stop polling once a terminal `escrowState` is seen
+    // (unchanged) *and* once the last attempt errored (a 401, a dropped
+    // connection, ...) -- `retry: false` only skips retrying that one
+    // failed fetch, it does not stop `refetchInterval` from trying again
+    // on schedule regardless of the last outcome.
+    refetchInterval: (query) => (query.state.data?.escrowState || query.state.error ? false : BOOKING_POLL_INTERVAL_MS),
   });
 }

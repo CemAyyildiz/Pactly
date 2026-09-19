@@ -15,6 +15,7 @@ import { config } from "./config.js";
 import type { Db } from "./db/client.js";
 import { expireHolds } from "./services/booking.js";
 import { realListEscrows, runReconcilerOnce } from "./escrow/trustless-work/reconciler.js";
+import type { ListEscrowsParams, ListEscrowsResponse } from "@trustless-work/escrow-js";
 
 const RECONCILER_INTERVAL_MS = 15_000;
 const HOLD_EXPIRY_INTERVAL_MS = 30_000;
@@ -29,7 +30,7 @@ function defaultLog(message: string): void {
  * config is incomplete" discipline `escrow/trustless-work/client.ts` and
  * `reconciler.ts` already enforce at the call level; skipping the tick
  * entirely here just avoids spamming that same refusal on a timer. */
-function trustlessWorkConfigComplete(): boolean {
+function defaultTrustlessWorkConfigComplete(): boolean {
   return Boolean(config.trustlessWorkApiUrl && config.trustlessWorkApiKey && config.trustlessWorkPlatformAddress);
 }
 
@@ -49,6 +50,23 @@ export interface StartRunnerOptions {
   log?: (message: string) => void;
   reconcilerIntervalMs?: number;
   holdExpiryIntervalMs?: number;
+  /** Overrides the reconciler's own `listEscrows` read seam -- defaults to
+   * the real Trustless Work call. A test injects a fake here to exercise a
+   * real reconciler tick (moving a booking to `locked`, or throwing) without
+   * a live API key. */
+  listEscrows?: (params: ListEscrowsParams) => Promise<ListEscrowsResponse>;
+  /** Overrides the "is Trustless Work configured" check that decides
+   * whether the reconciler tick runs at all -- defaults to the real
+   * `config`-based check. A test sets this to force the tick to actually
+   * run (with an injected `listEscrows` above) despite the test fixture
+   * env's own empty Trustless Work variables. */
+  reconcilerConfigComplete?: () => boolean;
+  /** Overrides the platform address `runReconcilerOnce` cross-checks every
+   * row against -- defaults to `config.trustlessWorkPlatformAddress`
+   * (empty in the test fixture env). A test injecting a fake `listEscrows`
+   * row needs this to actually match that row's own platform/disputeResolver/
+   * admin roles. */
+  reconcilerPlatformAddress?: string;
 }
 
 export interface RunnerHandle {
@@ -65,6 +83,8 @@ export function startRunner(db: Db, options: StartRunnerOptions = {}): RunnerHan
   const log = options.log ?? defaultLog;
   const reconcilerIntervalMs = options.reconcilerIntervalMs ?? RECONCILER_INTERVAL_MS;
   const holdExpiryIntervalMs = options.holdExpiryIntervalMs ?? HOLD_EXPIRY_INTERVAL_MS;
+  const trustlessWorkConfigComplete = options.reconcilerConfigComplete ?? defaultTrustlessWorkConfigComplete;
+  const listEscrows = options.listEscrows ?? realListEscrows();
 
   let stopped = false;
   let reconcilerTimer: NodeJS.Timeout | undefined;
@@ -85,7 +105,12 @@ export function startRunner(db: Db, options: StartRunnerOptions = {}): RunnerHan
             return;
           }
           warnedConfigIncomplete = false;
-          const result = await runReconcilerOnce({ db, listEscrows: realListEscrows(), log });
+          const result = await runReconcilerOnce({
+            db,
+            listEscrows,
+            log,
+            ...(options.reconcilerPlatformAddress !== undefined ? { platformAddress: options.reconcilerPlatformAddress } : {}),
+          });
           if (result.applied > 0 || result.anomalies > 0) {
             log(
               `[runner] reconciler tick: applied=${result.applied} duplicates=${result.duplicates} ` +

@@ -7,6 +7,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+import { eq } from "drizzle-orm";
+
 import {
   getSlotByProviderAndStart,
   listEarliestFutureSlotsByProvider,
@@ -15,7 +17,8 @@ import {
   listOpenSlotsInRange,
   replaceFutureSlots,
 } from "../src/db/availabilitySlots.js";
-import { insertBookingHoldIfSlotFree } from "../src/db/bookings.js";
+import { insertBookingHoldIfSlotFree, updateEscrowContractId, updateEscrowStateSync } from "../src/db/bookings.js";
+import { availabilitySlots } from "../src/db/schema.js";
 import { closeDatabase, openTestDatabase, randomBookingId, seedProviderProfile } from "./helpers.js";
 
 const DAY = 24 * 60 * 60;
@@ -296,6 +299,130 @@ test("replaceFutureSlots keeps two different providers' slots independent", asyn
     const slotsB = await listFutureSlots(result.db, providerB, { now });
     assert.deepEqual(slotsA.map((slot) => slot.startsAt), [now + 900]);
     assert.deepEqual(slotsB.map((slot) => slot.startsAt), [now + 1800]);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("replaceFutureSlots marks withdrawn (never hard-deletes) a removed slot an inactive booking still references -- an expired hold on a future slot (review follow-up)", async () => {
+  const result = openTestDatabase();
+  try {
+    const providerProfileId = await seedProviderProfile(result);
+    const now = 1_000_000;
+    await replaceFutureSlots(result.db, providerProfileId, [now + 900, now + 1800], now);
+    const [expiredHoldSlot, keptSlot] = await listFutureSlots(result.db, providerProfileId, { now });
+
+    // An *expired* hold on a future slot -- inactive (hold_expires_at is
+    // already in the past), but the booking row still names this slot, so
+    // foreign_keys=ON refuses a hard delete of it.
+    const inserted = await insertBookingHoldIfSlotFree(
+      result.db,
+      {
+        id: randomBookingId(),
+        providerProfileId,
+        clientWalletAddress: "GCLIENTTEST00000000000000000000000000000000000000",
+        tokenAddress: "CTOKENTEST0000000000000000000000000000000000000000",
+        depositAmount: "1000000",
+        cancelDeadline: now + 3600,
+        slotId: expiredHoldSlot!.id,
+        holdExpiresAt: now - 1, // already expired
+        createdAt: Date.now(),
+      },
+      now,
+    );
+    assert.equal(inserted, true);
+
+    // The provider's rules panel resubmits a set that omits the
+    // (inactive, but still referenced) slot entirely.
+    await replaceFutureSlots(result.db, providerProfileId, [keptSlot!.startsAt], now);
+
+    // It must not have been hard-deleted -- confirmed by reading the raw
+    // row directly (a real delete would have thrown a foreign-key
+    // constraint error rather than leaving this query with nothing to
+    // find).
+    const rawRows = await result.db.select().from(availabilitySlots).where(eq(availabilitySlots.id, expiredHoldSlot!.id));
+    assert.equal(rawRows.length, 1, "the row must still exist, marked withdrawn rather than deleted");
+    assert.ok(rawRows[0]!.withdrawnAt !== null, "withdrawn_at must be set");
+
+    // Excluded from every future/open listing, the same as a deleted row
+    // would be.
+    const remainingFuture = await listFutureSlots(result.db, providerProfileId, { now });
+    assert.deepEqual(remainingFuture.map((slot) => slot.startsAt), [keptSlot!.startsAt]);
+    const remainingOpen = await listOpenFutureSlots(result.db, providerProfileId, { now });
+    assert.deepEqual(remainingOpen.map((slot) => slot.startsAt), [keptSlot!.startsAt]);
+
+    // Re-adding the exact same start time later clears the withdrawal
+    // rather than trying (and failing, on the unique pair) to insert a
+    // second row for it.
+    await replaceFutureSlots(result.db, providerProfileId, [keptSlot!.startsAt, expiredHoldSlot!.startsAt], now);
+    const afterReadd = await listFutureSlots(result.db, providerProfileId, { now });
+    assert.deepEqual(
+      afterReadd.map((slot) => slot.startsAt).sort((a, b) => a - b),
+      [keptSlot!.startsAt, expiredHoldSlot!.startsAt].sort((a, b) => a - b),
+    );
+    const reAddedRow = afterReadd.find((slot) => slot.startsAt === expiredHoldSlot!.startsAt);
+    assert.equal(reAddedRow?.id, expiredHoldSlot!.id, "re-adding must reuse the original row, not insert a fresh one");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("replaceFutureSlots hard-deletes a removed slot no booking has ever referenced", async () => {
+  const result = openTestDatabase();
+  try {
+    const providerProfileId = await seedProviderProfile(result);
+    const now = 1_000_000;
+    await replaceFutureSlots(result.db, providerProfileId, [now + 900, now + 1800], now);
+
+    await replaceFutureSlots(result.db, providerProfileId, [now + 1800], now);
+
+    const rawRows = await result.db.select().from(availabilitySlots).where(eq(availabilitySlots.providerProfileId, providerProfileId));
+    assert.equal(rawRows.length, 1, "the unreferenced, removed slot must be gone entirely, not merely withdrawn");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("a refunded booking does not keep its slot active -- listOpenFutureSlots offers it again, and it counts as unreferenced for replaceFutureSlots' own hard-delete decision", async () => {
+  const result = openTestDatabase();
+  try {
+    const providerProfileId = await seedProviderProfile(result);
+    const now = 1_000_000;
+    await replaceFutureSlots(result.db, providerProfileId, [now + 900], now);
+    const [slot] = await listFutureSlots(result.db, providerProfileId, { now });
+
+    const bookingId = randomBookingId();
+    await insertBookingHoldIfSlotFree(
+      result.db,
+      {
+        id: bookingId,
+        providerProfileId,
+        clientWalletAddress: "GCLIENTTEST00000000000000000000000000000000000000",
+        tokenAddress: "CTOKENTEST0000000000000000000000000000000000000000",
+        depositAmount: "1000000",
+        cancelDeadline: now + 3600,
+        slotId: slot!.id,
+        holdExpiresAt: now + 600,
+        createdAt: Date.now(),
+      },
+      now,
+    );
+    await updateEscrowContractId(result.db, bookingId, "CFAKECONTRACT000000000000000000000000000000000000");
+    updateEscrowStateSync(result.db, bookingId, "refunded");
+
+    // A refunded booking must not be treated as "active" -- the slot is
+    // offered again.
+    const open = await listOpenFutureSlots(result.db, providerProfileId, { now });
+    assert.deepEqual(open.map((s) => s.startsAt), [slot!.startsAt]);
+
+    // And a refunded-only reference does not block a hard delete either,
+    // since foreign_keys=ON still refuses it -- a refunded booking still
+    // *exists* and still names this slot_id, so a real delete would still
+    // throw; this must come back withdrawn, not deleted, and not crash.
+    await replaceFutureSlots(result.db, providerProfileId, [], now);
+    const rawRows = await result.db.select().from(availabilitySlots).where(eq(availabilitySlots.id, slot!.id));
+    assert.equal(rawRows.length, 1);
+    assert.ok(rawRows[0]!.withdrawnAt !== null);
   } finally {
     closeDatabase(result);
   }

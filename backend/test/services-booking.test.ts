@@ -19,7 +19,7 @@ import { Keypair, StrKey } from "@stellar/stellar-sdk";
 
 import { BookingEscrowStateError, fundDeposit, lockDeposit, resolveBookingDispute, setBalanceState } from "../src/services/booking.js";
 import { getEscrowDisputeResolution } from "../src/db/escrowDisputeResolutions.js";
-import { getBookingById, updateEscrowContractId, updateEscrowStateSync } from "../src/db/bookings.js";
+import { getBookingById, recordDeploySubmission, updateEscrowContractId, updateEscrowStateSync } from "../src/db/bookings.js";
 import { bookings } from "../src/db/schema.js";
 import { insertEscrowProcessedEventIfNew } from "../src/db/escrowProcessedEvents.js";
 import type { Db } from "../src/db/client.js";
@@ -113,7 +113,11 @@ test("lockDeposit calls the EscrowAdapter's deploy with the professional's walle
     const lockResult = await lockDeposit(result.db, bookingId, adapter);
 
     assert.equal(lockResult.contractId, deployResult.contractId);
-    assert.deepEqual(lockResult.deploy, deployResult);
+    assert.equal(lockResult.deployed, false);
+    if (!lockResult.deployed) {
+      assert.equal(lockResult.unsignedXdr, deployResult.unsignedXdr);
+      assert.equal(lockResult.txHash, deployResult.txHash);
+    }
 
     assert.ok(capturedDeploy, "adapter.deploy should have been called");
     assert.equal(capturedDeploy.bookingId, bookingId);
@@ -157,14 +161,16 @@ test("lockDeposit retried within the hold returns the same stored deploy XDR and
     const first = await lockDeposit(result.db, bookingId, adapter);
     assert.equal(calls, 1);
     assert.equal(first.contractId, firstContractId);
-    assert.equal(first.deploy.unsignedXdr, "first-unsigned-xdr");
+    assert.equal(first.deployed, false);
+    if (!first.deployed) assert.equal(first.unsignedXdr, "first-unsigned-xdr");
 
     // A retry (a declined wallet signature, or a lost response) must return
     // the exact same escrow and XDR, never deploy a second, competing one.
     const second = await lockDeposit(result.db, bookingId, unreachableEscrowAdapter());
     assert.equal(calls, 1, "the adapter's deploy must not be called again");
     assert.equal(second.contractId, firstContractId);
-    assert.equal(second.deploy.unsignedXdr, "first-unsigned-xdr");
+    assert.equal(second.deployed, false);
+    if (!second.deployed) assert.equal(second.unsignedXdr, "first-unsigned-xdr");
 
     const booking = await getBookingById(result.db, bookingId);
     assert.equal(booking?.escrowContractId, firstContractId, "the original contractId must survive the retried call");
@@ -173,14 +179,44 @@ test("lockDeposit retried within the hold returns the same stored deploy XDR and
   }
 });
 
-test("lockDeposit rebuilds a fresh deploy when a persisted contractId has no stored XDR and does not exist on chain (abandoned-deploy recovery)", async () => {
+test("lockDeposit returns {deployed: true, contractId} once a deploy submission is recorded, without touching the adapter", async () => {
   const result = openTestDatabase();
   try {
     const bookingId = await seedBooking(result);
-    const abandonedContractId = fakeContractId();
-    // Simulates a pre-3.4 row (or a legacy call site): a contractId
-    // persisted with no stored deploy XDR to retry.
-    await updateEscrowContractId(result.db, bookingId, abandonedContractId);
+    const contractId = fakeContractId();
+    await updateEscrowContractId(result.db, bookingId, contractId, "unsigned-xdr", "deploy-tx-hash");
+    const recorded = await recordDeploySubmission(result.db, bookingId, contractId, "deploy-tx-hash", Math.floor(Date.now() / 1000) + 600, Math.floor(Date.now() / 1000));
+    assert.equal(recorded, true);
+
+    const lockResult = await lockDeposit(result.db, bookingId, unreachableEscrowAdapter());
+    assert.deepEqual(lockResult, { deployed: true, contractId });
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("lockDeposit refuses (typed) when a contractId is persisted with no stored XDR and rebuild is not requested", async () => {
+  const result = openTestDatabase();
+  try {
+    const bookingId = await seedBooking(result);
+    const contractId = fakeContractId();
+    await updateEscrowContractId(result.db, bookingId, contractId);
+
+    await assert.rejects(() => lockDeposit(result.db, bookingId, unreachableEscrowAdapter()), BookingEscrowStateError);
+
+    const booking = await getBookingById(result.db, bookingId);
+    assert.equal(booking?.escrowContractId, contractId, "the contractId must survive the refusal");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("lockDeposit with rebuild: true clears an unsubmitted deploy and builds a fresh one", async () => {
+  const result = openTestDatabase();
+  try {
+    const bookingId = await seedBooking(result);
+    const staleContractId = fakeContractId();
+    await updateEscrowContractId(result.db, bookingId, staleContractId, "stale-xdr", "stale-tx-hash");
 
     const freshContractId = fakeContractId();
     let calls = 0;
@@ -188,18 +224,14 @@ test("lockDeposit rebuilds a fresh deploy when a persisted contractId has no sto
       ...unreachableEscrowAdapter(),
       deploy: async () => {
         calls += 1;
-        return { contractId: freshContractId, unsignedXdr: "fresh-unsigned-xdr", txHash: "h2" };
+        return { contractId: freshContractId, unsignedXdr: "fresh-unsigned-xdr", txHash: "fresh-tx-hash" };
       },
     };
 
-    const result2 = await lockDeposit(result.db, bookingId, adapter, {
-      contractExistsOnChain: async (contractId) => {
-        assert.equal(contractId, abandonedContractId);
-        return false;
-      },
-    });
-    assert.equal(calls, 1, "a fresh deploy must be built once the old contract is confirmed absent");
-    assert.equal(result2.contractId, freshContractId);
+    const rebuilt = await lockDeposit(result.db, bookingId, adapter, { rebuild: true });
+    assert.equal(calls, 1);
+    assert.equal(rebuilt.contractId, freshContractId);
+    assert.equal(rebuilt.deployed, false);
 
     const booking = await getBookingById(result.db, bookingId);
     assert.equal(booking?.escrowContractId, freshContractId);
@@ -208,23 +240,46 @@ test("lockDeposit rebuilds a fresh deploy when a persisted contractId has no sto
   }
 });
 
-test("lockDeposit refuses to rebuild when the persisted contractId (no stored XDR) does exist on chain", async () => {
+test("lockDeposit ignores rebuild: true once a deploy submission is already recorded", async () => {
   const result = openTestDatabase();
   try {
     const bookingId = await seedBooking(result);
     const contractId = fakeContractId();
-    await updateEscrowContractId(result.db, bookingId, contractId);
+    await updateEscrowContractId(result.db, bookingId, contractId, "unsigned-xdr", "deploy-tx-hash");
+    await recordDeploySubmission(result.db, bookingId, contractId, "deploy-tx-hash", Math.floor(Date.now() / 1000) + 600, Math.floor(Date.now() / 1000));
 
-    await assert.rejects(
-      () =>
-        lockDeposit(result.db, bookingId, unreachableEscrowAdapter(), {
-          contractExistsOnChain: async () => true,
-        }),
-      BookingEscrowStateError,
-    );
+    const lockResult = await lockDeposit(result.db, bookingId, unreachableEscrowAdapter(), { rebuild: true });
+    assert.deepEqual(lockResult, { deployed: true, contractId });
+  } finally {
+    closeDatabase(result);
+  }
+});
 
+test("lockDeposit: two concurrent first-deploy calls never let a raw TypeError escape -- one wins, the other returns its result", async () => {
+  const result = openTestDatabase();
+  try {
+    const bookingId = await seedBooking(result);
+    const contractId = fakeContractId();
+    let deployCalls = 0;
+    const adapter: EscrowAdapter = {
+      ...unreachableEscrowAdapter(),
+      deploy: async () => {
+        deployCalls += 1;
+        return { contractId, unsignedXdr: "unsigned-xdr", txHash: "tx-hash" };
+      },
+    };
+
+    const [first, second] = await Promise.all([lockDeposit(result.db, bookingId, adapter), lockDeposit(result.db, bookingId, adapter)]);
+    // Both calls can legitimately race to build a deploy (each reads
+    // `contractId: null` before either has written) -- the guarantee is at
+    // the *write*: only one persists, and neither call ever throws a raw,
+    // untyped error. Both must end up agreeing on the same, single
+    // persisted contractId.
+    assert.ok(deployCalls >= 1);
+    assert.equal(first.contractId, contractId);
+    assert.equal(second.contractId, contractId);
     const booking = await getBookingById(result.db, bookingId);
-    assert.equal(booking?.escrowContractId, contractId, "the contractId must survive the refusal");
+    assert.equal(booking?.escrowContractId, contractId);
   } finally {
     closeDatabase(result);
   }
@@ -259,14 +314,15 @@ test("lockDeposit refuses to run again once escrow_state is also set", async () 
   }
 });
 
-test("fundDeposit targets exactly the persisted contractId, never a caller-supplied one", async () => {
+test("fundDeposit targets exactly the persisted contractId, never a caller-supplied one, once a deploy submission is recorded", async () => {
   const result = openTestDatabase();
   try {
     const clientAddress = Keypair.random().publicKey();
     const depositAmount = "5000000";
     const bookingId = await seedBooking(result, { clientWalletAddress: clientAddress, depositAmount });
     const contractId = fakeContractId();
-    await updateEscrowContractId(result.db, bookingId, contractId);
+    await updateEscrowContractId(result.db, bookingId, contractId, "unsigned-xdr", "deploy-tx-hash");
+    await recordDeploySubmission(result.db, bookingId, contractId, "deploy-tx-hash", Math.floor(Date.now() / 1000) + 600, Math.floor(Date.now() / 1000));
 
     let capturedFund: FundEscrowInput | undefined;
     const fundResult: UnsignedTransaction = { unsignedXdr: "fund-unsigned-xdr", txHash: "fund-tx-hash" };
@@ -284,6 +340,9 @@ test("fundDeposit targets exactly the persisted contractId, never a caller-suppl
     assert.equal(capturedFund.contractId, contractId);
     assert.equal(capturedFund.clientAddress, clientAddress);
     assert.equal(capturedFund.amount, depositAmount);
+
+    const booking = await getBookingById(result.db, bookingId);
+    assert.equal(booking?.escrowFundTxHash, "fund-tx-hash", "the built fund XDR's own txHash must be stored for submitSignedTransaction to match against");
   } finally {
     closeDatabase(result);
   }
@@ -299,14 +358,48 @@ test("fundDeposit refuses when no contractId is persisted yet", async () => {
   }
 });
 
+test("fundDeposit refuses when a contractId is persisted but no deploy submission has been recorded yet (Story 3.4 review)", async () => {
+  const result = openTestDatabase();
+  try {
+    const bookingId = await seedBooking(result);
+    await updateEscrowContractId(result.db, bookingId, fakeContractId(), "unsigned-xdr", "deploy-tx-hash");
+    // No recordDeploySubmission call -- the deploy was built but never
+    // confirmed relayed.
+    await assert.rejects(() => fundDeposit(result.db, bookingId, unreachableEscrowAdapter()), BookingEscrowStateError);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
 test("fundDeposit refuses once escrow_state is already set", async () => {
   const result = openTestDatabase();
   try {
     const bookingId = await seedBooking(result);
-    await updateEscrowContractId(result.db, bookingId, fakeContractId());
+    const contractId = fakeContractId();
+    await updateEscrowContractId(result.db, bookingId, contractId, "unsigned-xdr", "deploy-tx-hash");
+    await recordDeploySubmission(result.db, bookingId, contractId, "deploy-tx-hash", Math.floor(Date.now() / 1000) + 600, Math.floor(Date.now() / 1000));
     updateEscrowStateSync(result.db, bookingId, "locked");
 
     await assert.rejects(() => fundDeposit(result.db, bookingId, unreachableEscrowAdapter()), BookingEscrowStateError);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("fundDeposit refuses once the hold has expired with escrow_state still null (Story 3.4 review)", async () => {
+  const result = openTestDatabase();
+  try {
+    const bookingId = await seedBooking(result);
+    const contractId = fakeContractId();
+    const past = Math.floor(Date.now() / 1000) - 1;
+    await updateEscrowContractId(result.db, bookingId, contractId, "unsigned-xdr", "deploy-tx-hash");
+    await recordDeploySubmission(result.db, bookingId, contractId, "deploy-tx-hash", past, past - 600);
+    await result.db.update(bookings).set({ holdExpiresAt: past }).where(eq(bookings.id, bookingId));
+
+    await assert.rejects(
+      () => fundDeposit(result.db, bookingId, unreachableEscrowAdapter(), { now: past + 1 }),
+      (error: unknown) => error instanceof Error && error.name === "BookingHoldExpiredError",
+    );
   } finally {
     closeDatabase(result);
   }

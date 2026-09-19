@@ -4,7 +4,7 @@
  * `../chain/event-worker.ts` -- which is what AD-1/AD-3 mean in practice:
  * nothing else may write `escrow_state`.
  */
-import { and, eq, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, ne, notInArray, or, sql } from "drizzle-orm";
 
 import type { Db, DbOrTx } from "./client.js";
 import { bookings, providerProfiles, type BalanceState, type EscrowState } from "./schema.js";
@@ -94,10 +94,56 @@ export async function insertBookingHoldIfSlotFree(
     WHERE NOT EXISTS (
       SELECT 1 FROM bookings existing
       WHERE existing.slot_id = ${values.slotId}
-        AND (existing.escrow_state IS NOT NULL OR existing.hold_expires_at > ${now})
+        AND (
+          (existing.escrow_state IS NOT NULL AND existing.escrow_state != 'refunded')
+          OR (existing.escrow_state IS NULL AND existing.hold_expires_at > ${now})
+        )
     )
   `);
   return result.changes > 0;
+}
+
+/** Same "active" definition as {@link insertBookingHoldIfSlotFree}'s own
+ * `WHERE NOT EXISTS` clause (review follow-up: a refunded booking never
+ * counts), for a caller (`holdSlot`) that needs to find -- not merely
+ * refuse to duplicate -- the one active booking a wallet already holds on
+ * a given slot. `undefined` when the wallet has no active booking there. */
+export async function getActiveBookingForWalletAndSlot(
+  db: Db,
+  slotId: string,
+  clientWalletAddress: string,
+  now: number,
+): Promise<BookingRow | undefined> {
+  const rows = await db
+    .select()
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.slotId, slotId),
+        eq(bookings.clientWalletAddress, clientWalletAddress),
+        or(
+          and(isNotNull(bookings.escrowState), ne(bookings.escrowState, "refunded")),
+          and(isNull(bookings.escrowState), gt(bookings.holdExpiresAt, now)),
+        ),
+      ),
+    )
+    .limit(1);
+  return rows[0];
+}
+
+/** How many *pending* holds (`escrow_state IS NULL`, not yet expired) a
+ * wallet currently has open across every provider -- `holdSlot`'s own
+ * per-wallet cap (review follow-up: caps abuse from one wallet opening
+ * unlimited simultaneous holds). A booking that has already locked,
+ * released or refunded is not "holding" anything anymore and never counts
+ * here, regardless of how many of those a wallet has accumulated over
+ * time. */
+export async function countPendingHoldsForWallet(db: Db, clientWalletAddress: string, now: number): Promise<number> {
+  const rows = await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(and(eq(bookings.clientWalletAddress, clientWalletAddress), isNull(bookings.escrowState), gt(bookings.holdExpiresAt, now)));
+  return rows.length;
 }
 
 export async function getBookingById(db: Db, id: string): Promise<BookingRow | undefined> {
@@ -188,10 +234,14 @@ export async function updateEscrowContractId(
    * optional so every pre-3.4 call site -- and every test that seeds an
    * "abandoned deploy with nothing stored" row -- still compiles). */
   unsignedXdr?: string,
+  /** Review follow-up: the Trustless-Work-returned `txHash` for this same
+   * deploy XDR, stored so `submitSignedTransaction` can match a signed
+   * envelope's own computed hash against it before ever relaying it. */
+  txHash?: string,
 ): Promise<void> {
   const result = await db
     .update(bookings)
-    .set({ escrowContractId: contractId, escrowDeployXdr: unsignedXdr ?? null })
+    .set({ escrowContractId: contractId, escrowDeployXdr: unsignedXdr ?? null, escrowDeployTxHash: txHash ?? null })
     .where(and(eq(bookings.id, id), isNull(bookings.escrowState), isNull(bookings.escrowContractId)));
   if (result.changes === 0) {
     throw new TypeError(
@@ -201,23 +251,77 @@ export async function updateEscrowContractId(
 }
 
 /**
- * Clears a persisted `contractId` (and its stored deploy XDR, if any) so
- * `lockDeposit` can rebuild a fresh deploy for an abandoned escrow --
- * Story 2.6 deferred this recovery to Epic 3 (Design Notes: "Why retry
- * reuses the stored deploy XDR"). Conditioned on the row still naming the
- * exact `contractId` the caller already confirmed (via `listEscrows`) is
- * not actually on chain, and on `escrow_state` still being `null` -- a
- * concurrent write that already moved this booking on (a real fund landing,
- * the reconciler confirming it) must never be clobbered by a stale "it's
- * not on chain" read. Returns `false` on that race rather than throwing --
- * the caller re-reads the booking and proceeds from its current state.
+ * Clears a persisted `contractId` (and its stored deploy XDR/txHash, if
+ * any) so `lockDeposit` can rebuild a fresh deploy on an explicit
+ * `rebuild: true` request. Conditioned on the row still naming the exact
+ * `contractId` the caller read, on no deploy having been submitted yet
+ * (`deploy_submitted_at IS NULL` -- once a signed deploy has actually been
+ * relayed, rebuilding would abandon money in flight), and on `escrow_state`
+ * still being `null`. Returns `false` on any of those no longer holding
+ * (a race with a concurrent submit or the reconciler) rather than throwing
+ * -- the caller re-reads the booking and proceeds from its current state.
  */
-export async function clearAbandonedEscrowContractId(db: Db, id: string, expectedContractId: string): Promise<boolean> {
+export async function clearUnsubmittedEscrowContractId(db: Db, id: string, expectedContractId: string): Promise<boolean> {
   const result = await db
     .update(bookings)
-    .set({ escrowContractId: null, escrowDeployXdr: null })
-    .where(and(eq(bookings.id, id), eq(bookings.escrowContractId, expectedContractId), isNull(bookings.escrowState)));
+    .set({ escrowContractId: null, escrowDeployXdr: null, escrowDeployTxHash: null })
+    .where(
+      and(
+        eq(bookings.id, id),
+        eq(bookings.escrowContractId, expectedContractId),
+        isNull(bookings.escrowState),
+        isNull(bookings.deploySubmittedAt),
+      ),
+    );
   return result.changes > 0;
+}
+
+/**
+ * Records that a signed deploy transaction matching `expectedTxHash` was
+ * successfully relayed, and extends the hold to `newHoldExpiresAt` (ten
+ * minutes from the moment of submission -- the client has now committed a
+ * real signature and needs time to complete funding). Conditioned on the
+ * row still naming the exact `contractId`/`txHash` the caller matched
+ * against, on no earlier submission already recorded (write-once: a
+ * resubmit of the identical signed envelope is harmless but must not keep
+ * re-extending the hold indefinitely), and on `escrow_state` still being
+ * `null`. Returns `false` -- never throws -- when any of those no longer
+ * holds; the caller (`submitSignedTransaction`) still relays the
+ * transaction either way, since a `false` here only means "already
+ * recorded" or "already moved past this", not a reason to refuse the
+ * relay itself.
+ */
+export async function recordDeploySubmission(
+  db: Db,
+  id: string,
+  expectedContractId: string,
+  expectedTxHash: string,
+  newHoldExpiresAt: number,
+  submittedAt: number,
+): Promise<boolean> {
+  const result = await db
+    .update(bookings)
+    .set({ deploySubmittedAt: submittedAt, holdExpiresAt: newHoldExpiresAt })
+    .where(
+      and(
+        eq(bookings.id, id),
+        eq(bookings.escrowContractId, expectedContractId),
+        eq(bookings.escrowDeployTxHash, expectedTxHash),
+        isNull(bookings.deploySubmittedAt),
+        isNull(bookings.escrowState),
+      ),
+    );
+  return result.changes > 0;
+}
+
+/** `services/booking.ts`'s `fundDeposit` write path: stores the
+ * Trustless-Work-returned `txHash` for the fund XDR just built, so
+ * `submitSignedTransaction` can match a signed envelope against it.
+ * Unlike the deploy XDR, funding is not write-once -- each call simply
+ * overwrites whatever was stored before, since only the most recently
+ * built fund transaction is ever the one worth signing. */
+export async function setEscrowFundTxHash(db: Db, id: string, txHash: string): Promise<void> {
+  await db.update(bookings).set({ escrowFundTxHash: txHash }).where(eq(bookings.id, id));
 }
 
 /**
@@ -237,6 +341,9 @@ export interface PotentialDoubleSale {
 }
 
 export function listPotentialDoubleSales(db: Db, now: number): PotentialDoubleSale[] {
+  // "Expired" is `<= now` everywhere in this codebase (matches
+  // `services/booking.ts`'s `requireHoldNotExpired`); "active" is `> now`.
+  // A row exactly at `now` is expired, never both.
   const rows = db.all<{ booking_id: string; contract_id: string; slot_id: string }>(sql`
     SELECT b.id AS booking_id, b.escrow_contract_id AS contract_id, b.slot_id AS slot_id
     FROM bookings b
@@ -244,15 +351,52 @@ export function listPotentialDoubleSales(db: Db, now: number): PotentialDoubleSa
       AND b.escrow_contract_id IS NOT NULL
       AND b.slot_id IS NOT NULL
       AND b.hold_expires_at IS NOT NULL
-      AND b.hold_expires_at < ${now}
+      AND b.hold_expires_at <= ${now}
       AND EXISTS (
         SELECT 1 FROM bookings other
         WHERE other.slot_id = b.slot_id
           AND other.id != b.id
-          AND (other.escrow_state IS NOT NULL OR other.hold_expires_at > ${now})
+          AND (
+            (other.escrow_state IS NOT NULL AND other.escrow_state != 'refunded')
+            OR (other.escrow_state IS NULL AND other.hold_expires_at > ${now})
+          )
       )
   `);
   return rows.map((row) => ({ bookingId: row.booking_id, contractId: row.contract_id, slotId: row.slot_id }));
+}
+
+/**
+ * Review follow-up: a second, more general double-sale detector alongside
+ * {@link listPotentialDoubleSales} -- two *distinct* bookings sharing the
+ * same `slot_id` where at least one already has a non-null, non-`refunded`
+ * `escrow_state` (a real, committed booking) and the other is *also*
+ * locked/released/refunded or still an actively-held pending hold. This
+ * should never happen given {@link insertBookingHoldIfSlotFree}'s own
+ * atomic guarantee -- it exists as a safety-net sweep, not a path anything
+ * is expected to hit. Returns one row per ordered pair (so a caller can
+ * dedupe by an unordered pair key itself, which `expireHolds` does, to log
+ * each conflict once rather than twice).
+ */
+export interface ConflictingBookingPair {
+  slotId: string;
+  bookingIdA: string;
+  bookingIdB: string;
+}
+
+export function listConflictingSlotBookings(db: Db, now: number): ConflictingBookingPair[] {
+  const rows = db.all<{ slot_id: string; booking_a: string; booking_b: string }>(sql`
+    SELECT b1.slot_id AS slot_id, b1.id AS booking_a, b2.id AS booking_b
+    FROM bookings b1
+    JOIN bookings b2 ON b1.slot_id = b2.slot_id AND b1.id != b2.id
+    WHERE b1.slot_id IS NOT NULL
+      AND b1.escrow_state IS NOT NULL
+      AND b1.escrow_state != 'refunded'
+      AND (
+        (b2.escrow_state IS NOT NULL AND b2.escrow_state != 'refunded')
+        OR (b2.escrow_state IS NULL AND b2.hold_expires_at > ${now})
+      )
+  `);
+  return rows.map((row) => ({ slotId: row.slot_id, bookingIdA: row.booking_a, bookingIdB: row.booking_b }));
 }
 
 /** One booking the reconciler is allowed to poll, plus the provider wallet

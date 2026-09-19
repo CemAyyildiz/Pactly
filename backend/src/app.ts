@@ -47,6 +47,8 @@ import {
   BookingNotFoundError,
   SlotTakenError,
   SlotUnavailableError,
+  TooManyHoldsError,
+  XdrMismatchError,
   fundDeposit,
   getBookingForClient,
   getBookingView,
@@ -55,6 +57,8 @@ import {
   submitSignedTransaction,
 } from "./services/booking.js";
 import { EscrowApiError, EscrowConfigError, EscrowRequestError } from "./escrow/trustless-work/errors.js";
+import { defaultEscrowAdapter } from "./escrow/trustless-work/client.js";
+import type { EscrowAdapter } from "./escrow/interface.js";
 
 export interface Variables {
   /** Set by `requirePactlyAuth` once a request's Pactly JWT verifies --
@@ -145,8 +149,17 @@ function parseDiscoverFilters(c: Context<{ Variables: Variables }>): DiscoverFil
   return filters;
 }
 
-export function createApp(db: Db): App {
+export interface CreateAppOptions {
+  /** Overrides the escrow adapter every booking route uses -- defaults to
+   * the real Trustless-Work-backed one. A test can inject a fake adapter
+   * to exercise `502 ESCROW_REJECTED`/accepted-deploy paths without a real
+   * Trustless Work API key. */
+  escrowAdapter?: EscrowAdapter;
+}
+
+export function createApp(db: Db, options: CreateAppOptions = {}): App {
   const app: App = new Hono<{ Variables: Variables }>();
+  const escrowAdapter = options.escrowAdapter ?? defaultEscrowAdapter;
 
   // Every route above handles its own typed failures and returns the
   // `{code, message}` envelope itself; this is only the backstop for a
@@ -339,17 +352,22 @@ export function createApp(db: Db): App {
     const body = await c.req.json().catch(() => undefined);
     const providerId = typeof body?.providerId === "string" ? body.providerId : undefined;
     const slotStartsAt = typeof body?.slotStartsAt === "number" ? body.slotStartsAt : undefined;
+    const tzOffsetMinutes = typeof body?.tzOffsetMinutes === "number" ? body.tzOffsetMinutes : undefined;
     if (!providerId || slotStartsAt === undefined) {
       return c.json(
         { code: "invalid_request", message: "providerId and slotStartsAt are required." },
         400,
       );
     }
+    if (!Number.isInteger(slotStartsAt)) {
+      return c.json({ code: "invalid_request", message: "slotStartsAt must be an integer number of epoch seconds." }, 400);
+    }
     try {
       const result = await holdSlot(db, {
         providerProfileId: providerId,
         clientWalletAddress: c.get("walletAddress"),
         slotStartsAt,
+        tzOffsetMinutes,
       });
       return c.json(result, 201);
     } catch (error) {
@@ -358,6 +376,9 @@ export function createApp(db: Db): App {
       }
       if (error instanceof SlotUnavailableError) {
         return c.json({ code: "SLOT_UNAVAILABLE", message: error.message }, 409);
+      }
+      if (error instanceof TooManyHoldsError) {
+        return c.json({ code: "TOO_MANY_HOLDS", message: error.message }, 429);
       }
       if (error instanceof SlotTakenError) {
         return c.json(
@@ -376,8 +397,10 @@ export function createApp(db: Db): App {
     }
     try {
       await getBookingForClient(db, bookingId, c.get("walletAddress"));
-      const result = await lockDeposit(db, bookingId);
-      return c.json({ unsignedXdr: result.deploy.unsignedXdr, contractId: result.contractId });
+      const body = await c.req.json().catch(() => undefined);
+      const rebuild = body?.rebuild === true;
+      const result = await lockDeposit(db, bookingId, escrowAdapter, { rebuild });
+      return c.json(result);
     } catch (error) {
       if (error instanceof BookingNotFoundError) {
         return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
@@ -403,7 +426,7 @@ export function createApp(db: Db): App {
     }
     try {
       await getBookingForClient(db, bookingId, c.get("walletAddress"));
-      const result = await fundDeposit(db, bookingId);
+      const result = await fundDeposit(db, bookingId, escrowAdapter);
       return c.json({ unsignedXdr: result.unsignedXdr });
     } catch (error) {
       if (error instanceof BookingNotFoundError) {
@@ -425,24 +448,31 @@ export function createApp(db: Db): App {
 
   app.post("/bookings/:id/submit", requirePactlyAuth, async (c) => {
     const bookingId = c.req.param("id");
-    const body = await c.req.json().catch(() => undefined);
-    const signedXdr = typeof body?.signedXdr === "string" ? body.signedXdr : undefined;
     if (!bookingId) {
       return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
     }
-    if (!signedXdr) {
-      return c.json({ code: "invalid_request", message: "signedXdr is required." }, 400);
-    }
     try {
+      // Review follow-up: the owner check now runs *before* the body is
+      // even parsed for its own shape -- a stranger's request gets the
+      // identical 404 BOOKING_NOT_FOUND every other route gives them,
+      // never a 400 that would first confirm the booking exists.
       // Submit is allowed after the hold expires (the spec's own "Never"
       // rule) -- `getBookingForClient` only ever checks existence and
       // ownership, never the hold's own clock.
       await getBookingForClient(db, bookingId, c.get("walletAddress"));
-      const result = await submitSignedTransaction(bookingId, signedXdr);
+      const body = await c.req.json().catch(() => undefined);
+      const signedXdr = typeof body?.signedXdr === "string" ? body.signedXdr : undefined;
+      if (!signedXdr) {
+        return c.json({ code: "invalid_request", message: "signedXdr is required." }, 400);
+      }
+      const result = await submitSignedTransaction(db, bookingId, signedXdr, escrowAdapter);
       return c.json(result);
     } catch (error) {
       if (error instanceof BookingNotFoundError) {
         return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof XdrMismatchError) {
+        return c.json({ code: "XDR_MISMATCH", message: error.message }, 409);
       }
       if (error instanceof EscrowApiError || error instanceof EscrowRequestError || error instanceof EscrowConfigError) {
         const response = escrowErrorResponse(error);

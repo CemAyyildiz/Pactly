@@ -107,6 +107,14 @@ export const availabilitySlots = sqliteTable(
       .notNull()
       .references(() => providerProfiles.id),
     startsAt: integer("starts_at").notNull(),
+    /** Set when `replaceFutureSlots` would otherwise need to delete this
+     * row but cannot: a booking (active or not) still references it via
+     * `bookings.slot_id`, and `foreign_keys=ON` refuses the delete. A
+     * withdrawn slot is excluded from every open/public/card listing, the
+     * same as a deleted one would be, and re-adding the same start time
+     * clears this back to `null` rather than inserting a second row for
+     * it (the unique pair below still names one row per start time). */
+    withdrawnAt: integer("withdrawn_at"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [unique().on(table.providerProfileId, table.startsAt)],
@@ -188,11 +196,32 @@ export const bookings = sqliteTable("bookings", {
    * (after a declined wallet signature) returns the exact same XDR and
    * `contractId` rather than building a second, competing escrow for the
    * same booking (Design Notes: "Why retry reuses the stored deploy XDR").
-   * Cleared only when `lockDeposit` confirms, via `listEscrows`, that the
-   * old `contractId` never actually landed on chain, and rebuilds a fresh
-   * one.
+   * Cleared only on an explicit `rebuild: true` request, and only while no
+   * deploy has been submitted yet and `escrowState` is still `null`.
    */
   escrowDeployXdr: text("escrow_deploy_xdr"),
+  /** The Trustless Work-returned `txHash` for the currently-persisted
+   * deploy XDR -- `submitSignedTransaction` decodes whatever signed
+   * envelope it is handed, computes its own hash, and relays it only when
+   * that hash matches this column (or `escrowFundTxHash` below); this is
+   * what stops `submit` from relaying a signed transaction for a *different*
+   * booking's escrow. */
+  escrowDeployTxHash: text("escrow_deploy_tx_hash"),
+  /** The Trustless Work-returned `txHash` for the most recently built fund
+   * XDR -- overwritten every time `fundDeposit` builds one (unlike the
+   * deploy XDR, funding is not write-once, so only the latest build is
+   * ever the one worth signing). */
+  escrowFundTxHash: text("escrow_fund_tx_hash"),
+  /** Set once a signed deploy transaction whose hash matches
+   * `escrowDeployTxHash` has been successfully relayed via `submit` --
+   * `fundDeposit` refuses until this is set (building a fund transaction
+   * against a contract that may not exist on chain yet is unverified), and
+   * `lockDeposit`'s retry path returns `{deployed: true}` once it is,
+   * skipping straight to fund with no XDR to sign again. Setting this also
+   * extends `holdExpiresAt` to ten minutes from that moment, since the
+   * client has now committed a real signature and needs time to complete
+   * funding. UTC epoch seconds. */
+  deploySubmittedAt: integer("deploy_submitted_at"),
   createdAt: integer("created_at").notNull(),
 });
 

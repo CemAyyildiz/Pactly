@@ -10,6 +10,12 @@ export interface EscrowLaneProps {
   holdCountdownLabel?: string;
   contractId?: string;
   txHash?: string;
+  /** Review follow-up: the escrow proof line is evidence for a *confirmed*
+   * lock, not a preview of a deploy still in flight -- callers pass `true`
+   * only once the booking has actually reconciled to `locked`, never
+   * merely because a `contractId` happens to exist yet (a deploy can be
+   * built, or even abandoned and rebuilt, long before that). */
+  showProof: boolean;
   /** A short, plain-language state label -- text always accompanies the
    * lane's colour (DESIGN.md Accessibility Floor: "state never conveyed by
    * colour alone"). */
@@ -22,11 +28,11 @@ export interface EscrowLaneProps {
  * provider lanes (or, below 1024px, the bar pinned to the bottom -- see
  * `base.css`'s own responsive rule). Holds the lock icon, the deposit
  * amount, the hold countdown while one is running, and the escrow proof
- * once a contract exists. Never itself interactive except for the "Lock
- * with Pactly" button, which `BookingPage.tsx` passes in as `children` so
- * this component stays a pure display of state.
+ * once the booking is actually locked. Never itself interactive except for
+ * the "Lock with Pactly" button, which `BookingPage.tsx` passes in as
+ * `children` so this component stays a pure display of state.
  */
-export function EscrowLane({ depositAmount, depositAsset, holdCountdownLabel, contractId, txHash, stateLabel, children }: EscrowLaneProps) {
+export function EscrowLane({ depositAmount, depositAsset, holdCountdownLabel, contractId, txHash, showProof, stateLabel, children }: EscrowLaneProps) {
   return (
     <div className="escrow-lane">
       <p className="escrow-lane__label">ESCROW LANE</p>
@@ -46,7 +52,7 @@ export function EscrowLane({ depositAmount, depositAsset, holdCountdownLabel, co
         </p>
       )}
       {children}
-      {(contractId || txHash) && <EscrowProof contractId={contractId} txHash={txHash} />}
+      {showProof && (contractId || txHash) && <EscrowProof contractId={contractId} txHash={txHash} />}
     </div>
   );
 }

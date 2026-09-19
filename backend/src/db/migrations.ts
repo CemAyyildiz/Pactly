@@ -56,6 +56,7 @@ const STATEMENTS: readonly string[] = [
     id TEXT PRIMARY KEY,
     provider_profile_id TEXT NOT NULL REFERENCES provider_profiles(id),
     starts_at INTEGER NOT NULL,
+    withdrawn_at INTEGER,
     created_at INTEGER NOT NULL,
     UNIQUE (provider_profile_id, starts_at)
   )`,
@@ -73,6 +74,9 @@ const STATEMENTS: readonly string[] = [
     slot_id TEXT REFERENCES availability_slots(id),
     hold_expires_at INTEGER,
     escrow_deploy_xdr TEXT,
+    escrow_deploy_tx_hash TEXT,
+    escrow_fund_tx_hash TEXT,
+    deploy_submitted_at INTEGER,
     created_at INTEGER NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS reviews (
@@ -184,4 +188,23 @@ export function runMigrations(sqlite: Database): void {
   if (!hasColumn(sqlite, "bookings", "escrow_deploy_xdr")) {
     sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_deploy_xdr TEXT`);
   }
+  // Review follow-up (Story 3.4): the deploy/fund txHash columns
+  // `submitSignedTransaction` matches a signed envelope's own computed hash
+  // against, and the timestamp marking a deploy as actually submitted.
+  if (!hasColumn(sqlite, "bookings", "escrow_deploy_tx_hash")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_deploy_tx_hash TEXT`);
+  }
+  if (!hasColumn(sqlite, "bookings", "escrow_fund_tx_hash")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN escrow_fund_tx_hash TEXT`);
+  }
+  if (!hasColumn(sqlite, "bookings", "deploy_submitted_at")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN deploy_submitted_at INTEGER`);
+  }
+  // Review follow-up (Story 3.4): a future slot a booking still references
+  // (actively or not) can never be hard-deleted once foreign_keys=ON --
+  // `withdrawn_at` lets `replaceFutureSlots` mark it removed instead.
+  if (!hasColumn(sqlite, "availability_slots", "withdrawn_at")) {
+    sqlite.exec(`ALTER TABLE availability_slots ADD COLUMN withdrawn_at INTEGER`);
+  }
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_bookings_slot_id ON bookings(slot_id)`);
 }

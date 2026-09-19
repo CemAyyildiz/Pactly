@@ -5,7 +5,7 @@
  * concrete slots, not weekly rules").
  */
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, exists, gt, gte, inArray, isNotNull, lt, lte, notExists, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, notExists, or, sql } from "drizzle-orm";
 
 import type { Db } from "./client.js";
 import { availabilitySlots, bookings } from "./schema.js";
@@ -13,16 +13,41 @@ import { availabilitySlots, bookings } from "./schema.js";
 export type AvailabilitySlotRow = typeof availabilitySlots.$inferSelect;
 
 /** Every slot for `providerProfileId` that currently carries an "active"
- * booking (Story 3.4, AD-13): a non-expired hold, or a booking whose
- * `escrowState` is non-null. Shared by {@link replaceFutureSlots} (which
- * must never delete or re-create one of these rows out from under a
- * client's own hold or lock) and the public/open-slot listings below
- * (which must never advertise one of these as bookable). */
+ * booking (Story 3.4, AD-13): a non-expired hold (`hold_expires_at > now`),
+ * or a booking whose `escrowState` is non-null *and not* `"refunded"`.
+ * Review follow-up: a refunded booking must not keep a slot taken forever
+ * -- refunding means the deposit came back to the client, so the slot is
+ * free again the same way an expired, never-locked hold is. `released` and
+ * `locked` both still count as active (the appointment happened, or the
+ * deposit is genuinely held). This is the one place that definition lives;
+ * {@link replaceFutureSlots} and every open-slot listing below all read it
+ * from here so the "active" boundary can never drift between them. */
 function activeBookingForSlot(now: number) {
   return and(
     eq(bookings.slotId, availabilitySlots.id),
-    or(isNotNull(bookings.escrowState), gt(bookings.holdExpiresAt, now)),
+    or(
+      and(isNotNull(bookings.escrowState), ne(bookings.escrowState, "refunded")),
+      // Once `escrowState` is set at all, the pending-hold clock is moot
+      // (chain evidence has already decided this booking's fate) -- so the
+      // `holdExpiresAt` branch only ever applies while `escrowState` is
+      // still `null`. Without this guard a refunded booking whose
+      // `holdExpiresAt` simply hasn't been touched since (it is never
+      // cleared on a state transition) would read as "active" again via
+      // this second clause alone, defeating the whole point of excluding
+      // `refunded` above.
+      and(isNull(bookings.escrowState), gt(bookings.holdExpiresAt, now)),
+    ),
   );
+}
+
+/** Same definition as {@link activeBookingForSlot}, evaluated in JS against
+ * an already-fetched row -- used by {@link replaceFutureSlots}'s per-row
+ * loop, which needs a plain boolean rather than a correlated SQL fragment. */
+function isBookingActive(booking: Pick<typeof bookings.$inferSelect, "escrowState" | "holdExpiresAt">, now: number): boolean {
+  if (booking.escrowState !== null) {
+    return booking.escrowState !== "refunded";
+  }
+  return booking.holdExpiresAt !== null && booking.holdExpiresAt > now;
 }
 
 export interface ListFutureSlotsOptions {
@@ -43,7 +68,11 @@ export async function listFutureSlots(
   options: ListFutureSlotsOptions = {},
 ): Promise<AvailabilitySlotRow[]> {
   const now = options.now ?? Math.floor(Date.now() / 1000);
-  const conditions = [eq(availabilitySlots.providerProfileId, providerProfileId), gt(availabilitySlots.startsAt, now)];
+  const conditions = [
+    eq(availabilitySlots.providerProfileId, providerProfileId),
+    gt(availabilitySlots.startsAt, now),
+    isNull(availabilitySlots.withdrawnAt),
+  ];
   if (options.withinSeconds !== undefined) {
     conditions.push(lte(availabilitySlots.startsAt, now + options.withinSeconds));
   }
@@ -91,6 +120,7 @@ export async function listEarliestFutureSlotsByProvider(
       and(
         inArray(availabilitySlots.providerProfileId, providerProfileIds),
         gt(availabilitySlots.startsAt, now),
+        isNull(availabilitySlots.withdrawnAt),
         // Story 3.4: a held or locked slot is never advertised on a card.
         notExists(db.select({ one: sql`1` }).from(bookings).where(activeBookingForSlot(now))),
       ),
@@ -123,6 +153,7 @@ export async function listOpenFutureSlots(
   const conditions = [
     eq(availabilitySlots.providerProfileId, providerProfileId),
     gt(availabilitySlots.startsAt, now),
+    isNull(availabilitySlots.withdrawnAt),
     notExists(db.select({ one: sql`1` }).from(bookings).where(activeBookingForSlot(now))),
   ];
   if (options.withinSeconds !== undefined) {
@@ -155,7 +186,13 @@ export async function getSlotByProviderAndStart(
   const rows = await db
     .select()
     .from(availabilitySlots)
-    .where(and(eq(availabilitySlots.providerProfileId, providerProfileId), eq(availabilitySlots.startsAt, startsAt)))
+    .where(
+      and(
+        eq(availabilitySlots.providerProfileId, providerProfileId),
+        eq(availabilitySlots.startsAt, startsAt),
+        isNull(availabilitySlots.withdrawnAt),
+      ),
+    )
     .limit(1);
   return rows[0];
 }
@@ -180,6 +217,7 @@ export async function listOpenSlotsInRange(
         gt(availabilitySlots.startsAt, now),
         gte(availabilitySlots.startsAt, rangeStart),
         lt(availabilitySlots.startsAt, rangeEnd),
+        isNull(availabilitySlots.withdrawnAt),
         notExists(db.select({ one: sql`1` }).from(bookings).where(activeBookingForSlot(now))),
       ),
     )
@@ -189,25 +227,33 @@ export async function listOpenSlotsInRange(
 
 /**
  * Replaces every *future* slot for `providerProfileId` with `slots`
- * (deduplicated and sorted) in one transaction -- delete the future rows,
- * then insert the new set, so a reader (or a concurrent save) never
- * observes a half-replaced table. Past slots (`startsAt <= now`) are left
- * exactly as they are.
+ * (deduplicated and sorted) in one transaction, so a reader (or a
+ * concurrent save) never observes a half-replaced table. Past slots
+ * (`startsAt <= now`) are left exactly as they are.
  *
  * Story 3.4 amendment (the story's own Design Notes, "Why replace-all-future
  * on save" in Story 3.1 flagged this as 3.4's job): a future slot that now
- * carries an active booking (a non-expired hold, or a locked escrow) is
- * never deleted here, even when the caller's own `slots` array omits it --
- * a provider's rules panel has no notion of bookings, so it must not be
- * able to silently free an already-held or already-locked slot. Such a
- * slot is also never re-inserted a second time if the caller's `slots`
- * array happens to still include it (`onConflictDoNothing`), since the
- * unique `(providerProfileId, startsAt)` index would otherwise reject the
- * whole transaction.
+ * carries an active booking (a non-expired hold, or a locked/released
+ * escrow) is never touched here, even when the caller's own `slots` array
+ * omits it -- a provider's rules panel has no notion of bookings, so it
+ * must not be able to silently free an already-held or already-locked
+ * slot.
+ *
+ * Review follow-up: a removed slot that is *not* actively booked can still
+ * be referenced by an *inactive* booking (an expired, never-locked hold, or
+ * a refunded one) -- `foreign_keys=ON` refuses to delete a row `bookings.
+ * slot_id` still points at, active or not, so a hard delete there would
+ * throw a raw SQLite constraint error. Such a slot is marked
+ * `withdrawn_at = now` instead (excluded from every open/public/card
+ * listing, same as a deleted row would be); a slot with no booking at all
+ * referencing it is still deleted outright. Re-adding the same start time
+ * later clears `withdrawn_at` on the existing row rather than inserting a
+ * second one for it (the unique `(providerProfileId, startsAt)` pair still
+ * names one row per start time either way).
  *
  * Synchronous end to end inside the `db.transaction()` callback, per
  * better-sqlite3's contract (see `db/bookings.ts`'s own comment on this) --
- * no `await` between the delete and the inserts.
+ * no `await` anywhere in the callback.
  */
 export async function replaceFutureSlots(
   db: Db,
@@ -216,30 +262,50 @@ export async function replaceFutureSlots(
   now: number = Math.floor(Date.now() / 1000),
 ): Promise<void> {
   const uniqueSorted = [...new Set(slots)].sort((a, b) => a - b);
+  const desired = new Set(uniqueSorted);
   const createdAt = Date.now();
-  db.transaction((tx) => {
-    const protectedIds = tx
-      .select({ id: availabilitySlots.id })
-      .from(availabilitySlots)
-      .where(
-        and(
-          eq(availabilitySlots.providerProfileId, providerProfileId),
-          gt(availabilitySlots.startsAt, now),
-          exists(tx.select({ one: sql`1` }).from(bookings).where(activeBookingForSlot(now))),
-        ),
-      )
-      .all()
-      .map((row) => row.id);
 
-    tx.delete(availabilitySlots)
-      .where(
-        and(
-          eq(availabilitySlots.providerProfileId, providerProfileId),
-          gt(availabilitySlots.startsAt, now),
-          protectedIds.length > 0 ? notInArray(availabilitySlots.id, protectedIds) : undefined,
-        ),
-      )
-      .run();
+  db.transaction((tx) => {
+    const futureSlots = tx
+      .select()
+      .from(availabilitySlots)
+      .where(and(eq(availabilitySlots.providerProfileId, providerProfileId), gt(availabilitySlots.startsAt, now)))
+      .all();
+
+    for (const slot of futureSlots) {
+      const bookingsForSlot = tx
+        .select({ escrowState: bookings.escrowState, holdExpiresAt: bookings.holdExpiresAt })
+        .from(bookings)
+        .where(eq(bookings.slotId, slot.id))
+        .all();
+      const isActive = bookingsForSlot.some((booking) => isBookingActive(booking, now));
+
+      if (isActive) {
+        // Never touched, regardless of the caller's own desired set --
+        // the provider's rules panel cannot silently free a held/locked
+        // slot out from under a client.
+        continue;
+      }
+
+      if (desired.has(slot.startsAt)) {
+        // Kept: clear a stale withdrawal if this exact start time is being
+        // saved again.
+        if (slot.withdrawnAt !== null) {
+          tx.update(availabilitySlots).set({ withdrawnAt: null }).where(eq(availabilitySlots.id, slot.id)).run();
+        }
+        continue;
+      }
+
+      // Removed, and not actively booked -- delete if nothing references
+      // it at all; otherwise (an inactive booking still points at it) mark
+      // it withdrawn, since the foreign key refuses the delete.
+      if (bookingsForSlot.length === 0) {
+        tx.delete(availabilitySlots).where(eq(availabilitySlots.id, slot.id)).run();
+      } else if (slot.withdrawnAt === null) {
+        tx.update(availabilitySlots).set({ withdrawnAt: now }).where(eq(availabilitySlots.id, slot.id)).run();
+      }
+    }
+
     for (const startsAt of uniqueSorted) {
       tx.insert(availabilitySlots)
         .values({ id: randomUUID(), providerProfileId, startsAt, createdAt })

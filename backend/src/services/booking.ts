@@ -37,16 +37,23 @@
  * function's own doc comment below.
  */
 import { randomBytes } from "node:crypto";
+import { TransactionBuilder } from "@stellar/stellar-sdk";
 
-import { defaultEscrowAdapter, callTrustlessWork } from "../escrow/trustless-work/client.js";
-import { getEscrowLifecycle, realListEscrows } from "../escrow/trustless-work/reconciler.js";
-import type { DeployEscrowResult, EscrowAdapter, SubmitTransactionResult, UnsignedTransaction } from "../escrow/interface.js";
+import { config } from "../config.js";
+import { defaultEscrowAdapter } from "../escrow/trustless-work/client.js";
+import { getEscrowLifecycle } from "../escrow/trustless-work/reconciler.js";
+import type { EscrowAdapter, SubmitTransactionResult, UnsignedTransaction } from "../escrow/interface.js";
 import {
   getBookingById,
+  getActiveBookingForWalletAndSlot,
+  countPendingHoldsForWallet,
   insertBooking,
   insertBookingHoldIfSlotFree,
   listPotentialDoubleSales,
-  clearAbandonedEscrowContractId,
+  listConflictingSlotBookings,
+  clearUnsubmittedEscrowContractId,
+  recordDeploySubmission,
+  setEscrowFundTxHash,
   updateBalanceState,
   updateEscrowContractId,
   type BookingRow,
@@ -164,13 +171,25 @@ export class SlotUnavailableError extends Error {
 }
 
 export class SlotTakenError extends Error {
-  /** The provider's other open slots on the same UTC calendar day as the
-   * one that was just lost -- the spec's own `details.sameDaySlots`. */
+  /** The provider's other open slots on the same calendar day (the
+   * caller's own local day when `tzOffsetMinutes` was supplied, UTC
+   * otherwise) as the one that was just lost -- the spec's own
+   * `details.sameDaySlots`. */
   readonly sameDaySlots: number[];
   constructor(sameDaySlots: number[]) {
     super("That slot just went.");
     this.name = "SlotTakenError";
     this.sameDaySlots = sameDaySlots;
+  }
+}
+
+/** Review follow-up: a per-wallet cap on *pending* holds (not yet locked)
+ * across every provider, so one wallet cannot tie up an unbounded number of
+ * slots at once. */
+export class TooManyHoldsError extends Error {
+  constructor(message = "You already have too many slots on hold. Complete or let one expire first.") {
+    super(message);
+    this.name = "TooManyHoldsError";
   }
 }
 
@@ -202,6 +221,11 @@ export interface HoldSlotInput {
   /** UTC epoch seconds -- must match one of the provider's own published
    * slots exactly. */
   slotStartsAt: number;
+  /** The caller's own `Date.prototype.getTimezoneOffset()` value (minutes
+   * to add to local time to reach UTC) -- used only to compute
+   * `sameDaySlots`'s calendar-day window in the caller's own local day
+   * rather than UTC. Omitted (or `0`) means UTC, the previous behavior. */
+  tzOffsetMinutes?: number;
 }
 
 export interface HoldSlotResult {
@@ -212,6 +236,11 @@ export interface HoldSlotResult {
   price: Money;
   cancelDeadline: number;
   provider: BookingProviderSummary;
+  /** `true` only when `cancelDeadline` has already passed at hold time --
+   * the deposit is still locked as normal, but there is no free
+   * cancellation window left to speak of. Omitted (never `false`) when it
+   * has not. */
+  freeCancellationEnded?: boolean;
 }
 
 export interface HoldSlotDeps {
@@ -222,15 +251,17 @@ export interface HoldSlotDeps {
   resolveUsdcAsset?: (options?: ResolveUsdcAssetOptions) => Promise<{ contractId: string }>;
 }
 
-/** The UTC calendar day `[start, end)` containing `startsAt` -- the window
- * `SLOT_TAKEN`'s `sameDaySlots` searches. UTC, not the client's own
- * timezone: the backend has no notion of the caller's timezone, only the
- * viewer's browser does (`frontend/src/lib/time.ts` renders the local
- * label); this is a best-effort "same day" for the alternatives list, not a
- * claim about the client's own wall clock. */
-function utcDayRange(startsAt: number): { start: number; end: number } {
+/** The calendar day `[start, end)` (UTC epoch seconds) containing
+ * `startsAt`, in the day boundary implied by `tzOffsetMinutes` (the JS
+ * `getTimezoneOffset()` convention: minutes to *add* to local time to reach
+ * UTC) -- the window `SLOT_TAKEN`'s `sameDaySlots` searches. Defaults to
+ * `0` (UTC) when the caller supplied none, the previous behavior. */
+function dayRange(startsAt: number, tzOffsetMinutes = 0): { start: number; end: number } {
   const SECONDS_PER_DAY = 24 * 60 * 60;
-  const start = Math.floor(startsAt / SECONDS_PER_DAY) * SECONDS_PER_DAY;
+  const offsetSeconds = tzOffsetMinutes * 60;
+  const localStartsAt = startsAt - offsetSeconds;
+  const localDayStart = Math.floor(localStartsAt / SECONDS_PER_DAY) * SECONDS_PER_DAY;
+  const start = localDayStart + offsetSeconds;
   return { start, end: start + SECONDS_PER_DAY };
 }
 
@@ -249,6 +280,8 @@ function utcDayRange(startsAt: number): { start: number; end: number } {
  * check this function's own single atomic insert statement decides, never
  * a separate read this function does first.
  */
+const MAX_PENDING_HOLDS_PER_WALLET = 3;
+
 export async function holdSlot(db: Db, input: HoldSlotInput, deps: HoldSlotDeps = {}): Promise<HoldSlotResult> {
   const now = deps.now ?? Math.floor(Date.now() / 1000);
   const resolveUsdc = deps.resolveUsdcAsset ?? resolveUsdcAsset;
@@ -260,6 +293,33 @@ export async function holdSlot(db: Db, input: HoldSlotInput, deps: HoldSlotDeps 
   const slot = await getSlotByProviderAndStart(db, profile.id, input.slotStartsAt);
   if (!slot || slot.startsAt <= now) {
     throw new SlotUnavailableError();
+  }
+
+  const provider: BookingProviderSummary = { id: profile.id, displayName: profile.displayName, title: profile.title };
+
+  // Review follow-up: the same wallet asking to hold a slot it already
+  // actively holds gets that same booking back, not a spurious
+  // `SLOT_TAKEN` -- a double-click, a retried request, or a reopened tab
+  // are all the same wallet asking for what it already has.
+  const existing = await getActiveBookingForWalletAndSlot(db, slot.id, input.clientWalletAddress, now);
+  if (existing) {
+    return {
+      bookingId: existing.id,
+      holdExpiresAt: existing.holdExpiresAt ?? now,
+      deposit: { amount: existing.depositAmount, asset: ASSET },
+      balance: { amount: existing.balanceAmount, asset: ASSET },
+      price: { amount: (BigInt(existing.depositAmount) + BigInt(existing.balanceAmount)).toString(), asset: ASSET },
+      cancelDeadline: existing.cancelDeadline,
+      provider,
+      ...(existing.cancelDeadline <= now ? { freeCancellationEnded: true as const } : {}),
+    };
+  }
+
+  // Review follow-up: cap pending (unlocked) holds per wallet so one wallet
+  // cannot tie up an unbounded number of slots at once.
+  const pendingHolds = await countPendingHoldsForWallet(db, input.clientWalletAddress, now);
+  if (pendingHolds >= MAX_PENDING_HOLDS_PER_WALLET) {
+    throw new TooManyHoldsError();
   }
 
   const usdc = await resolveUsdc();
@@ -287,7 +347,7 @@ export async function holdSlot(db: Db, input: HoldSlotInput, deps: HoldSlotDeps 
   );
 
   if (!inserted) {
-    const { start, end } = utcDayRange(input.slotStartsAt);
+    const { start, end } = dayRange(input.slotStartsAt, input.tzOffsetMinutes);
     const sameDaySlots = await listOpenSlotsInRange(db, profile.id, start, end, now);
     throw new SlotTakenError(sameDaySlots.filter((startsAt) => startsAt !== input.slotStartsAt));
   }
@@ -299,7 +359,8 @@ export async function holdSlot(db: Db, input: HoldSlotInput, deps: HoldSlotDeps 
     balance: { amount: balanceAmount, asset: ASSET },
     price: { amount: profile.priceAmount, asset: ASSET },
     cancelDeadline,
-    provider: { id: profile.id, displayName: profile.displayName, title: profile.title },
+    provider,
+    ...(cancelDeadline <= now ? { freeCancellationEnded: true as const } : {}),
   };
 }
 
@@ -314,14 +375,19 @@ export async function setBalanceState(db: Db, bookingId: string, balanceState: B
   await updateBalanceState(db, bookingId, balanceState);
 }
 
-export interface LockDepositResult {
-  /** The escrow's predicted `contractId` -- the same value just persisted
-   * on `bookings.escrowContractId`; `fundDeposit` reads it back off the
-   * booking row rather than trusting a caller-supplied copy. */
-  contractId: string;
-  /** Unsigned deploy XDR, for the client's own signature. */
-  deploy: DeployEscrowResult;
-}
+/**
+ * `lockDeposit`'s own response shape (review follow-up, replacing the old
+ * `{contractId, deploy}` shape): `deployed: true` means a signed deploy has
+ * already been submitted and accepted for this booking -- there is no XDR
+ * to sign again, and the caller should go straight to `fundDeposit`.
+ * `deployed: false` carries the unsigned deploy XDR (and its own `txHash`,
+ * always the real one Trustless Work returned -- never the `contractId`
+ * used as a stand-in, which is what this shape replaces) still waiting for
+ * a signature.
+ */
+export type LockDepositResult =
+  | { deployed: true; contractId: string }
+  | { deployed: false; contractId: string; unsignedXdr: string; txHash: string };
 
 /** Refuses a `lockDeposit`/`fundDeposit`/`resolveBookingDispute` call whose
  * booking is not in the state that call requires -- e.g. `escrowState`
@@ -333,6 +399,17 @@ export class BookingEscrowStateError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "BookingEscrowStateError";
+  }
+}
+
+/** A signed transaction `submitSignedTransaction` was handed does not
+ * match this booking's own stored deploy or fund `txHash` -- either a
+ * stale/foreign envelope, or one that failed to decode at all. Refused
+ * before the transaction is ever relayed to Trustless Work. */
+export class XdrMismatchError extends Error {
+  constructor(message = "This transaction doesn't match what Pactly built for this booking.") {
+    super(message);
+    this.name = "XdrMismatchError";
   }
 }
 
@@ -353,44 +430,39 @@ async function requireProviderAddress(db: Db, booking: BookingRow): Promise<stri
 }
 
 /** Refuses {@link BookingHoldExpiredError} once `holdExpiresAt` has passed
- * with `escrowState` still `null`. A `null` `holdExpiresAt` (a booking
- * inserted before Story 3.4, or through the plain `createBookingHold`
- * helper) never expires -- there is nothing to compare against. Once
- * `escrowState` is set the hold is moot (the deposit already reconciled),
- * so this never fires for a booking past that point either. */
+ * (`<= now`, matching the exact boundary every other expiry check in this
+ * codebase uses -- `insertBookingHoldIfSlotFree`'s own "active" definition
+ * is `> now`, so a row exactly at `now` is expired, never both) with
+ * `escrowState` still `null`. A `null` `holdExpiresAt` (a booking inserted
+ * before Story 3.4, or through the plain `createBookingHold` helper) never
+ * expires -- there is nothing to compare against. Once `escrowState` is set
+ * the hold is moot (the deposit already reconciled), so this never fires
+ * for a booking past that point either. */
 function requireHoldNotExpired(booking: BookingRow, now: number): void {
-  if (booking.escrowState === null && booking.holdExpiresAt !== null && booking.holdExpiresAt < now) {
+  if (booking.escrowState === null && booking.holdExpiresAt !== null && booking.holdExpiresAt <= now) {
     throw new BookingHoldExpiredError();
   }
-}
-
-/** Confirms whether `contractId` actually exists on Trustless Work's own
- * read model -- used only to decide whether an already-persisted
- * `contractId` with no stored deploy XDR (an abandoned deploy from before
- * this story ever supported storing one, or a legacy/test row) may be
- * safely rebuilt (Design Notes: "Why retry reuses the stored deploy XDR").
- * Defaults to a real `listEscrows({contractIds:[contractId]})` call through
- * the reconciler's own read seam, translated the same way every other
- * adapter call is (AC5). */
-async function defaultContractExistsOnChain(contractId: string): Promise<boolean> {
-  const listEscrows = realListEscrows();
-  const page = await callTrustlessWork(() => listEscrows({ contractIds: [contractId], limit: 1 }));
-  return page.data.length > 0;
 }
 
 export interface LockDepositDeps {
   /** Injectable clock (UTC epoch seconds) -- defaults to the real one. */
   now?: number;
-  contractExistsOnChain?: (contractId: string) => Promise<boolean>;
+  /** An explicit request to discard the currently-persisted (never
+   * submitted) deploy and build a fresh one -- the caller's own decision,
+   * made only after a submit attempt failed and the client wants a new
+   * transaction rather than retrying the old one. Ignored (never rebuilds)
+   * once a deploy has actually been submitted for this booking. */
+  rebuild?: boolean;
 }
 
 /**
  * Builds the unsigned deploy XDR for an already-held booking and persists
- * the escrow's predicted `contractId` -- once, ever, per booking (unless
- * that deploy is later confirmed abandoned -- see below). Replaces the old
- * direct `chain.createBooking` call with the vendor-neutral `EscrowAdapter`,
- * and no longer also builds `fund` in the same call (see this module's own
- * top doc comment). The client address always comes from the booking's own
+ * the escrow's predicted `contractId` (and Trustless Work's own `txHash`
+ * for it) -- once, ever, per booking, unless the caller explicitly asks to
+ * rebuild one that was never submitted. Replaces the old direct
+ * `chain.createBooking` call with the vendor-neutral `EscrowAdapter`, and
+ * no longer also builds `fund` in the same call (see this module's own top
+ * doc comment). The client address always comes from the booking's own
  * `clientWalletAddress` (AD-13's hold already recorded it). Resolves the
  * professional's wallet from the booking's own provider profile, so a
  * caller only ever needs the booking id.
@@ -401,19 +473,34 @@ export interface LockDepositDeps {
  * {@link BookingHoldExpiredError}) once the hold has expired with
  * `escrowState` still `null`.
  *
- * **Retry, and abandoned-deploy recovery (Story 3.4, Design Notes: "Why
- * retry reuses the stored deploy XDR").** When a `contractId` is already
- * persisted: if this booking also has a stored `escrowDeployXdr`, the exact
- * same `{contractId, deploy}` is returned again, with no new adapter call --
- * a declined wallet signature must be retryable within the hold, and Story
- * 2.6 made the write-once guard cover overwriting a *landed* deploy, not
- * retrying an unsigned one. When no XDR is stored (a pre-3.4 row, or one a
- * test seeded directly), this asks Trustless Work's own read model whether
- * the old `contractId` actually exists; if it does, this refuses (typed
- * {@link BookingEscrowStateError}) rather than risk a second, competing
- * escrow. If it does not, the stale `contractId` is cleared (conditionally,
- * only if nothing changed underneath this check) and a fresh deploy is
- * built.
+ * **Retry (Story 3.4, Design Notes: "Why retry reuses the stored deploy
+ * XDR").** When a `contractId` is already persisted and a deploy has
+ * already been submitted for it (`deploySubmittedAt` set), this returns
+ * `{deployed: true, contractId}` -- there is nothing left to sign, the
+ * caller should move straight to `fundDeposit`. Otherwise, absent
+ * `rebuild: true`, this returns the exact same stored `{contractId,
+ * unsignedXdr, txHash}` again, with no new adapter call -- a declined
+ * wallet signature must be retryable within the hold. If no XDR is stored
+ * at all (a pre-review-follow-up row) and `rebuild` was not requested, this
+ * refuses (typed {@link BookingEscrowStateError}) rather than return an
+ * incomplete result; the caller must pass `rebuild: true` to get a usable
+ * XDR.
+ *
+ * **Rebuild.** `rebuild: true` clears the stored (never-submitted) deploy
+ * and builds a fresh one, conditioned in SQL on no deploy submission being
+ * recorded and `escrowState` still `null` ({@link clearUnsubmittedEscrowContractId})
+ * -- this never risks abandoning money already in flight, and no longer
+ * guesses via a `listEscrows` chain read (removed: the caller, who knows
+ * whether their own submit attempt actually failed, is a better judge of
+ * "abandoned" than an inferred chain read ever was).
+ *
+ * **Concurrency.** Two concurrent `lockDeposit` calls building a *first*
+ * deploy race on the same conditioned `updateEscrowContractId` write; the
+ * loser's write is caught (never left to escape as a raw, untyped error)
+ * and this simply re-reads the row and re-runs from the top, which then
+ * returns whatever the winner actually persisted (a `{deployed: true}`, a
+ * retryable stored XDR, or a typed {@link BookingEscrowStateError} if the
+ * booking has moved on further still).
  */
 export async function lockDeposit(
   db: Db,
@@ -429,31 +516,25 @@ export async function lockDeposit(
   requireHoldNotExpired(booking, now);
 
   if (booking.escrowContractId !== null) {
-    if (booking.escrowDeployXdr) {
-      // Retry after a declined (or lost) signature: the same escrow, the
-      // same unsigned XDR, never a second deploy for this booking.
-      return {
-        contractId: booking.escrowContractId,
-        deploy: { contractId: booking.escrowContractId, unsignedXdr: booking.escrowDeployXdr, txHash: booking.escrowContractId },
-      };
+    if (booking.deploySubmittedAt !== null) {
+      return { deployed: true, contractId: booking.escrowContractId };
     }
-    const contractExistsOnChain = deps.contractExistsOnChain ?? defaultContractExistsOnChain;
-    const exists = await contractExistsOnChain(booking.escrowContractId);
-    if (exists) {
+    if (deps.rebuild) {
+      // Clears the stale contractId so the recursive call below builds a
+      // fresh deploy. If this write lost a race (a submit landed, or the
+      // reconciler moved the booking on, between the read above and here),
+      // it is simply a no-op and the recursive call below re-reads the
+      // row's actual current state instead of trusting this now-possibly-
+      // stale snapshot.
+      await clearUnsubmittedEscrowContractId(db, bookingId, booking.escrowContractId);
+      return lockDeposit(db, bookingId, adapter, { ...deps, rebuild: false });
+    }
+    if (!booking.escrowDeployXdr || !booking.escrowDeployTxHash) {
       throw new BookingEscrowStateError(
-        `Booking "${bookingId}" already has a persisted escrow contractId with no stored deploy XDR to retry, and the contract exists on chain; lockDeposit refuses to rebuild it`,
+        `Booking "${bookingId}" has a persisted escrow contractId with no stored deploy XDR to retry; pass rebuild: true to build a fresh one`,
       );
     }
-    // Clears the stale contractId so the recursive call below builds a
-    // fresh deploy. If this write lost a race (something else changed the
-    // row between the read above and here -- a fund landed, the reconciler
-    // moved it on), `cleared` is simply `false` and the row is left alone;
-    // either way, re-reading from a clean call lets the guards at the top
-    // of this same function decide from the row's actual current state,
-    // rather than trusting the now-possibly-stale snapshot this call
-    // started with.
-    await clearAbandonedEscrowContractId(db, bookingId, booking.escrowContractId);
-    return lockDeposit(db, bookingId, adapter, deps);
+    return { deployed: false, contractId: booking.escrowContractId, unsignedXdr: booking.escrowDeployXdr, txHash: booking.escrowDeployTxHash };
   }
 
   const providerAddress = await requireProviderAddress(db, booking);
@@ -468,9 +549,19 @@ export async function lockDeposit(
     title: `Pactly booking ${booking.id}`,
     description: `Pactly session deposit for booking ${booking.id}`,
   });
-  await updateEscrowContractId(db, bookingId, deployResult.contractId, deployResult.unsignedXdr);
+  try {
+    await updateEscrowContractId(db, bookingId, deployResult.contractId, deployResult.unsignedXdr, deployResult.txHash);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      // Lost a race to a concurrent lockDeposit call that persisted first
+      // -- never let that raw TypeError escape as an untyped 500. Re-read
+      // and let the guards above decide from the row's actual state.
+      return lockDeposit(db, bookingId, adapter, deps);
+    }
+    throw error;
+  }
 
-  return { contractId: deployResult.contractId, deploy: deployResult };
+  return { deployed: false, contractId: deployResult.contractId, unsignedXdr: deployResult.unsignedXdr, txHash: deployResult.txHash };
 }
 
 export interface FundDepositDeps {
@@ -480,14 +571,20 @@ export interface FundDepositDeps {
 /**
  * Builds the unsigned fund XDR against the `contractId` `lockDeposit`
  * already persisted -- never a caller-supplied one, so `fundDeposit` can
- * never be pointed at an escrow this booking never deployed.
+ * never be pointed at an escrow this booking never deployed. Stores
+ * Trustless Work's own `txHash` for the built transaction so
+ * `submitSignedTransaction` can match a signed envelope against it.
  *
  * Refused (typed {@link BookingEscrowStateError}) when no `contractId` is
- * persisted yet (call `lockDeposit` first), or `escrowState` is already
- * set (the reconciler has already confirmed this booking's own money
- * state; a fund call at that point could only be stale or a replay).
- * Refused (typed {@link BookingHoldExpiredError}) once the hold has expired
- * with `escrowState` still `null`.
+ * persisted yet, or no deploy has actually been submitted for it yet
+ * (review follow-up: building a fund transaction against a contract that
+ * may not exist on chain is unverified -- `deploySubmittedAt` is the
+ * booking's own recorded evidence that a deploy was relayed, not merely
+ * built), or `escrowState` is already set (the reconciler has already
+ * confirmed this booking's own money state; a fund call at that point
+ * could only be stale or a replay). Refused (typed
+ * {@link BookingHoldExpiredError}) once the hold has expired with
+ * `escrowState` still `null`.
  */
 export async function fundDeposit(
   db: Db,
@@ -497,19 +594,23 @@ export async function fundDeposit(
 ): Promise<UnsignedTransaction> {
   const now = deps.now ?? Math.floor(Date.now() / 1000);
   const booking = await requireBooking(db, bookingId);
-  if (!booking.escrowContractId) {
-    throw new BookingEscrowStateError(`Booking "${bookingId}" has no persisted escrow contractId; call lockDeposit first`);
+  if (!booking.escrowContractId || !booking.deploySubmittedAt) {
+    throw new BookingEscrowStateError(
+      `Booking "${bookingId}" has no confirmed deploy submission yet; call lockDeposit and submit it first`,
+    );
   }
   if (booking.escrowState !== null) {
     throw new BookingEscrowStateError(`Booking "${bookingId}" already has escrow_state "${booking.escrowState}"; cannot fund again`);
   }
   requireHoldNotExpired(booking, now);
 
-  return adapter.fund({
+  const result = await adapter.fund({
     contractId: booking.escrowContractId,
     clientAddress: booking.clientWalletAddress,
     amount: booking.depositAmount,
   });
+  await setEscrowFundTxHash(db, bookingId, result.txHash);
+  return result;
 }
 
 export interface ResolveBookingDisputeResult extends UnsignedTransaction {
@@ -644,34 +745,95 @@ export async function getBookingView(db: Db, bookingId: string, walletAddress: s
   };
 }
 
-/**
- * Relays a client-signed transaction to Trustless Work, over the adapter's
- * own `submit`. Never checks the hold's expiry (the spec's own "Never" rule:
- * "Submit is allowed after expiry, because a transaction the client already
- * signed must still land and be reconciled") -- and never itself writes
- * `escrow_state` (AD-1); the reconciler is still the only writer, once it
- * reads this transaction's evidence back out of Trustless Work's own read
- * model.
- */
-export async function submitSignedTransaction(
-  bookingId: string,
-  signedXdr: string,
-  adapter: EscrowAdapter = defaultEscrowAdapter,
-): Promise<SubmitTransactionResult> {
-  void bookingId; // kept as a parameter for symmetry with every other booking-scoped call and for future auditing, though `submit` itself is booking-agnostic (a signed XDR names its own contract).
-  return adapter.submit(signedXdr);
+/** Decodes a signed transaction envelope and returns its hash as lowercase
+ * hex -- signing a transaction never changes the hash used to verify it
+ * (the hash covers the signature payload, not the signatures themselves),
+ * so this is exactly comparable to the `txHash` Trustless Work returned
+ * when it built the corresponding *unsigned* XDR. Throws
+ * {@link XdrMismatchError} for anything that does not decode as a
+ * transaction at all, rather than let a raw stellar-sdk parse error escape. */
+function computeSignedTransactionHash(signedXdr: string): string {
+  try {
+    const tx = TransactionBuilder.fromXDR(signedXdr, config.stellarNetworkPassphrase);
+    // `Transaction.hash()` returns a `Uint8Array`, not a Node `Buffer` --
+    // wrap it to get `.toString("hex")`.
+    return Buffer.from(tx.hash()).toString("hex").toLowerCase();
+  } catch {
+    throw new XdrMismatchError();
+  }
 }
 
 /**
- * Story 3.4's hold-expiry runner tick: a read-only sweep that logs the
- * double-sale risk the spec's own Design Notes name ("A slot freed from an
- * expired hold whose escrow later reconciles as funded is logged as an
- * anomaly") -- an expired hold whose deploy is still in flight
- * (`escrowContractId` set, `escrowState` still `null`) on a slot some other
- * active booking has since re-held. Writes nothing; the actual freeing of a
- * slot happens implicitly, at the next `holdSlot` call's own atomic insert
- * (`insertBookingHoldIfSlotFree`), not here.
+ * Relays a client-signed transaction to Trustless Work, over the adapter's
+ * own `submit` -- but only once this booking's own records confirm the
+ * signed envelope actually is one Pactly built for it. Review follow-up:
+ * `submitSignedTransaction` previously relayed *any* signed XDR handed to
+ * it, unchecked -- a stranger's (or a stale, or a wrong-booking) signed
+ * transaction could be relayed through someone else's booking. This
+ * decodes the envelope, computes its own hash, and requires that hash to
+ * equal the booking's own stored `escrowDeployTxHash` or
+ * `escrowFundTxHash`; anything else is refused (typed
+ * {@link XdrMismatchError}) before the adapter is ever called.
+ *
+ * Never checks the hold's expiry (the spec's own "Never" rule: "Submit is
+ * allowed after expiry, because a transaction the client already signed
+ * must still land and be reconciled") -- and never itself writes
+ * `escrow_state` (AD-1); the reconciler is still the only writer, once it
+ * reads this transaction's evidence back out of Trustless Work's own read
+ * model.
+ *
+ * On a deploy match, once the adapter accepts it, this records
+ * `deploySubmittedAt` and extends the hold to ten minutes from now (a
+ * write-once, best-effort record -- see {@link recordDeploySubmission}'s
+ * own doc comment for why a race or a resubmit never turns into an error
+ * here).
  */
+export async function submitSignedTransaction(
+  db: Db,
+  bookingId: string,
+  signedXdr: string,
+  adapter: EscrowAdapter = defaultEscrowAdapter,
+  now: number = Math.floor(Date.now() / 1000),
+): Promise<SubmitTransactionResult> {
+  const booking = await requireBooking(db, bookingId);
+  const hash = computeSignedTransactionHash(signedXdr);
+
+  const matchesDeploy = booking.escrowDeployTxHash !== null && booking.escrowDeployTxHash.toLowerCase() === hash;
+  const matchesFund = !matchesDeploy && booking.escrowFundTxHash !== null && booking.escrowFundTxHash.toLowerCase() === hash;
+  if (!matchesDeploy && !matchesFund) {
+    throw new XdrMismatchError();
+  }
+
+  const result = await adapter.submit(signedXdr);
+
+  if (matchesDeploy && booking.escrowContractId) {
+    await recordDeploySubmission(db, bookingId, booking.escrowContractId, booking.escrowDeployTxHash!, now + HOLD_DURATION_SECONDS, now);
+  }
+
+  return result;
+}
+
+/**
+ * Story 3.4's hold-expiry runner tick: a read-only sweep that logs two
+ * kinds of double-sale risk (never writes anything; the actual freeing of
+ * a slot happens implicitly, at the next `holdSlot` call's own atomic
+ * insert):
+ *
+ * 1. The spec's own Design Notes case: an expired hold whose deploy is
+ *    still in flight (`escrowContractId` set, `escrowState` still `null`)
+ *    on a slot some other active booking has since re-held.
+ * 2. Review follow-up, a safety net: two distinct bookings sharing one
+ *    slot where at least one already has a non-null, non-refunded
+ *    `escrow_state` and the other is also locked/released/refunded or
+ *    still an actively-held pending hold -- something
+ *    {@link insertBookingHoldIfSlotFree}'s own atomic guarantee should
+ *    make impossible, logged if it is ever seen anyway. Each unordered
+ *    `(slotId, bookingA, bookingB)` pair is logged at most once per process
+ *    (an in-memory set -- restarting the process re-arms it, which is fine
+ *    for a log line, not a correctness mechanism).
+ */
+const loggedConflictPairs = new Set<string>();
+
 export function expireHolds(db: Db, now: number = Math.floor(Date.now() / 1000), log: (message: string) => void = console.error): number {
   const potentialDoubleSales = listPotentialDoubleSales(db, now);
   for (const risk of potentialDoubleSales) {
@@ -680,5 +842,18 @@ export function expireHolds(db: Db, now: number = Math.floor(Date.now() / 1000),
         `and slot ${risk.slotId} has since been re-held by another booking -- watch for a double-sale if ${risk.contractId} funds`,
     );
   }
-  return potentialDoubleSales.length;
+
+  let newlyLoggedConflicts = 0;
+  for (const pair of listConflictingSlotBookings(db, now)) {
+    const key = [pair.slotId, ...[pair.bookingIdA, pair.bookingIdB].sort()].join("|");
+    if (loggedConflictPairs.has(key)) continue;
+    loggedConflictPairs.add(key);
+    newlyLoggedConflicts += 1;
+    log(
+      `[hold-expiry] anomaly: slot ${pair.slotId} has conflicting bookings ${pair.bookingIdA} and ${pair.bookingIdB}, ` +
+        "both locked/released or actively held -- this should be impossible; investigate a possible double-sale",
+    );
+  }
+
+  return potentialDoubleSales.length + newlyLoggedConflicts;
 }
