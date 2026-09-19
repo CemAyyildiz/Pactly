@@ -2,7 +2,7 @@
 title: 'Story 3.7 — Paying the balance before the session'
 type: 'feature'
 created: '2026-09-20'
-status: 'in-progress'
+status: 'in-review'
 review_loop_iteration: 0
 baseline_revision: '567484280a797b6b6c46cd3c8f682fdf959def80'
 followup_review_recommended: false
@@ -83,7 +83,26 @@ This payment is independent of the escrow (AD-3). It never touches `escrow_state
 
 ## Spec Change Log
 
+### 2026-09-20 — Review kararları (kullanıcının devrettiği yetki)
+- **Tetikleyen:** Gönderim aşamasının yalnızca hash'e bakması (dört katman), `markBalancePaidPlatform`'ın dönüş değerinin yok sayılması, `markBalancePaidCash`'in koşulsuz yazması.
+- **Değişen:** Gönderim, ağa çıkmadan önce rezervasyonu yeniden okuyup durumu (unpaid, locked, seans başlamamış, kurulu hash var) doğruluyor. Onaylanan ödemeden sonra kurulu hash siliniyor. Korumalı yazma `false` dönerse bu gerçek bir hata: loglanıyor ve çağırana 409 BALANCE_ALREADY_SETTLED olarak bildiriliyor. "Elden ödendi" de korumalı yazma; sıfır bakiyeyi reddediyor, `released` durumunda da izin veriyor ve kurulu hash'i siliyor.
+- **Kaçınılan kötü durum:** Aynı bakiyenin zincirde iki kez ödenmesi. Zincire giden ama hiçbir yere kaydedilmeyen bir ödemenin başarı gibi görünmesi. Onaylanmış bir Pactly ödemesinin elden ödeme kaydıyla ezilmesi.
+- **KEEP:** Ayrı `payments/` modülü ve AD-3 ayrımı, tam string aritmetiği, hash bağı, yalnızca onaydan sonra `paid_platform`, sağlayıcıya özel nakit yolu.
+
 ## Review Triage Log
+
+### 2026-09-20 — Review pass (4 katman, Opus)
+- verdicts: 38 bulgu — high 6, medium 17, low 11, false 1, maybe-false 3
+- Kök neden grupları:
+  - **G1 gönderimde durum kontrolü yok (high, patch):** BH3, ECH1, ECH3, VG-O2, Intent-(ii) — yeniden okuma ve dört kontrol, onay sonrası hash'in silinmesi.
+  - **G2 korumalı yazmanın sonucu yok sayılıyor (high, patch):** BH1, ECH2, VG-O1, Intent-(iii) — 409 BALANCE_ALREADY_SETTLED.
+  - **G3 nakit yolu koşulsuz yazıyor (high, patch):** BH2, ECH1 — korumalı yazma, sıfır bakiye reddi, `released` izni.
+  - **G4 RPC durum eşlemeleri (medium, patch):** BH4/ECH5 `TRY_AGAIN_LATER`, BH5/ECH6 kurulum aşamasının 500'e düşmesi, ECH7 int64 sınırı, ECH4/VG2 anket tavanı ve testlenebilirlik.
+  - **G5 slotId olmayan rezervasyon (medium, patch):** ECH8.
+  - **G6 nakit, escrow serbest bırakıldıktan sonra kaydedilemiyor (medium, patch):** ECH9.
+  - **G7 frontend (medium/low, patch):** BH6/ECH10/ECH-claim1 kanıt linkinin kaybolması, ECH11 PAYMENT_UNAVAILABLE sonrası çift ödeme riski, BH12 "cüzdanda onayla" metninin anket sırasında kalması, BH13 tekrarlanan metin ve etiket tutarlılığı.
+  - **G8 testler (patch):** VG1 korumalı yazmanın `false` dalı, VG2 gerçek anket döngüsü, VG3 iki kez kurma (yeniden deneme yolu), BH9 migration testi, BH10 route 400/404 dalları, Intent-(vi) sağlayıcı listesinde tx hash.
+  - **Reddedilen:** BH8 `chain/client.ts`'in `pollTransaction`'ını yeniden kullanmak (low: hikâyenin sınırı `chain/`'e dokunmamak); BH7 sıfır bakiyede `NOTHING_TO_PAY` yerine `BOOKING_STATE` dönmesi (false: matris satırları bağımsız, ikisi de savunulabilir); Intent-(iv) tamsayı olmayan tutarın HTTP karşılığı (maybe-false: kalıcı veriden gelir, erişilemez); Intent-(i) ve VG-O5 frontend testsizliği (epic manuel doğrulamayı kabul ediyor).
 
 ## Verification
 

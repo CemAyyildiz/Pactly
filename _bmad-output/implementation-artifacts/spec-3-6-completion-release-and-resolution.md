@@ -2,10 +2,10 @@
 title: 'Story 3.6 — Appointment completion, release and resolution'
 type: 'feature'
 created: '2026-09-20'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: 'b85e8d8dfa8bf205f8b64085f66034c652c8d50d'
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-2-6-trustless-work-escrow-adapter-and-reconciliation.md'
@@ -100,10 +100,44 @@ Each route reuses 3.4's submit-binding rule. Surface the actions on 3.5's My boo
 
 ## Spec Change Log
 
+### 2026-09-20 — Review kararları (kullanıcının devrettiği yetki)
+- **Tetikleyen:** Submit'in yalnızca müşteriye açık olması (4 katmanın hepsi), rol bağı olmayan hash eşleşmesi, açanın rolüne bağlı olmayan uyuşmazlık nedenleri, oluşturma anında kaydedilen uyuşmazlık, zincir onayı beklerken tekrarlanan işlemler.
+- **Değişen:** Submit, çağıranın rolünü çözümlüyor ve her hash türünü bir role bağlıyor. `no-show` nedeni `client-no-show` ve `provider-no-show` olarak ikiye ayrıldı; her rolün seçebileceği nedenler sabit. Önerilen sonuç gönderim anında rol ve nedenden hesaplanıyor. Uyuşmazlık kaydı yalnızca başarılı bir submit ile yazılıyor. Gönderilmiş ama henüz zincirde görünmeyen bir eylem yeniden kurulamıyor (`ACTION_PENDING`) ve `pendingAction` alanıyla dışarıya bildiriliyor.
+- **Kaçınılan kötü durum:** Sağlayıcı ve admin işlemlerinin hiç iletilememesi. Bir tarafın kendi lehine politika önerisi üretmesi. Admin listesinde yanlış açan ya da neden görünmesi. Aynı işlemin çift gönderilmesi.
+- **KEEP:** Adaptördeki `complete`, reconciler'daki `completed` sırası, `/admin/disputes` ve çözücü kontrolü (`403 NOT_DISPUTE_RESOLVER`), uyuşmazlık öncesi politika metni, her eylemin hash'inin saklanması.
+
 ## Review Triage Log
+
+### 2026-09-20 — Review pass (4 katman, Opus)
+- verdicts: 36 bulgu — high 9, medium 15, low 9, false 2, maybe-false 1
+- Kök neden grupları:
+  - **G1 submit müşteriye kilitli (high, patch):** Intent-1, VG1, BH1, ECH1, ECH2, ECH-claim1, ECH-claim2, VG-O2 — rol duyarlı submit ve HTTP testleri.
+  - **G2 hash bağı role bağlı değil (high, patch):** Intent-2, BH2, ECH3 — hash türü başına izinli rol.
+  - **G3 neden ve rol, gönderim anında karar (high, patch):** BH3, BH4, ECH8, BH7, ECH9 — role bağlı nedenler, iki yönlü "gelmedi", gönderim anında hesaplanan öneri.
+  - **G4 oluşturma anında kayıt, son kuran kazanır (medium, patch):** BH6, ECH7, Intent-small1.
+  - **G5 bekleyen işlemin tekrarı (medium, patch):** BH8b, ECH5, ECH6 — `ACTION_PENDING` ve `pendingAction`.
+  - **G6 bayat kontrat kontrolü (medium, patch):** BH5, Intent-small3.
+  - **G7 UI/backend "tamamla" koşulu uyuşmuyor (low, patch):** BH8a, VG-O1, ECH4, Intent-small2.
+  - **G8 admin listesi ve bağlam (medium, patch):** BH9, ECH10 (uyuşmazlık kaydı olmayan zincir uyuşmazlığı), ECH12 (401), BH10a (N+1).
+  - **G9 testler (patch):** BH11 eksik vakalar; 3.4'ün UTC gece yarısında düşen testi.
+  - **Reddedilen:** BH10b route yardımcısı refaktörü (low: davranış değişikliği yok); BH11b `testConfigEnvAdmin` kopyası (low); ECH11 profil silinince 500 (false: profil silen bir yol yok); Intent-small4 `disagreement` için null öneri (false: savunulabilir okuma); BH7b milisaniye birimi (maybe-false → G4'te saniyeye çevrildi).
 
 ## Verification
 
 **Commands:**
 - `npm run -w backend typecheck && npm run -w backend test && npm run -w backend build` -- expected: clean, all pass
 - `npm run -w frontend typecheck && npm run -w frontend build` -- expected: clean
+
+## Auto Run Result
+
+Status: done
+
+**Özet:** Randevu tamamlama (sağlayıcı), onaylama (müşteri), serbest bırakma (sağlayıcı), uyuşmazlık açma (iki taraf, role bağlı nedenlerle) ve çözüm (yalnızca platformun çözücü cüzdanı olan admin) eklendi. Her eylem imzasız XDR üretiyor, hash'i saklanıyor ve submit yalnızca o role ait hash'i iletiyor. Reconciler `completed` yaşam döngüsü eylemini türetiyor. Uyuşmazlık kaydı imzalı işlem zincire gönderildiğinde yazılıyor.
+
+**Commit'ler:** `1a52418` spec, `34cacc0` start, `5674842` feat (worktree'de yazıldı, `main` üzerine rebase edildi), fix(3.6), chore(3.6).
+
+**Review:** 36 bulgu (high 9, medium 15, low 9, false 2, maybe-false 1). G1–G9 patch edildi. Reddedilenler: route yardımcısı refaktörü, test fixture kopyası (low); profil silinmesi ve `disagreement` için null öneri (false). Takip review önerisi: `true`; rol duyarlı submit ve gönderim anında yazılan uyuşmazlık kaydı bir sonraki turdan geçmedi. Kullanıcının kuralı gereği takip turu çalıştırılmadı.
+
+**Doğrulama:** backend typecheck ve build temiz, test 395/395 (2 koşu); frontend typecheck ve build temiz.
+
+**Kalan riskler:** Hiçbir eylem gerçek bir Trustless Work anahtarıyla denenmedi. Frontend testi yok. `openDispute`'un bayat kontrat kontrolü tek iş parçacıklı testte tetiklenemiyor.
