@@ -425,7 +425,7 @@ export function BookingPage() {
   return (
     <div className="page booking-page">
       <div className={`booking-lanes${isLocked ? " booking-lanes--sealed" : ""}`}>
-        <section className="booking-lane booking-lane--you">
+        <section className="booking-lane booking-lane--client">
           <h2 className="booking-lane__heading">YOUR SIDE</h2>
           <p className="booking-lane__appointment">
             {formatSlotDay(slotStartsAt)} · {formatSlotTime(slotStartsAt)}

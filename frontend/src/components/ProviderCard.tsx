@@ -36,6 +36,11 @@ function initialsFor(displayName: string): string {
  * (verified sessions + the plainly-stated cancellation count), location,
  * price, deposit pill, up to three earliest slots.
  *
+ * Story 3.9: the card is Discover v2's own three-column grid -- the
+ * monogram, the body, and a right-hand price rail -- with the deposit pill
+ * and slots as a footer row spanning the body and price columns beneath
+ * them (`styles/base.css`'s own `.provider-card` grid).
+ *
  * The whole card links to `/providers/:id` through a "stretched link" --
  * an absolutely-positioned, otherwise empty `<a>` painted first, so the
  * slot chips (real `<button>`s painted after it, lifted with
@@ -70,9 +75,13 @@ export function ProviderCard({ provider }: ProviderCardProps) {
         </div>
 
         <p className="provider-card__location">{provider.location}</p>
+      </div>
 
+      <div className="provider-card__price-rail">
         <div className="provider-card__price tabular-nums">{formatMoney(provider.price.amount, provider.price.asset)}</div>
+      </div>
 
+      <div className="provider-card__footer">
         <DepositPill
           amount={provider.deposit.amount}
           asset={provider.deposit.asset}

@@ -1,11 +1,14 @@
 /**
- * Base styles: the three Google Fonts (with system fallbacks so the page
+ * Base styles: the two Google Fonts (with system fallbacks so the page
  * never blocks on them), a reset, the focus ring DESIGN.md's Accessibility
  * Floor requires everywhere, and the component classes
  * `src/components/*` and `src/pages/**` render against. DESIGN.md wins on
  * any conflict (see that file's own top note).
+ *
+ * Story 3.9: Instrument Sans + Newsreader replace the previous three type
+ * families -- the Discover v2 mockup's own pair.
  */
-@import url("https://fonts.googleapis.com/css2?family=Darker+Grotesque:wght@700;900&family=Familjen+Grotesk:wght@400;500;600;700&family=Martian+Mono:wght@500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap");
 
 * {
   box-sizing: border-box;
@@ -18,7 +21,7 @@ body {
 }
 
 body {
-  background: var(--color-paper);
+  background: var(--color-bg);
   color: var(--color-ink);
   font-family: var(--font-body);
   font-size: var(--text-16);
@@ -68,25 +71,32 @@ button {
   gap: var(--space-4);
   padding: var(--space-3) var(--space-gutter);
   background: var(--color-card);
-  border-bottom: 1.5px solid var(--color-ink);
+  border-bottom: 1px solid var(--color-line);
   flex-wrap: wrap;
 }
 
 .top-bar__brand {
   font-family: var(--font-display);
-  font-weight: 900;
+  font-weight: 600;
   font-size: var(--text-32);
-  line-height: 0.85;
+  line-height: 1.05;
   letter-spacing: -0.01em;
   text-decoration: none;
 }
 
+/* DESIGN.md's `pill-escrow`: a quiet provenance pill, not an uppercase
+ * mono label -- Discover v2 keeps this visible everywhere without shouting
+ * it. */
 .top-bar__escrow-note {
   font-family: var(--font-label);
   font-size: var(--text-12);
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  color: var(--color-faint);
+  font-weight: 600;
+  color: var(--color-muted);
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-full);
+  padding: 4px 10px;
+  white-space: nowrap;
 }
 
 .top-bar__nav {
@@ -123,9 +133,9 @@ button {
 }
 
 .button-primary {
-  background: var(--color-you);
-  color: var(--color-you-ink);
-  border: 1.5px solid var(--color-you-ink);
+  background: var(--color-client);
+  color: var(--color-escrow-text);
+  border: none;
 }
 
 .button-primary:disabled,
@@ -197,9 +207,9 @@ button {
 
 .provider-header__name {
   font-family: var(--font-display);
-  font-weight: 900;
+  font-weight: 600;
   font-size: var(--text-48);
-  line-height: 0.85;
+  line-height: 1.05;
   letter-spacing: -0.01em;
   margin: 0;
 }
@@ -236,7 +246,7 @@ button {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--color-you);
+  background: var(--color-client);
   flex: none;
 }
 
@@ -251,21 +261,22 @@ button {
   border-radius: var(--radius-sm);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
-  background: var(--color-you);
-  color: var(--color-you-ink);
-  border: 1.5px solid var(--color-you-ink);
+  font-weight: 600;
+  background: var(--color-client);
+  color: var(--color-escrow-text);
+  border: 1.5px solid var(--color-client-deep);
   cursor: pointer;
 }
 
 .slot-chip--selected {
-  background: var(--color-you-ink);
-  color: var(--color-you-soft);
-  border-color: var(--color-you-ink);
+  background: var(--color-client-deep);
+  color: var(--color-escrow-text);
+  border-color: var(--color-client-deep);
 }
 
 .slot-chip--taken {
   background: transparent;
-  color: var(--color-faint);
+  color: var(--color-muted);
   border: 1.5px dashed var(--color-line);
   cursor: not-allowed;
 }
@@ -279,7 +290,7 @@ button {
   font-size: var(--text-12);
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  color: var(--color-faint);
+  color: var(--color-muted);
   margin-bottom: var(--space-2);
 }
 
@@ -295,8 +306,8 @@ button {
 
 .card {
   background: var(--color-card);
-  border: 1.5px solid var(--color-ink);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xl);
   padding: var(--space-card-pad);
 }
 
@@ -308,13 +319,15 @@ button {
 }
 
 .price-row__amount {
-  font-family: var(--font-display);
-  font-weight: 900;
+  font-family: var(--font-body);
+  font-weight: 700;
   font-size: var(--text-32);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
 }
 
 .price-row__meta {
-  color: var(--color-faint);
+  color: var(--color-muted);
   font-size: var(--text-14);
 }
 
@@ -350,10 +363,10 @@ button {
 
 .banner {
   background: var(--color-card);
-  border: 1.5px solid var(--color-line);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
   padding: var(--space-4);
-  color: var(--color-faint);
+  color: var(--color-muted);
 }
 
 .banner--alert {
@@ -405,19 +418,19 @@ button {
 }
 
 .availability-cell--selected {
-  background: var(--color-you);
-  border-color: var(--color-you-ink);
-  color: var(--color-you-ink);
+  background: var(--color-client);
+  border-color: var(--color-client-deep);
+  color: var(--color-escrow-text);
 }
 
 .availability-cell--disabled {
-  color: var(--color-faint);
+  color: var(--color-muted);
   border-style: dashed;
   cursor: not-allowed;
 }
 
 /* ---------------------------------------------------------------------
- * Discover page -- Story 3.2. DESIGN.md Layout & Spacing: a 232px left
+ * Discover page -- Story 3.2. DESIGN.md Layout & Spacing: a 240px left
  * rail plus a two-column grid from 1024px; below that, the category list
  * becomes horizontally-scrolling tabs above a single column.
  * --------------------------------------------------------------------- */
@@ -428,9 +441,9 @@ button {
 
 .discover__heading {
   font-family: var(--font-display);
-  font-weight: 900;
+  font-weight: 600;
   font-size: var(--text-48);
-  line-height: 0.85;
+  line-height: 1.05;
   letter-spacing: -0.01em;
   margin: 0 0 var(--space-4);
 }
@@ -442,7 +455,7 @@ button {
 @media (min-width: 1024px) {
   .discover__layout {
     display: grid;
-    grid-template-columns: 232px 1fr;
+    grid-template-columns: 240px 1fr;
     gap: var(--space-6);
     align-items: start;
   }
@@ -492,9 +505,10 @@ button {
 }
 
 /* ---------------------------------------------------------------------
- * Search box -- DESIGN.md Components: the suggestions dropdown is a
- * transient layer, so it uses the "offset solid block" elevation (4px 4px
- * 0), never a blurred shadow.
+ * Search box -- DESIGN.md Components: the field itself keeps a 1.5px ink
+ * border (Discover v2's own `.search`); the suggestions dropdown is a
+ * transient layer above the page, so it uses a soft shadow instead
+ * (Discover v2's own `.ac`), never the old "offset solid block".
  * --------------------------------------------------------------------- */
 
 .search-box {
@@ -510,7 +524,7 @@ button {
   border: 1.5px solid var(--color-ink);
   border-radius: var(--radius-md);
   background: var(--color-card);
-  color: var(--color-faint);
+  color: var(--color-muted);
 }
 
 .search-box__field svg {
@@ -546,7 +560,7 @@ button {
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-faint);
+  color: var(--color-muted);
   font-size: var(--text-18);
   line-height: 1;
   cursor: pointer;
@@ -558,9 +572,9 @@ button {
   left: 0;
   right: 0;
   background: var(--color-card);
-  border: 1.5px solid var(--color-ink);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
-  box-shadow: 4px 4px 0 var(--color-ink);
+  box-shadow: 0 12px 28px rgba(17, 19, 24, 0.1);
   z-index: 20;
   max-height: 360px;
   overflow-y: auto;
@@ -570,7 +584,7 @@ button {
 .search-box__suggestions-empty {
   margin: 0;
   padding: var(--space-2) var(--space-4);
-  color: var(--color-faint);
+  color: var(--color-muted);
   font-size: var(--text-14);
 }
 
@@ -585,7 +599,7 @@ button {
   font-size: var(--text-12);
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: var(--color-faint);
+  color: var(--color-muted);
 }
 
 .search-box__suggestion {
@@ -607,12 +621,12 @@ button {
 
 .search-box__suggestion--active,
 .search-box__suggestion:hover {
-  background: var(--color-you-soft);
+  background: var(--color-client-soft);
 }
 
 .search-box__suggestion-count {
   flex: none;
-  color: var(--color-faint);
+  color: var(--color-muted);
   font-size: var(--text-12);
 }
 
@@ -644,7 +658,7 @@ button {
   font-size: var(--text-12);
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: var(--color-faint);
+  color: var(--color-muted);
   margin: 0 0 var(--space-2);
 }
 
@@ -704,7 +718,7 @@ button {
   flex-direction: column;
   gap: var(--space-1);
   font-size: var(--text-12);
-  color: var(--color-faint);
+  color: var(--color-muted);
   flex: 1;
 }
 
@@ -728,7 +742,7 @@ button {
 .filter-sheet__backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(17, 17, 17, 0.55);
+  background: rgba(17, 19, 24, 0.55);
   z-index: 40;
   display: flex;
   align-items: flex-end;
@@ -744,8 +758,8 @@ button {
   width: 100%;
   max-height: 85vh;
   overflow-y: auto;
-  background: var(--color-paper);
-  border-top: 1.5px solid var(--color-ink);
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-line);
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   padding: var(--space-4) var(--space-gutter-mobile) calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
 }
@@ -760,9 +774,9 @@ button {
 
 .filter-sheet__heading {
   font-family: var(--font-display);
-  font-weight: 900;
+  font-weight: 600;
   font-size: var(--text-32);
-  line-height: 0.85;
+  line-height: 1.05;
   margin: 0;
 }
 
@@ -818,7 +832,7 @@ button {
   min-height: 44px;
   padding: 10px 16px;
   border-radius: var(--radius-full);
-  border: 1.5px solid var(--color-line);
+  border: 1px solid var(--color-line);
   background: var(--color-card);
   color: var(--color-ink);
   font-size: var(--text-14);
@@ -864,14 +878,32 @@ button {
   }
 }
 
+/* Discover v2's own `.card`: a three-column grid -- photo/monogram, body,
+ * a right-hand price rail -- with the deposit pill and slots as a footer
+ * row spanning the body and price columns. Below 480px the price rail
+ * drops beneath the body instead of squeezing into a third column. */
 .provider-card {
   position: relative;
   background: var(--color-card);
-  border: 1.5px solid var(--color-ink);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xl);
   padding: var(--space-card-pad);
-  display: flex;
-  gap: var(--space-4);
+  display: grid;
+  grid-template-columns: 76px 1fr auto;
+  column-gap: var(--space-4);
+  row-gap: var(--space-2);
+  align-items: start;
+}
+
+@media (max-width: 480px) {
+  .provider-card {
+    grid-template-columns: 76px 1fr;
+  }
+
+  .provider-card__price-rail {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
 }
 
 /* The stretched link: painted first, covers the whole card, carries the
@@ -900,8 +932,8 @@ button {
 }
 
 .provider-card__initials {
-  font-family: var(--font-display);
-  font-weight: 900;
+  font-family: var(--font-body);
+  font-weight: 700;
   font-size: var(--text-32);
   line-height: 1;
 }
@@ -916,24 +948,23 @@ button {
 
 .provider-card__body {
   min-width: 0;
-  flex: 1;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
 
 .provider-card__name {
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: var(--text-24);
-  line-height: 0.95;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: var(--text-18);
+  line-height: 1.25;
   letter-spacing: -0.01em;
   margin: 0;
 }
 
 .provider-card__meta {
   font-size: var(--text-14);
-  color: var(--color-faint);
+  color: var(--color-muted);
   margin: 0;
 }
 
@@ -949,19 +980,38 @@ button {
  * alert colour. */
 .provider-card__cancellations {
   font-size: var(--text-12);
-  color: var(--color-faint);
+  color: var(--color-muted);
 }
 
 .provider-card__location {
   font-size: var(--text-14);
-  color: var(--color-faint);
+  color: var(--color-muted);
   margin: 0;
 }
 
+/* The right-hand rail (Discover v2's own `.price` column) -- the third
+ * grid track, holding just the price. */
+.provider-card__price-rail {
+  text-align: right;
+  min-width: 96px;
+}
+
 .provider-card__price {
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: var(--text-32);
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: var(--text-24);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+/* The footer row (Discover v2's own `.dep` + `.row`, both `grid-column: 2
+ * / -1`) -- the deposit pill and the earliest slots, spanning the body and
+ * price columns beneath them. */
+.provider-card__footer {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 .provider-card__slots {
@@ -1025,8 +1075,9 @@ button {
 }
 
 .skeleton-block--price {
-  height: 30px;
-  width: 35%;
+  display: inline-block;
+  height: 24px;
+  width: 80px;
 }
 
 .skeleton-block--pill {
@@ -1042,11 +1093,11 @@ button {
 }
 
 /* ---------------------------------------------------------------------
- * Booking & payment (Story 3.4) -- DESIGN.md's three lanes: client
- * (mustard ground), escrow (black), provider (teal ground). >=1024px
- * three columns side by side; below that they stack, reorder (provider on
- * top, client's choices in the middle, escrow pinned to the bottom bar),
- * and the escrow lane is never hidden at any breakpoint.
+ * Booking & payment (Story 3.4) -- DESIGN.md's three lanes: client (soft
+ * client blue), escrow (black), provider (teal ground). >=1024px three
+ * columns side by side; below that they stack, reorder (provider on top,
+ * client's choices in the middle, escrow pinned to the bottom bar), and
+ * the escrow lane is never hidden at any breakpoint.
  * --------------------------------------------------------------------- */
 
 .booking-page {
@@ -1056,7 +1107,7 @@ button {
 .booking-lanes {
   display: grid;
   grid-template-columns: 1fr 260px 1fr;
-  border: 1.5px solid var(--color-ink);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
@@ -1068,7 +1119,7 @@ button {
   .booking-lane--provider {
     order: 1;
   }
-  .booking-lane--you {
+  .booking-lane--client {
     order: 2;
   }
   .escrow-lane {
@@ -1082,9 +1133,11 @@ button {
   padding: var(--space-6);
 }
 
-.booking-lane--you {
-  background: var(--color-you);
-  color: var(--color-you-ink);
+/* The client's side: Discover v2's soft blue field, keeping the same
+ * light-ground/dark-provider rhythm the escrow lane sits between. */
+.booking-lane--client {
+  background: var(--color-client-soft);
+  color: var(--color-ink);
 }
 
 .booking-lane--provider {
@@ -1101,10 +1154,11 @@ button {
 }
 
 .booking-lane__appointment {
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: var(--text-32);
-  line-height: 0.9;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: var(--text-24);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
@@ -1115,7 +1169,7 @@ button {
 
 .booking-summary {
   margin-top: var(--space-5);
-  border-top: 1.5px solid rgba(58, 42, 0, 0.35);
+  border-top: 1.5px solid rgba(22, 54, 201, 0.35);
   padding-top: var(--space-4);
 }
 
@@ -1124,13 +1178,13 @@ button {
   justify-content: space-between;
   gap: var(--space-3);
   padding: 10px 0;
-  border-bottom: 1px solid rgba(58, 42, 0, 0.2);
+  border-bottom: 1px solid rgba(22, 54, 201, 0.2);
   font-size: var(--text-14);
 }
 
 .booking-summary-note {
   margin-top: var(--space-4);
-  background: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.55);
   border-radius: var(--radius-md);
   padding: var(--space-4);
   font-size: 13.5px;
@@ -1157,7 +1211,7 @@ button {
 }
 
 .payment-method__option {
-  border: 1.5px solid var(--color-you-ink);
+  border: 1.5px solid var(--color-client-deep);
   border-radius: var(--radius-md);
   padding: var(--space-3);
   font-size: var(--text-14);
@@ -1165,8 +1219,8 @@ button {
 }
 
 .payment-method__option--selected {
-  background: var(--color-you-ink);
-  color: var(--color-you);
+  background: var(--color-client-deep);
+  color: var(--color-escrow-text);
 }
 
 .payment-method__option--disabled {
@@ -1204,10 +1258,11 @@ button {
 }
 
 .escrow-lane__amount {
-  font-family: var(--font-display);
-  font-weight: 900;
+  font-family: var(--font-body);
+  font-weight: 700;
   font-size: var(--text-48);
-  line-height: 0.85;
+  line-height: 1;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
@@ -1326,8 +1381,9 @@ button {
 
 .seal-wrap__title {
   font-family: var(--font-display);
-  font-weight: 900;
+  font-weight: 600;
   font-size: var(--text-32);
+  line-height: 1.1;
   margin: 0;
 }
 
@@ -1351,15 +1407,19 @@ button {
   font-weight: 600;
   padding: 4px 10px;
   border: 1px solid var(--color-line);
-  background: var(--color-paper);
+  background: var(--color-bg);
   color: var(--color-ink);
   white-space: nowrap;
 }
 
+/* A generic success outcome (released/resolved) -- not owned by either
+ * side, so it takes the new success green rather than the provider's own
+ * teal (DESIGN.md's Colors: "no other new colours" -- success is one of
+ * the few Discover v2 introduces). */
 .state-label--positive {
-  background: var(--color-pro-soft);
-  color: #0f3d3a;
-  border-color: #b8d5cf;
+  background: var(--color-card);
+  color: var(--color-success);
+  border-color: var(--color-success);
 }
 
 .state-label--alert {
@@ -1371,7 +1431,7 @@ button {
 .countdown {
   margin: 0;
   font-size: var(--text-14);
-  color: var(--color-faint);
+  color: var(--color-muted);
 }
 
 .countdown--alert {
@@ -1387,8 +1447,8 @@ button {
 
 .booking-card {
   background: var(--color-card);
-  border: 1.5px solid var(--color-ink);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xl);
   padding: var(--space-card-pad);
   display: flex;
   flex-direction: column;
@@ -1404,16 +1464,17 @@ button {
 
 .booking-card__heading {
   margin: 0;
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: var(--text-24);
-  line-height: 1;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: var(--text-18);
+  line-height: 1.25;
+  letter-spacing: -0.01em;
 }
 
 .booking-card__subheading {
   margin: 2px 0 0;
   font-size: var(--text-14);
-  color: var(--color-faint);
+  color: var(--color-muted);
 }
 
 .booking-card__appointment {
@@ -1435,7 +1496,7 @@ button {
 }
 
 .booking-card__amount-row dt {
-  color: var(--color-faint);
+  color: var(--color-muted);
   font-weight: 400;
 }
 
@@ -1511,7 +1572,7 @@ button {
 .expired-holds summary {
   cursor: pointer;
   font-weight: 600;
-  color: var(--color-faint);
+  color: var(--color-muted);
 }
 
 .expired-holds .booking-list {
@@ -1545,7 +1606,7 @@ button {
   width: 100%;
   border-collapse: collapse;
   background: var(--color-card);
-  border: 1.5px solid var(--color-ink);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
@@ -1563,7 +1624,7 @@ button {
   font-size: var(--text-12);
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  color: var(--color-faint);
+  color: var(--color-muted);
   font-weight: 500;
 }
 

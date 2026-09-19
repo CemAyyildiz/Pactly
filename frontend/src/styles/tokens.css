@@ -2,32 +2,40 @@
  * DESIGN.md's tokens (frontmatter), as CSS custom properties. This file
  * only ever defines values -- no selectors beyond `:root` -- so every
  * component reads the same source of truth DESIGN.md itself names.
+ *
+ * Story 3.9: realigned on the Discover v2 mockup's visual language (cool
+ * grey ground, client blue, Instrument Sans / Newsreader) -- DESIGN.md's
+ * own top note records this. The provider's teal and the escrow black keep
+ * their old values unchanged, so "two sides" still reads as two sides.
  */
 :root {
   /* Colors -- DESIGN.md "Colors" */
-  --color-stone: #dcdad3;
-  --color-paper: #f2f1ec;
+  --color-bg: #f4f5f7;
   --color-card: #ffffff;
-  --color-ink: #111111;
-  --color-faint: #6b6960;
-  --color-line: #cfcdc5;
-  --color-you: #e8b93a;
-  --color-you-ink: #3a2a00;
-  --color-you-soft: #f7eac6;
+  --color-ink: #111318;
+  --color-muted: #5c6370;
+  --color-line: #e3e5ea;
+  --color-client: #1f4bff;
+  --color-client-deep: #1636c9;
+  --color-client-soft: #e8edff;
+  --color-success: #1a7a4c;
   --color-pro: #164e4a;
   --color-pro-text: #d8ece8;
   --color-pro-soft: #dceae7;
-  --color-escrow: #111111;
-  --color-escrow-text: #f2f1ec;
+  --color-escrow: #111318;
+  --color-escrow-text: #f4f5f7;
   --color-alert: #b4462a;
   --color-alert-soft: #f5e0d9;
   --color-focus: #1f3be0;
 
-  /* Typography -- DESIGN.md "Typography" */
-  --font-display: "Darker Grotesque", system-ui, sans-serif;
-  --font-heading: "Familjen Grotesk", system-ui, sans-serif;
-  --font-body: "Familjen Grotesk", system-ui, sans-serif;
-  --font-label: "Martian Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  /* Typography -- DESIGN.md "Typography". The three previous type
+   * families are dropped: two families now cover every job -- Newsreader
+   * for display numbers and page titles, Instrument Sans for everything
+   * else (body, labels and headings). */
+  --font-display: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-heading: "Instrument Sans", system-ui, sans-serif;
+  --font-body: "Instrument Sans", system-ui, sans-serif;
+  --font-label: "Instrument Sans", system-ui, sans-serif;
 
   /* Scale -- DESIGN.md "12 . 14 . 16 . 18 . 24 . 32 . 48, no in-between values" */
   --text-12: 12px;

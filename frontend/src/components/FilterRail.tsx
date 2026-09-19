@@ -197,7 +197,7 @@ export function FilterFields({
 }
 
 /** The desktop (>=1024px) filter rail: sits under the category list, in
- * the same 232px left column (EXPERIENCE.md/the spec's own Layout rule),
+ * the same 240px left column (EXPERIENCE.md/the spec's own Layout rule),
  * hidden below that breakpoint in favour of `FilterSheet`'s bottom-sheet
  * trigger. */
 export function FilterRail(props: FilterFieldsProps) {

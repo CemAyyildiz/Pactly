@@ -11,7 +11,11 @@ export function ProviderCardSkeleton() {
         <div className="skeleton-block skeleton-block--meta" />
         <div className="skeleton-block skeleton-block--badges" />
         <div className="skeleton-block skeleton-block--location" />
+      </div>
+      <div className="provider-card__price-rail">
         <div className="skeleton-block skeleton-block--price" />
+      </div>
+      <div className="provider-card__footer">
         <div className="skeleton-block skeleton-block--pill" />
         <div className="provider-card__slots">
           <div className="skeleton-block skeleton-block--chip" />
