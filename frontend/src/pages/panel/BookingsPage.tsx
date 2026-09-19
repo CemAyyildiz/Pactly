@@ -164,6 +164,10 @@ export function BookingsPage() {
                         lifecycle={booking.lifecycle}
                         pendingAction={booking.pendingAction}
                         deposit={booking.deposit}
+                        balance={booking.balance}
+                        balanceState={booking.balanceState}
+                        slotStartsAt={booking.slotStartsAt}
+                        balancePaymentTxHash={booking.balancePaymentTxHash}
                         session={session}
                         onActionSubmitted={() => void bookingsQuery.refetch()}
                         onUnauthorized={handleSignOut}
@@ -192,6 +196,7 @@ export function BookingsPage() {
                 balanceState={booking.balanceState}
                 cancelDeadline={booking.cancelDeadline}
                 contractId={booking.contractId}
+                balancePaymentTxHash={booking.balancePaymentTxHash}
                 session={session}
                 onActionSubmitted={() => void bookingsQuery.refetch()}
                 onUnauthorized={handleSignOut}
@@ -221,6 +226,7 @@ export function BookingsPage() {
                 balanceState={booking.balanceState}
                 cancelDeadline={booking.cancelDeadline}
                 contractId={booking.contractId}
+                balancePaymentTxHash={booking.balancePaymentTxHash}
                 session={session}
                 onActionSubmitted={() => void bookingsQuery.refetch()}
                 onUnauthorized={handleSignOut}

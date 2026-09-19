@@ -1485,6 +1485,22 @@ button {
   color: var(--color-alert);
 }
 
+/** Story 3.7: "Pay balance" plus the local-currency-unavailable sentence
+ * that always sits next to it (mirrors `.payment-method__option--disabled`'s
+ * own wording on the booking page, per PRD 3.4 AC4's own gap, carried
+ * through to this story's own balance path). */
+.booking-card__balance-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.booking-card__balance-note {
+  margin: 0;
+  font-size: var(--text-12);
+  opacity: 0.6;
+}
+
 .expired-holds {
   margin-top: var(--space-6);
   border: 1.5px dashed var(--color-line);

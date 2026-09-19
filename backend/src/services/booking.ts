@@ -61,8 +61,10 @@ import {
   listPotentialDoubleSales,
   listConflictingSlotBookings,
   clearUnsubmittedEscrowContractId,
+  markBalancePaidPlatform,
   recordDeploySubmission,
   setEscrowActionSubmittedAt,
+  setBalancePaymentBuiltHash,
   setEscrowActionTxHash,
   setEscrowFundTxHash,
   setPendingDispute,
@@ -76,7 +78,13 @@ import { recordEscrowDisputeResolution } from "../db/escrowDisputeResolutions.js
 import { getEscrowDisputeOpeningsForBookings, recordEscrowDisputeOpening } from "../db/escrowDisputeOpenings.js";
 import { getProviderProfileById, getProviderProfileByWallet } from "../db/providerProfiles.js";
 import { computeDepositAmount, NotAProviderError, ProviderNotFoundError } from "./profile.js";
-import { resolveUsdcAsset, type ResolveUsdcAssetOptions } from "../anchor/usdc.js";
+import { resolveUsdcAsset, type ResolveUsdcAssetOptions, type UsdcAsset } from "../anchor/usdc.js";
+import {
+  buildBalancePaymentTransaction,
+  submitBalancePaymentTransaction,
+  type BuildPaymentDeps,
+  type SubmitPaymentDeps,
+} from "../payments/stellar.js";
 import type { Db } from "../db/client.js";
 import { BALANCE_STATES, type BalanceState, type DisputeOpenerRole, type DisputeOutcome, type DisputeReason } from "../db/schema.js";
 
@@ -1050,6 +1058,156 @@ export async function listOpenDisputes(db: Db): Promise<AdminDisputeListItem[]> 
 }
 
 // ---------------------------------------------------------------------------
+// Story 3.7: paying the balance before the session. Two independent paths,
+// entirely separate from every escrow write above (AD-3: neither ever
+// touches `escrow_state` or the Trustless Work adapter): the client pays
+// through Pactly (a plain Stellar USDC payment this backend builds, the
+// client signs, and this backend submits and polls to a confirmed ledger
+// result before ever writing `paid_platform`), or the provider records a
+// cash payment directly. `balance_state` moves forward only, and only
+// through these two functions plus `markBalancePaidCash` below.
+// ---------------------------------------------------------------------------
+
+/** `balanceAmount` is `"0"` -- there is nothing to build a payment for. The
+ * spec's own "Always" rule: "A zero balance means nothing to pay, and the
+ * UI hides the action" -- this is the server-side backstop for that same
+ * rule, not the primary defense. */
+export class NothingToPayError extends Error {
+  constructor(message = "There's nothing to pay -- this booking's balance is zero.") {
+    super(message);
+    this.name = "NothingToPayError";
+  }
+}
+
+/** Refuses (typed {@link BookingEscrowStateError}) unless the booking is
+ * `locked` with `balanceState` still `"unpaid"`, and the appointment has
+ * not started yet -- shared by {@link buildBalancePayment} (the client's
+ * own precondition) and {@link markBalancePaidCash} (the provider's own,
+ * minus the "before it starts" clause, which only ever gates the client's
+ * own payment path per the spec's own "Always" rule: "only before the
+ * appointment starts"). */
+function requireUnpaidLockedBalance(booking: BookingRow, action: string): void {
+  if (booking.escrowState !== "locked" || booking.balanceState !== "unpaid") {
+    throw new BookingEscrowStateError(
+      `Booking "${booking.id}" must be locked with an unpaid balance to ${action} ` +
+        `(escrowState is "${booking.escrowState}", balanceState is "${booking.balanceState}")`,
+    );
+  }
+}
+
+export interface BuildBalancePaymentDeps extends BuildPaymentDeps {
+  now?: number;
+  /** Overrides how the USDC asset is resolved -- defaults to the real,
+   * cached anchor lookup (`anchor/usdc.ts`), same seam `holdSlot` already
+   * uses. */
+  resolveUsdcAsset?: (options?: ResolveUsdcAssetOptions) => Promise<UsdcAsset>;
+}
+
+export interface BuildBalancePaymentResult {
+  unsignedXdr: string;
+}
+
+/**
+ * `POST /bookings/:id/balance/pay`: builds the unsigned "pay the balance"
+ * transaction -- a plain classic Stellar USDC payment from the booking's own
+ * client wallet to the provider's wallet, using the anchor-resolved USDC
+ * asset (3.4's resolver) and the booking's own persisted `balanceAmount`,
+ * converted with exact string arithmetic (never a float). Refused (typed
+ * {@link BookingEscrowStateError}) unless the booking is `locked` with an
+ * unpaid balance and the appointment has not started yet ("paid before the
+ * session", PRD AC5); refused (typed {@link NothingToPayError}) when the
+ * balance is `"0"`. The built transaction's own hash is persisted
+ * (`balancePaymentBuiltHash`) so `submitBalancePayment` can later refuse
+ * anything that is not the exact envelope this call built (3.4's own
+ * submit-binding rule, extended to this payment).
+ */
+export async function buildBalancePayment(
+  db: Db,
+  bookingId: string,
+  clientWalletAddress: string,
+  deps: BuildBalancePaymentDeps = {},
+): Promise<BuildBalancePaymentResult> {
+  const now = deps.now ?? Math.floor(Date.now() / 1000);
+  const resolveUsdc = deps.resolveUsdcAsset ?? resolveUsdcAsset;
+  const booking = await getBookingForClient(db, bookingId, clientWalletAddress);
+  requireUnpaidLockedBalance(booking, "pay it");
+  const slot = booking.slotId ? await getSlotById(db, booking.slotId) : undefined;
+  if (slot && slot.startsAt <= now) {
+    throw new BookingEscrowStateError(
+      `Booking "${bookingId}"'s appointment has already started; the balance can no longer be paid through Pactly`,
+    );
+  }
+  if (booking.balanceAmount === "0") {
+    throw new NothingToPayError();
+  }
+  const providerAddress = await requireProviderAddress(db, booking);
+  const usdc = await resolveUsdc();
+  const built = await buildBalancePaymentTransaction(
+    {
+      sourceAddress: booking.clientWalletAddress,
+      destinationAddress: providerAddress,
+      assetCode: usdc.code,
+      assetIssuer: usdc.issuer,
+      amount: booking.balanceAmount,
+    },
+    deps,
+  );
+  await setBalancePaymentBuiltHash(db, bookingId, built.txHash);
+  return { unsignedXdr: built.unsignedXdr };
+}
+
+export interface SubmitBalancePaymentResult {
+  txHash: string;
+}
+
+/**
+ * `POST /bookings/:id/balance/submit`: relays the client's signed "pay the
+ * balance" envelope, but only once its own computed hash matches this
+ * booking's stored `balancePaymentBuiltHash` (refused, typed
+ * {@link XdrMismatchError}, otherwise -- the same submit-binding rule 3.4's
+ * escrow submit already enforces). Unlike the escrow submit, this polls all
+ * the way to a confirmed ledger result itself (`payments/stellar.ts`'s
+ * `submitBalancePaymentTransaction`) and only then writes `balance_state` to
+ * `"paid_platform"` -- there is no reconciler for this payment (AD-3: it
+ * never touches Trustless Work), so this call's own confirmed result is the
+ * evidence, not a later background process's. A `FAILED` ledger result or an
+ * unreachable/timed-out RPC surfaces as {@link PaymentFailedError}/
+ * {@link PaymentUnavailableError} (`payments/errors.ts`) for the route to
+ * map to `502`/`503`; `balance_state` stays `"unpaid"` either way.
+ */
+export async function submitBalancePayment(
+  db: Db,
+  bookingId: string,
+  clientWalletAddress: string,
+  signedXdr: string,
+  deps: SubmitPaymentDeps = {},
+): Promise<SubmitBalancePaymentResult> {
+  const booking = await getBookingForClient(db, bookingId, clientWalletAddress);
+  const hash = computeSignedTransactionHash(signedXdr);
+  if (!booking.balancePaymentBuiltHash || booking.balancePaymentBuiltHash.toLowerCase() !== hash) {
+    throw new XdrMismatchError();
+  }
+  const result = await submitBalancePaymentTransaction(signedXdr, deps);
+  await markBalancePaidPlatform(db, bookingId, result.txHash);
+  return result;
+}
+
+/**
+ * `POST /bookings/:id/balance/mark-cash`: the provider's own record that the
+ * balance was paid in person -- refused (typed {@link BookingNotFoundError})
+ * for anyone but this booking's own provider, and (typed
+ * {@link BookingEscrowStateError}) unless the booking is `locked` with an
+ * unpaid balance. Never checks the appointment's own start time (unlike
+ * {@link buildBalancePayment}) -- a provider can still record a cash payment
+ * collected at, or just after, the session itself.
+ */
+export async function markBalancePaidCash(db: Db, bookingId: string, providerWalletAddress: string): Promise<void> {
+  const booking = await getBookingForProvider(db, bookingId, providerWalletAddress);
+  requireUnpaidLockedBalance(booking, "mark it paid in cash");
+  await setBalanceState(db, bookingId, "paid_cash");
+}
+
+// ---------------------------------------------------------------------------
 // Story 3.4: the owner check every booking route shares, `submit`, the
 // booking read view, and the hold-expiry runner tick.
 // ---------------------------------------------------------------------------
@@ -1154,6 +1312,11 @@ export interface BookingView {
   slotStartsAt: number | null;
   cancelDeadline: number;
   provider: BookingProviderSummary;
+  /** Story 3.7: the on-chain transaction hash once the balance was paid
+   * through Pactly (`null` otherwise -- unpaid, or paid in cash, which has
+   * no transaction to point at). Drives the balance row's own Stellar
+   * Expert link, per the spec's own "Always" rule. */
+  balancePaymentTxHash: string | null;
 }
 
 /** `GET /bookings/:id`'s own response shape: the booking's amounts (each
@@ -1184,6 +1347,7 @@ export async function getBookingView(db: Db, bookingId: string, walletAddress: s
     provider: profile
       ? { id: profile.id, displayName: profile.displayName, title: profile.title }
       : { id: booking.providerProfileId, displayName: "", title: "" },
+    balancePaymentTxHash: booking.balancePaymentTxHash,
   };
 }
 
@@ -1422,6 +1586,9 @@ export interface BookingListItemBase {
   /** Story 3.6 (review round): see `derivePendingAction`'s own doc comment. */
   pendingAction: EscrowActionKind | null;
   balanceState: BalanceState;
+  /** Story 3.7: the on-chain transaction hash once the balance was paid
+   * through Pactly (`null` for unpaid or paid-in-cash). */
+  balancePaymentTxHash: string | null;
   cancelDeadline: number;
   contractId: string | null;
   holdExpiresAt: number | null;
@@ -1480,6 +1647,7 @@ function toBookingListItemBase(
     lifecycle: { contractId: lifecycle?.contractId, action: lifecycle?.action, outcome: lifecycle?.outcome },
     pendingAction: derivePendingAction(booking, lifecycle?.action),
     balanceState: booking.balanceState,
+    balancePaymentTxHash: booking.balancePaymentTxHash,
     cancelDeadline: booking.cancelDeadline,
     contractId: booking.escrowContractId,
     holdExpiresAt: booking.holdExpiresAt,

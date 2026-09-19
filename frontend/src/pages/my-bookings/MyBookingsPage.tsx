@@ -128,6 +128,7 @@ export function MyBookingsPage() {
               balanceState={booking.balanceState}
               cancelDeadline={booking.cancelDeadline}
               contractId={booking.contractId}
+              balancePaymentTxHash={booking.balancePaymentTxHash}
               session={session}
               onActionSubmitted={() => void bookingsQuery.refetch()}
               onUnauthorized={handleSignOut}
@@ -156,6 +157,7 @@ export function MyBookingsPage() {
                 balanceState={booking.balanceState}
                 cancelDeadline={booking.cancelDeadline}
                 contractId={booking.contractId}
+                balancePaymentTxHash={booking.balancePaymentTxHash}
                 session={session}
                 onActionSubmitted={() => void bookingsQuery.refetch()}
                 onUnauthorized={handleSignOut}

@@ -47,11 +47,13 @@ import {
   BookingHoldExpiredError,
   BookingNotFoundError,
   InvalidDisputeReasonError,
+  NothingToPayError,
   SlotTakenError,
   SlotUnavailableError,
   TooManyHoldsError,
   XdrMismatchError,
   approveAppointment,
+  buildBalancePayment,
   completeAppointment,
   fundDeposit,
   getBookingForClient,
@@ -61,15 +63,20 @@ import {
   listBookingsForProvider,
   listOpenDisputes,
   lockDeposit,
+  markBalancePaidCash,
   openDispute,
   releaseDeposit,
   resolveBookingDispute,
   resolveSubmitRole,
+  submitBalancePayment,
   submitSignedTransaction,
+  type BuildBalancePaymentDeps,
 } from "./services/booking.js";
 import { EscrowApiError, EscrowConfigError, EscrowRequestError } from "./escrow/trustless-work/errors.js";
 import { defaultEscrowAdapter } from "./escrow/trustless-work/client.js";
 import type { EscrowAdapter } from "./escrow/interface.js";
+import { PaymentFailedError, PaymentUnavailableError } from "./payments/errors.js";
+import type { SubmitPaymentDeps } from "./payments/stellar.js";
 import { config } from "./config.js";
 import { DISPUTE_OUTCOMES, type DisputeOutcome, type DisputeReason } from "./db/schema.js";
 import { getBookingById } from "./db/bookings.js";
@@ -187,11 +194,23 @@ export interface CreateAppOptions {
    * to exercise `502 ESCROW_REJECTED`/accepted-deploy paths without a real
    * Trustless Work API key. */
   escrowAdapter?: EscrowAdapter;
+  /** Story 3.7: overrides `POST /bookings/:id/balance/pay`'s own network
+   * seams (how the client's account is loaded, how the USDC asset is
+   * resolved) -- same "inject the network access" discipline as
+   * `escrowAdapter` above, so a test never needs a real Soroban RPC
+   * endpoint or a real anchor `stellar.toml` to exercise this route. */
+  buildBalancePaymentDeps?: BuildBalancePaymentDeps;
+  /** Story 3.7: overrides `POST /bookings/:id/balance/submit`'s own
+   * send/poll seam -- lets a test exercise `502 PAYMENT_FAILED`/
+   * `503 PAYMENT_UNAVAILABLE` without a real RPC endpoint. */
+  submitBalancePaymentDeps?: SubmitPaymentDeps;
 }
 
 export function createApp(db: Db, options: CreateAppOptions = {}): App {
   const app: App = new Hono<{ Variables: Variables }>();
   const escrowAdapter = options.escrowAdapter ?? defaultEscrowAdapter;
+  const buildBalancePaymentDeps = options.buildBalancePaymentDeps ?? {};
+  const submitBalancePaymentDeps = options.submitBalancePaymentDeps ?? {};
 
   // Every route above handles its own typed failures and returns the
   // `{code, message}` envelope itself; this is only the backstop for a
@@ -753,6 +772,105 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
   app.get("/admin/disputes", requirePactlyAuth, requireAdmin, async (c) => {
     const disputes = await listOpenDisputes(db);
     return c.json({ disputes });
+  });
+
+  // ---------------------------------------------------------------------
+  // Story 3.7: paying the balance before the session. Two independent
+  // paths (AD-3: neither ever touches `escrow_state` or the Trustless Work
+  // adapter) -- through Pactly (a plain Stellar payment this backend
+  // builds, the client signs, this backend submits and polls to a
+  // confirmed ledger result), or in person (the provider's own record).
+  // ---------------------------------------------------------------------
+
+  /** A Stellar payment failure translated into the route's own envelope --
+   * shared by `balance/submit`, mirroring `escrowErrorResponse` above.
+   * Never a raw body or stack trace. */
+  function paymentErrorResponse(error: PaymentFailedError | PaymentUnavailableError) {
+    if (error instanceof PaymentFailedError) {
+      return { code: "PAYMENT_FAILED", message: "The payment could not be completed. Your balance is still unpaid.", status: 502 as const };
+    }
+    return {
+      code: "PAYMENT_UNAVAILABLE",
+      message: "The Stellar network is unavailable right now. Your balance is still unpaid.",
+      status: 503 as const,
+    };
+  }
+
+  app.post("/bookings/:id/balance/pay", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    try {
+      const result = await buildBalancePayment(db, bookingId, c.get("walletAddress"), buildBalancePaymentDeps);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof BookingNotFoundError) {
+        return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof NothingToPayError) {
+        return c.json({ code: "NOTHING_TO_PAY", message: error.message }, 409);
+      }
+      if (error instanceof BookingEscrowStateError) {
+        return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
+      }
+      throw error;
+    }
+  });
+
+  app.post("/bookings/:id/balance/submit", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    try {
+      // Same discipline as the escrow submit route: ownership resolves
+      // before the body is even parsed for its own shape.
+      await getBookingForClient(db, bookingId, c.get("walletAddress"));
+      const body = await c.req.json().catch(() => undefined);
+      const signedXdr = typeof body?.signedXdr === "string" ? body.signedXdr : undefined;
+      if (!signedXdr) {
+        return c.json({ code: "invalid_request", message: "signedXdr is required." }, 400);
+      }
+      const result = await submitBalancePayment(db, bookingId, c.get("walletAddress"), signedXdr, submitBalancePaymentDeps);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof BookingNotFoundError) {
+        return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof XdrMismatchError) {
+        return c.json({ code: "XDR_MISMATCH", message: error.message }, 409);
+      }
+      if (error instanceof PaymentFailedError || error instanceof PaymentUnavailableError) {
+        const response = paymentErrorResponse(error);
+        return c.json({ code: response.code, message: response.message }, response.status);
+      }
+      throw error;
+    }
+  });
+
+  /** The provider's own "I received this in person" record -- resolved
+   * from the caller's own wallet, so a client (or anyone else's provider
+   * profile) calling this on someone else's booking gets the same
+   * `404 BOOKING_NOT_FOUND` every other ownership check in this file
+   * gives. */
+  app.post("/bookings/:id/balance/mark-cash", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    try {
+      await markBalancePaidCash(db, bookingId, c.get("walletAddress"));
+      return c.json({ ok: true });
+    } catch (error) {
+      if (error instanceof BookingNotFoundError) {
+        return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof BookingEscrowStateError) {
+        return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
+      }
+      throw error;
+    }
   });
 
   return app;

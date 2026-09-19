@@ -264,4 +264,13 @@ export function runMigrations(sqlite: Database): void {
   if (!hasColumn(sqlite, "escrow_dispute_openings", "opened_by_role")) {
     sqlite.exec(`ALTER TABLE escrow_dispute_openings ADD COLUMN opened_by_role TEXT`);
   }
+
+  // Story 3.7: paying the balance before the session -- independent of the
+  // escrow columns above (AD-3).
+  if (!hasColumn(sqlite, "bookings", "balance_payment_built_hash")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN balance_payment_built_hash TEXT`);
+  }
+  if (!hasColumn(sqlite, "bookings", "balance_payment_tx_hash")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN balance_payment_tx_hash TEXT`);
+  }
 }

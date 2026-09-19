@@ -428,6 +428,36 @@ export async function setEscrowActionSubmittedAt(db: Db, id: string, action: Esc
   }
 }
 
+/** Story 3.7's own submit-binding write path (mirrors
+ * `updateEscrowContractId`'s `escrowDeployXdr`/`escrowDeployTxHash` pair):
+ * stores the hash of the plain Stellar USDC payment `buildBalancePayment`
+ * just built, so `submitBalancePayment` can later refuse anything whose own
+ * computed hash does not match it. Not write-once -- a declined signature
+ * must still be retryable, so a later `buildBalancePayment` call simply
+ * overwrites whatever was stored before. */
+export async function setBalancePaymentBuiltHash(db: Db, id: string, hash: string): Promise<void> {
+  await db.update(bookings).set({ balancePaymentBuiltHash: hash }).where(eq(bookings.id, id));
+}
+
+/**
+ * Story 3.7's own write path for "paid through Pactly": moves
+ * `balanceState` to `"paid_platform"` and stores the on-chain `txHash`, in
+ * one write, conditioned on `balanceState` still being `"unpaid"` (the same
+ * defense-in-depth shape as `updateEscrowContractId`'s own guarded write) so
+ * a race -- the provider marking cash paid at the same moment a client's
+ * platform payment confirms -- can never silently overwrite whichever write
+ * landed first. Returns `false` (never throws) when the row was no longer
+ * `"unpaid"`; the caller's own service-level check already refused the
+ * request before this point in the ordinary case, so this is only the last
+ * line of defense against a genuine race. */
+export async function markBalancePaidPlatform(db: Db, id: string, txHash: string): Promise<boolean> {
+  const result = await db
+    .update(bookings)
+    .set({ balanceState: "paid_platform", balancePaymentTxHash: txHash })
+    .where(and(eq(bookings.id, id), eq(bookings.balanceState, "unpaid")));
+  return result.changes > 0;
+}
+
 /**
  * Story 3.4's hold-expiry tick (`runner.ts`): every booking whose hold has
  * expired with an escrow deploy still in flight (`escrowContractId` set,

@@ -284,6 +284,29 @@ export const bookings = sqliteTable("bookings", {
   escrowReleaseSubmittedAt: integer("escrow_release_submitted_at"),
   escrowDisputeSubmittedAt: integer("escrow_dispute_submitted_at"),
   escrowResolveSubmittedAt: integer("escrow_resolve_submitted_at"),
+
+  /**
+   * Story 3.7: paying the balance before the session -- entirely
+   * independent of the escrow columns above (AD-3: this payment never
+   * touches `escrow_state` or Trustless Work). `balancePaymentBuiltHash` is
+   * the hash of the plain Stellar USDC payment Pactly built from the
+   * booking's own `clientWalletAddress` to the provider's wallet
+   * (`services/booking.ts`'s `buildBalancePayment`); mirrors
+   * `escrowDeployTxHash`'s own role -- `submitBalancePayment` only ever
+   * relays a signed envelope whose own computed hash matches this column
+   * (the same submit-binding rule 3.4 established), never any other signed
+   * transaction. Not write-once (unlike the deploy hash): a declined
+   * signature must still be retryable, so each `buildBalancePayment` call
+   * simply overwrites whatever was stored before.
+   */
+  balancePaymentBuiltHash: text("balance_payment_built_hash"),
+  /** The real, on-chain transaction hash once `getTransaction` reports
+   * SUCCESS for that same payment -- set in the same write that moves
+   * `balanceState` to `"paid_platform"`, never before (the spec's own
+   * "Always" rule: "paid_platform, only after getTransaction reports
+   * SUCCESS"). `null` for a booking whose balance is unpaid, or paid in
+   * cash (which has no transaction to point at). */
+  balancePaymentTxHash: text("balance_payment_tx_hash"),
   createdAt: integer("created_at").notNull(),
 });
 

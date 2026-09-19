@@ -6,6 +6,8 @@ import { apiGet, apiPost, apiPut, ApiError } from "./client";
 import type {
   ActionResponse,
   AdminDisputesResponse,
+  BalancePaymentBuildResponse,
+  BalancePaymentSubmitResponse,
   BookingView,
   CategoriesResponse,
   DiscoverFiltersParams,
@@ -327,4 +329,26 @@ export function useAdminDisputes(session: Session | undefined) {
     enabled: Boolean(session),
     retry: false,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Story 3.7: paying the balance before the session. Two independent paths
+// (AD-3: neither ever touches escrow) -- `buildBalancePayment`/
+// `submitBalancePayment` are the client's own build -> sign -> submit pair
+// (same imperative-function shape as `lockDeposit`/`fundDeposit`/
+// `submitSignedTransaction` above, for the same reason: the caller drives a
+// multi-step flow no single `useMutation` expresses as cleanly);
+// `markBalancePaidCash` is the provider's own one-step record.
+// ---------------------------------------------------------------------------
+
+export function buildBalancePayment(bookingId: string, session: Session): Promise<BalancePaymentBuildResponse> {
+  return apiPost<BalancePaymentBuildResponse>(`/bookings/${bookingId}/balance/pay`, {}, session.token);
+}
+
+export function submitBalancePayment(bookingId: string, signedXdr: string, session: Session): Promise<BalancePaymentSubmitResponse> {
+  return apiPost<BalancePaymentSubmitResponse>(`/bookings/${bookingId}/balance/submit`, { signedXdr }, session.token);
+}
+
+export function markBalancePaidCash(bookingId: string, session: Session): Promise<{ ok: true }> {
+  return apiPost<{ ok: true }>(`/bookings/${bookingId}/balance/mark-cash`, {}, session.token);
 }

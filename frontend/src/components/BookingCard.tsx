@@ -33,6 +33,9 @@ export interface BookingCardProps {
   cancelDeadline: number;
   /** The explorer link (AC4) appears only when this exists. */
   contractId: string | null;
+  /** Story 3.7: the on-chain transaction hash once the balance was paid
+   * through Pactly -- drives the balance row's own Stellar Expert link. */
+  balancePaymentTxHash: string | null;
   /** Story 3.6: the signed-in wallet's own session, passed through to
    * {@link BookingActions} -- both pages that render this card already
    * require sign-in to show anything, so this is always present whenever an
@@ -53,8 +56,8 @@ export interface BookingCardProps {
  * `<td>` instead of a card, without a second copy of this map. */
 export const BALANCE_STATE_LABEL: Record<BalanceState, string> = {
   unpaid: "due before the session",
-  paid_platform: "paid via Pactly",
-  paid_cash: "paid in person",
+  paid_platform: "Paid through Pactly",
+  paid_cash: "Paid in person",
 };
 
 /**
@@ -80,6 +83,7 @@ export function BookingCard({
   balanceState,
   cancelDeadline,
   contractId,
+  balancePaymentTxHash,
   session,
   onActionSubmitted,
   onUnauthorized,
@@ -126,6 +130,10 @@ export function BookingCard({
         lifecycle={lifecycle}
         pendingAction={pendingAction}
         deposit={deposit}
+        balance={balance}
+        balanceState={balanceState}
+        slotStartsAt={slotStartsAt}
+        balancePaymentTxHash={balancePaymentTxHash}
         session={session}
         onActionSubmitted={onActionSubmitted}
         onUnauthorized={onUnauthorized}

@@ -165,6 +165,10 @@ export interface BookingView {
   slotStartsAt: number | null;
   cancelDeadline: number;
   provider: BookingProviderSummary;
+  /** Story 3.7: the on-chain transaction hash once the balance was paid
+   * through Pactly (`null` for unpaid or paid-in-cash) -- drives the
+   * balance row's own Stellar Expert link. */
+  balancePaymentTxHash: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +197,9 @@ export interface BookingListItemBase {
   lifecycle: BookingLifecycle;
   pendingAction: PendingActionKind;
   balanceState: BalanceState;
+  /** Story 3.7: the on-chain transaction hash once the balance was paid
+   * through Pactly (`null` for unpaid or paid-in-cash). */
+  balancePaymentTxHash: string | null;
   /** UTC epoch seconds. */
   cancelDeadline: number;
   contractId: string | null;
@@ -282,4 +289,24 @@ export interface AdminDisputeListItem {
 
 export interface AdminDisputesResponse {
   disputes: AdminDisputeListItem[];
+}
+
+// ---------------------------------------------------------------------------
+// Story 3.7: paying the balance before the session. Mirrors
+// `backend/src/services/booking.ts`/`backend/src/app.ts`'s response shapes
+// exactly, same discipline as the rest of this file.
+// ---------------------------------------------------------------------------
+
+/** `POST /bookings/:id/balance/pay`'s response -- an unsigned XDR only (no
+ * `txHash`, same shape 3.4's `fund` step already uses): the built
+ * transaction's own hash is Pactly's own internal submit-binding record,
+ * never something the client needs back. */
+export interface BalancePaymentBuildResponse {
+  unsignedXdr: string;
+}
+
+/** `POST /bookings/:id/balance/submit`'s response -- the confirmed,
+ * on-chain transaction hash. */
+export interface BalancePaymentSubmitResponse {
+  txHash: string;
 }
