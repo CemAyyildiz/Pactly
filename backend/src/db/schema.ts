@@ -125,10 +125,9 @@ export const bookings = sqliteTable("bookings", {
    * polls `contractId`s that appear here, never escrows discovered by their
    * own self-reported `engagementId` (anyone can deploy an escrow naming any
    * `engagementId`, so trusting that field alone would let a third party's
-   * escrow move this booking to `locked`). `null` until `lockDeposit` runs;
-   * may be overwritten by a re-`lockDeposit` while `escrowState` is still
-   * `null` (an unsubmitted earlier deploy XDR is harmless -- `fundDeposit`
-   * only ever targets the currently persisted id).
+   * escrow move this booking to `locked`). `null` until `lockDeposit` runs,
+   * then written once: `lockDeposit` refuses to deploy again, because the
+   * earlier deploy may already have landed and been funded.
    */
   escrowContractId: text("escrow_contract_id"),
   createdAt: integer("created_at").notNull(),
