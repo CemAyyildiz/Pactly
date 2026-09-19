@@ -2,8 +2,9 @@
 title: 'Story 3.1 — Provider profile and availability'
 type: 'feature'
 created: '2026-09-19'
-status: 'ready-for-dev'
+status: 'done'
 review_loop_iteration: 0
+baseline_revision: '779060a6d1ed32ebdcc34df0233f61e9e49dedd0'
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
@@ -102,7 +103,25 @@ deferred: []
 
 ## Spec Change Log
 
+### 2026-09-19 — Takvim adımı (kullanıcının devrettiği yetki)
+- **Tetikleyen:** E6. Panel takvimi oturum uzunluğu yerine 15 dakikalık hücrelerle çalışıyor.
+- **Karar:** 15 dakikalık hücre korunuyor. Backend her slotun 15 dakikalık sınırda başlamasını zorunlu tutuyor, 50 dakikalık gibi oturum uzunlukları bu sınıra bölünmüyor. Takvim çakışmaya duyarlı işaretleme yaptığı için oturum uzunluğu yine uygulanıyor.
+- **Kaçınılan kötü durum:** Oturum uzunluğu adımlarının backend'in 15 dakika kuralıyla çelişip kaydedilemeyen slotlar üretmesi.
+
 ## Review Triage Log
+
+### 2026-09-19 — Review pass (2 katman, Sonnet: Edge Case Hunter + Verification Gap)
+- verdicts: 9 bulgu — high 0, medium 2, low 5, false 2, maybe-false 0
+- findings:
+  - `[low]` `[patch]` V1 `updateProviderProfileRules` yorumu tek yazıcı olduğunu söylüyor, seed script de yazıyor — yorum düzeltildi.
+  - `[medium]` `[patch]` E1 Bir form kaydedilince yeniden çekilen veri diğer formun kaydedilmemiş değişikliklerini siliyor — yerel durum yalnızca ilk yüklemede veya profil değişince tohumlanıyor.
+  - `[low]` `[reject]` E2 Sekme uzun süre açık kalırsa geçmiş hücre seçilebilir kalıyor — kayıt hatası geçersiz değerleri listeliyor; periyodik yeniden hesaplama karmaşıklık katar, nadir.
+  - `[medium]` `[patch]` E3 Ağ hatası veya süresi dolan oturumda kayıt hatası hiç gösterilmiyor — genel hata bandı.
+  - `[low]` `[reject]` E4 `.env`'deki BACKEND_PORT tırnaklıysa proxy 3001'e düşer — `.env.example` tırnaksız, günlük kullanımda karşılaşılmaz.
+  - `[false]` `[reject]` E5 Profil satırı silinirse 500 — `backend/src` içinde profil silen yol yok.
+  - `[low]` `[reject]` E6 Takvim oturum uzunluğu adımlarıyla değil 15 dakikayla çalışıyor — bilinçli sapma, Spec Change Log'da.
+  - `[false]` `[reject]` E7 `index.html`'e dokunulmamış, fontlar eksik — fontlar `frontend/src/styles/base.css`'te `@import` ile yükleniyor.
+  - `[low]` `[patch]` E8 `GET /me/provider` için süresi dolmuş token testi yok — test eklendi.
 
 ## Design Notes
 
@@ -121,3 +140,17 @@ deferred: []
 **Manual checks:**
 - `npm run -w backend seed:demo` twice → no duplicates. Then `npm run dev`, open the home page → provider links → a profile shows the deposit pill and slot chips. Tab reaches every open slot chip with a visible focus ring.
 - `curl localhost:<port>/providers/<unapproved-id>` → `404 PROVIDER_NOT_FOUND`.
+
+## Auto Run Result
+
+Status: done
+
+**Özet:** Sağlayıcı profiline isim, ünvan ve konum alanları eklendi (mevcut veritabanları için korumalı ALTER ile). Yeni `availability_slots` tablosu kuruldu. Herkese açık `GET /categories` ve `GET /providers/:id` route'ları, cüzdanla giriş gerektiren `GET /me/provider`, `PUT /me/provider/rules` ve `PUT /me/provider/availability` route'ları eklendi. Idempotent `seed:demo` script'i yazıldı. Frontend temeli kuruldu: DESIGN.md token'ları, router, TanStack Query, `/api` proxy'si ve Stellar Wallets Kit ile giriş. Herkese açık profil sayfası ve sağlayıcının "Availability & rules" paneli hazır.
+
+**Commit'ler:** `779060a` spec, `a25521d` feat, fix(3.1), chore(3.1).
+
+**Review:** 9 bulgu (medium 2, low 5, false 2). Patch: E1, E3 (medium), E8, V1 (low). Reddedilenler: E2, E4, E6 (low, gerekçeleri triage kaydında), E5, E7 (false). Takip review önerisi: false.
+
+**Doğrulama:** backend typecheck ve build temiz, test 225/225; frontend typecheck ve build temiz. Ajan route'ları ve gerçek bir imza/giriş döngüsünü çalışan bir backend üzerinde denedi. Tarayıcıda etkileşimli QA yapılmadı.
+
+**Kalan riskler:** Frontend'de test runner yok. Takvim, izleyicinin UTC farkının 15 dakikanın katı olduğunu varsayıyor (UTC+5:45 gibi bölgelerde hücreler kayabilir). Story 3.4, availability kaydının "gelecekteki tüm slotları değiştir" davranışını dolu veya tutulan slotları koruyacak şekilde değiştirmeli (3.4 spec'inde yazılı).
