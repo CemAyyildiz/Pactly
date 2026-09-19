@@ -42,7 +42,7 @@ development_status:
   1-4-releasing-the-deposit-release: review
   1-5-cancelling-and-settling-a-booking: review
   1-6-contract-unit-tests: review
-  1-7-testnet-setup-scripts: backlog
+  1-7-testnet-setup-scripts: review
   epic-1-retrospective: optional
 
   epic-2: backlog
