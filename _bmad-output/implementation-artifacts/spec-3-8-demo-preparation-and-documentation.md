@@ -2,7 +2,7 @@
 title: 'Story 3.8 — Demo preparation and documentation'
 type: 'chore'
 created: '2026-09-20'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: 'dff079fe9211f0bad19ac69f17b482a82b019d02'
 followup_review_recommended: false
@@ -79,3 +79,32 @@ deferred: []
 
 **Manual checks:**
 - Follow the README from the top on the current checkout; every command named exists and runs.
+
+## Review Triage Log
+
+### 2026-09-20 — Review pass (2 katman, Sonnet)
+- verdicts: 9 bulgu — high 0, medium 5, low 4, false 0, maybe-false 0
+- findings:
+  - `[medium]` `[patch]` E5 README'de 3.6 "in review" diyor, oysa spec ve sprint-status `done`.
+  - `[medium]` `[patch]` (kapsam eki) 3.7 "yok" diyordu; artık tamam, tabloya ve demo senaryosuna eklendi.
+  - `[medium]` `[patch]` E6/VG-O1 "dört değişken her escrow işlemini engeller" iddiası yanlış — hangi değişkenin neyi engellediği tabloya yazıldı.
+  - `[medium]` `[patch]` E7 Rust "yalnızca kontrata dokunursan" deniyordu; `setup:testnet` boş `ESCROW_CONTRACT_ID` ile cargo çalıştırıyor — düzeltildi, atlama yolu eklendi.
+  - `[medium]` `[patch]` E8 Örnek `demo:reset` çıktısı gerçek çıktıyla uyuşmuyordu — gerçek koşudan alındı.
+  - `[low]` `[patch]` E2 Dizin ya da izin hatasında `rmSync` ham stack trace basıyordu — düz mesaj.
+  - `[low]` `[patch]` E3 CLI giriş kontrolü elle kurulan `file://` karşılaştırmasıydı; boşluklu yolda hiç çalışmıyordu — `fileURLToPath`.
+  - `[low]` `[patch]` E1 Çalışan bir backend varken reset sonrası veri görünmüyor — hem çıktıya hem README'ye yeniden başlatma uyarısı.
+  - `[low]` `[patch]` E4 Testler ortamdaki `SEED_*` değişkenlerine bağımlıydı — testte temizleniyor.
+
+## Auto Run Result
+
+Status: done
+
+**Özet:** README ürünün bugünkü hâline göre yeniden yazıldı: ne olduğu, demo senaryosu, ön koşullar, kurulum, yedi adımlık demo betiği, mermaid mimari diyagramı, dürüst "yapıldı / yapılmadı" tablosu ve kullanılan BMAD skill yolları. `npm run demo:reset` veritabanını sıfırlayıp yeniden seed ediyor ve sağlayıcı linklerini yazıyor.
+
+**Commit'ler:** `7215ff2` spec, `8d71e99` feat, `4c38fdb` fix, chore(3.8).
+
+**Review:** 9 bulgu (medium 5, low 4), hepsi patch edildi. Takip review önerisi: false.
+
+**Doğrulama:** backend typecheck ve build temiz, test 448/448; `demo:reset` iki kez çalıştırıldı, aynı sonuç.
+
+**Kalan riskler:** PRD 3.8 AC5 (canlı testnet'te uçtan uca kilitle → serbest bırak → nakde çevir) hâlâ açık; README bunu açıkça yazıyor. Nakde çevirme SEP-6'ya (Story 2.3) bağlı.
