@@ -180,7 +180,7 @@ Kapora hapı, emanet şeridi ve mühür anı hiçbir koşulda kapsamdan çıkar�
 
 ## Açık Sorular
 
-- **Kategoriler** PRD'deki üç alandan türetildi (terapi ve iyi oluş, eğitim ve dersler, danışmanlık) ve dördüncü olarak spor ve güzellik eklendi. Kullanıcı onayı bekliyor.
+- ~~Kategoriler~~ — **onaylandı (2026-09-16):** terapi ve iyi oluş, eğitim ve dersler, danışmanlık, spor ve güzellik.
 - **Duyarlı öncelik** varsayım olarak alındı: danışan akışı mobil öncelikli, uzman paneli masaüstü öncelikli.
 - ~~Kalan tutarın nasıl ödendiği~~ — **karara bağlandı (2026-09-16):** kalan tutar görüşmeden önce ödenir; danışan elden ya da Pactly üzerinden ödeyebilir. Randevu, kalan tutarın ödeme durumunu taşır (PRD FR22, Story 3.7).
 - **Yönetim paneli** küratörlü kabul kararından doğdu, PRD'de yok. PRD güncellemesinde eklenmeli.
