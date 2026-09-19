@@ -2,8 +2,9 @@
 title: 'Story 3.5 — Two-sided status panel'
 type: 'feature'
 created: '2026-09-19'
-status: 'ready-for-dev'
+status: 'in-progress'
 review_loop_iteration: 0
+baseline_revision: 'be4f6067129a58d731b3814522b55e37f8f54ac8'
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
