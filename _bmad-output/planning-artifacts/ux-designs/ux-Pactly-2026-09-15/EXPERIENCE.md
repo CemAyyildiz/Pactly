@@ -61,6 +61,7 @@ Copy is short, direct and in the second person. Implementation vocabulary is nev
 | "Your deposit is in escrow." | "Your payment has been successfully transferred to escrow." |
 | "Cancel before Sep 17, 2:00 PM and you get all of it back." | "Cancellation policy: 24 hours." |
 | "Cancel after this and the deposit goes to Dr. Aydın." | "No refunds on late cancellations." |
+| "Dr. Aydın cancelled this session. All 600.00 TRY is on its way back to you." | "Booking cancelled by provider. Refund issued." |
 | "You're set." | "Transaction successful! 🎉" |
 | "Approve it in your wallet." | "Please confirm the signature request." |
 | "No providers open at that hour. Try:" | "No results found." |
@@ -121,7 +122,7 @@ With `prefers-reduced-motion` all three are off; the seal appears in its final s
 
 **No undo.** Once a deposit is locked there is no undo; the rule lives in the contract. So the one irreversible action is preceded by a summary: who, when, how much, and the date until which a refund is full.
 
-**Cancelling.** Every cancellation states the outcome before it asks for confirmation: "Cancel now and you get all 600.00 TRY back" or "Cancel now and the deposit goes to Dr. Aydın."
+**Cancelling.** Every cancellation states the outcome before it asks for confirmation, and the outcome depends on who is cancelling. For the client: "Cancel now and you get all 600.00 TRY back" or "Cancel now and the deposit goes to Dr. Aydın." For the professional it never depends on the clock — the deposit always goes back — so the confirmation says what that costs them instead: "Cem gets all 600.00 TRY back, and this cancellation will show on your profile."
 
 **One signature.** A client signs once per booking in their wallet.
 

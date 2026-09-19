@@ -231,6 +231,8 @@ The logo is the system in miniature: one mustard half, one teal half, and a blac
 
 **Badges** — "Approved provider" (curated acceptance) and "38 verified sessions" (sessions whose deposit was released) belong to the teal family. Neither can be invented: each exists because something recorded it, on chain or in the admin queue.
 
+The provider's own cancellation count sits beside the verified-session badge and is recorded the same way — from the chain, never by hand. It is stated plainly and never styled as an alarm: it is one fact among the others a client weighs, not a verdict, so it never takes the louder colour or the larger type.
+
 ## Do's and Don'ts
 
 **Do**

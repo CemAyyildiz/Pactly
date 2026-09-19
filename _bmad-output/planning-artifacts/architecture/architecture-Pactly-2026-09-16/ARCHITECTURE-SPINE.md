@@ -48,11 +48,11 @@ graph TD
 - **Prevents:** The backend and the contract silently diverging on deposit state; two units carrying different truths.
 - **Rule:** A booking's money state (`Locked` / `Released` / `Refunded`) is written to the database only after the corresponding contract event is processed. No code path may set that state without an event. On conflict the chain wins and the database is corrected.
 
-### AD-2 — On-chain authority: release is signed, resolve_cancel is permissionless
+### AD-2 — On-chain authority: every money path is signed by the party it serves
 
 - **Binds:** contract, Story 1.4, 1.5, 3.6
-- **Prevents:** The backend moving money on a user's behalf; the provider being stuck when a client no-shows.
-- **Rule:** `release(booking_id)` requires the client's `require_auth`. `resolve_cancel(booking_id)` requires no authorization; its outcome is decided solely by comparing `ledger.timestamp` with `cancel_deadline`. The backend's signing key may not call any deposit function.
+- **Prevents:** The backend moving money on a user's behalf; a third party closing a booking neither party asked to close; a professional being paid for a session they cancelled themselves; the provider being stuck when a client no-shows.
+- **Rule:** Every deposit function is authorized by the party it serves. `release` and `cancel_by_client` require the client's `require_auth`; `cancel_by_professional` and `claim_no_show` require the professional's. No deposit function is permissionless, and the backend's signing key may call none of them. The clock is a condition inside the signed paths, never the sole decider: it gates when a late cancellation forfeits and when a no-show may be claimed.
 
 ### AD-3 — A booking carries two independent states
 
@@ -64,7 +64,7 @@ graph TD
 
 - **Binds:** backend, frontend, FR12-FR21
 - **Prevents:** Non-money data (categories, profiles, applications, reviews) being pushed on chain and creating a second record of truth.
-- **Rule:** Categories, provider profiles, applications, availability and reviews live only in the database. The chain holds only the deposit record. The `verified_sessions` counter is no exception: it is stored in the database but only ever incremented by a `released` event (AD-1) and never written by hand.
+- **Rule:** Categories, provider profiles, applications, availability and reviews live only in the database. The chain holds only the deposit record. The `verified_sessions` counter is no exception: it is stored in the database but only ever incremented by a `released` event (AD-1) and never written by hand. A no-show emits `forfeited`, not `released`, so it never reaches the counter. The provider's own cancellation count is incremented by `cancelled` events on the same terms.
 
 ### AD-5 — Two separate identities: the Pactly session and the anchor session
 
@@ -185,7 +185,7 @@ Network: Stellar testnet (`Test SDF Network ; September 2015`). Anchor: `tr-mock
 
 ```text
 pactly/
-  contracts/escrow/      # Soroban contract: Booking, BookingState, create/release/resolve_cancel
+  contracts/escrow/      # Soroban contract: Booking, BookingState, create/release/cancel/claim_no_show
   backend/
     src/
       config.ts          # environment variables, read in one place

@@ -36,7 +36,7 @@ graph TD
     DB[("SQLite · Drizzle<br/>providers, bookings, categories, reviews")]
   end
   subgraph chain["Stellar testnet"]
-    CT["escrow contract · Soroban<br/>create_booking · release · resolve_cancel"]
+    CT["escrow contract · Soroban<br/>create_booking · release · cancel · claim_no_show"]
     AN["anchor · SEP-1/10/6/12/38<br/>fiat ↔ USDC"]
   end
 
@@ -54,7 +54,7 @@ graph TD
 | Rule | What it buys |
 |---|---|
 | Money state is written only from a chain event | The backend and the contract cannot silently diverge |
-| `release` needs the client's signature; `resolve_cancel` is permissionless | Pactly cannot move money on a user's behalf, and a no-show never strands the provider |
+| Every deposit path is signed by the party it serves | Pactly cannot move money on a user's behalf, a stranger cannot close a booking, a provider is never paid for cancelling, and a no-show never strands the provider |
 | A booking carries two states: deposit and balance | Two different payments never overwrite each other |
 | Marketplace data lives only in the database, deposits only on chain | One record of truth per fact |
 | The "verified sessions" count only increases on a `released` event | The quality signal cannot be fabricated |

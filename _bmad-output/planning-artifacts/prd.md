@@ -55,7 +55,7 @@ The product does this as a marketplace rather than for one professional at a tim
 - **FR4:** A client can pay the deposit two ways: (a) with stablecoin from their wallet, (b) with local currency through SEP-6 deposit.
 - **FR5:** Once the deposit is locked the slot closes — no other client can take it.
 - **FR6:** When the session happens and is confirmed, the locked amount is released to the professional.
-- **FR7:** If the appointment does not happen, the contract decides by the cancellation deadline: refund to the client before it, transfer to the professional after it (late cancellation or no-show).
+- **FR7:** When an appointment does not happen, the outcome depends on who cancelled it. If the professional cancels, the full deposit is refunded to the client, whatever the time. If the client cancels before the cancellation deadline, the full deposit is refunded. If the client cancels after the deadline, or never shows up, the deposit is transferred to the professional.
 - **FR8:** A professional can withdraw the released amount in local currency through SEP-6 withdraw.
 - **FR9:** Both parties can see the booking and deposit state (locked / released / refunded) from a single panel.
 - **FR10:** Authentication happens through a wallet signature (SEP-10); there are no passwords and no sign-up forms.
@@ -74,6 +74,7 @@ The product does this as a marketplace rather than for one professional at a tim
 - **FR20:** A provider profile shows a "verified sessions" count; the count increases only for bookings whose deposit was released.
 - **FR21:** A review can only be written by the client of a booking whose deposit was released.
 - **FR22:** The part of the session price beyond the deposit — the balance — is paid before the session; the client can pay it off-platform (in person) or through Pactly. The booking carries the balance payment state.
+- **FR23:** A professional's own cancellations are counted and shown on their profile beside the verified-session count. The platform applies no monetary penalty for them.
 
 ### Non-Functional Requirements
 
@@ -205,22 +206,23 @@ As a professional, I want the deposit to reach me once the session has happened,
 **Acceptance Criteria**
 1. `release(booking_id)` works only on records in the `Locked` state; otherwise it returns `InvalidState`.
 1a. `release` requires the client's authorization (`require_auth`); a call from any other account is rejected (AD-2).
-1b. `resolve_cancel` requires no authorization; its outcome is determined solely by comparing the ledger timestamp with `cancel_deadline` (AD-2).
+1b. The cancellation paths are specified in Story 1.5; each is authorized by the party it serves, and none of them is `release` (AD-2).
 2. The locked amount is transferred from the contract address to the professional's address.
 3. The record moves to the `Released` state.
 4. A `released` event is emitted.
 5. An unknown booking_id returns `BookingNotFound`.
 
-### Story 1.5 — Resolving a cancellation (resolve_cancel)
+### Story 1.5 — Cancelling and settling a booking
 
-As a client I want my money back when I cancel in time; as a professional I want the deposit when the client does not show up.
+As a client I want my money back when I cancel in time or when the professional cancels on me; as a professional I want the deposit when the client does not show up.
 
 **Acceptance Criteria**
-1. `resolve_cancel(booking_id)` compares the ledger timestamp with `cancel_deadline`.
-2. If `now <= cancel_deadline` the amount is refunded to the client and the state becomes `Refunded`.
-3. If `now > cancel_deadline` the amount is transferred to the professional and the state becomes `Released`.
-4. It works only in the `Locked` state.
-5. The matching event (`refunded` or `released`) is emitted.
+1. `cancel_by_professional(booking_id)` requires the professional's `require_auth`; it refunds the full amount to the client whatever the ledger timestamp, sets `Refunded` and emits `cancelled`.
+2. `cancel_by_client(booking_id)` requires the client's `require_auth`. If `now <= cancel_deadline` it refunds the client, sets `Refunded` and emits `refunded`. If `now > cancel_deadline` it transfers to the professional, sets `Released` and emits `forfeited`.
+3. `claim_no_show(booking_id)` requires the professional's `require_auth` and is rejected while `now <= cancel_deadline`; after it, it transfers to the professional, sets `Released` and emits `forfeited`.
+4. All three work only in the `Locked` state; `Released` and `Refunded` stay terminal.
+5. No path is callable without one of the two parties' authorization, and the backend's signing key calls none of them.
+6. `released` is emitted by `release` alone, so a no-show can never be counted as a held session.
 
 ### Story 1.6 — Contract unit tests
 
@@ -232,6 +234,9 @@ As a developer, I want the escrow logic proven by tests, so demo day holds no su
 3. The no-show scenario is tested (deadline passed); the amount goes to the professional.
 4. Error paths are tested: duplicate booking, invalid amount, illegal state transition.
 5. All tests pass with `cargo test`.
+6. The professional-cancels scenario is tested: the client's balance returns in full, before and after the deadline alike.
+7. The late client cancellation and the no-show claim are tested; both pay the professional and emit `forfeited`.
+8. Every settlement path is tested for rejection when the wrong party signs, and when nobody signs.
 
 ### Story 1.7 — Testnet setup scripts
 
@@ -374,9 +379,11 @@ As a user, I want to confirm a session that happened, or cancel when I need to.
 
 **Acceptance Criteria**
 1. After the session the client can confirm it happened; this calls `release`.
-2. The client can cancel; this calls `resolve_cancel`.
+2. The client can cancel; this calls `cancel_by_client`.
 3. Before cancelling, the outcome implied by the deadline is shown to the user.
 4. The result is reflected in the panel.
+5. The professional can cancel a booking from the provider panel; the client is refunded in full and told the professional cancelled.
+6. Before either party confirms a cancellation, the outcome implied by their role and the deadline is stated in words.
 
 ### Story 3.7 — Paying the balance before the session
 
@@ -439,7 +446,8 @@ As a client, I want to see how many sessions a provider has actually held, so I 
 1. The counter increases only on the contract's `released` event.
 2. The counter cannot be written by hand.
 3. The number is shown as "verified sessions" on the provider card and profile.
-4. Cancelled or refunded bookings do not increase the counter.
+4. Cancelled or refunded bookings do not increase the counter; a no-show emits `forfeited`, not `released`, so it never reaches it either.
+5. The professional's own cancellation count is shown beside the verified-session count; it increases only on the contract's `cancelled` event.
 
 ### Story 4.4 — Reviews
 
