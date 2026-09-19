@@ -97,6 +97,19 @@ impl Fixture {
         self.client_contract.try_release(&self.booking_id)
     }
 
+    fn cancel_by_professional(&self) -> CallResult {
+        self.client_contract
+            .try_cancel_by_professional(&self.booking_id)
+    }
+
+    fn cancel_by_client(&self) -> CallResult {
+        self.client_contract.try_cancel_by_client(&self.booking_id)
+    }
+
+    fn claim_no_show(&self) -> CallResult {
+        self.client_contract.try_claim_no_show(&self.booking_id)
+    }
+
     fn token_client(&self) -> TokenClient<'_> {
         TokenClient::new(&self.env, &self.token)
     }
@@ -108,9 +121,9 @@ impl Fixture {
 
     /// The one money event this fixture's booking produces under `name`.
     ///
-    /// `locked` and `released` share a wire shape by design — topics
-    /// `(name, booking_id)`, data `amount` — so one builder describes both, and
-    /// a divergence in either would fail here.
+    /// All five money events share a wire shape by design — topics
+    /// `(name, booking_id)`, data `amount` — so one builder describes every one
+    /// of them, and a divergence in any would fail here.
     fn expected_event(&self, name: Symbol) -> Vec<(Address, Vec<Val>, Val)> {
         let topics: Vec<Val> = (name, self.booking_id.clone()).into_val(&self.env);
         vec![
@@ -129,6 +142,18 @@ impl Fixture {
 
     fn expected_released_event(&self) -> Vec<(Address, Vec<Val>, Val)> {
         self.expected_event(symbol_short!("released"))
+    }
+
+    fn expected_refunded_event(&self) -> Vec<(Address, Vec<Val>, Val)> {
+        self.expected_event(symbol_short!("refunded"))
+    }
+
+    fn expected_cancelled_event(&self) -> Vec<(Address, Vec<Val>, Val)> {
+        self.expected_event(symbol_short!("cancelled"))
+    }
+
+    fn expected_forfeited_event(&self) -> Vec<(Address, Vec<Val>, Val)> {
+        self.expected_event(symbol_short!("forfeited"))
     }
 
     /// Everything a rejected call must leave exactly as it found it.
@@ -388,6 +413,7 @@ fn error_discriminants_are_stable() {
     assert_eq!(Error::InvalidState as u32, 6);
     assert_eq!(Error::InvalidDeadline as u32, 7);
     assert_eq!(Error::InvalidParties as u32, 8);
+    assert_eq!(Error::TooEarly as u32, 9);
 }
 
 // The deadline window is a product of three constants in two modules
@@ -590,7 +616,7 @@ fn deadline_beyond_the_ttl_window_is_rejected_and_stores_nothing() {
 // The edge of that window is still accepted, so the boundary is exact rather
 // than approximately right. The bound sits a settlement margin short of the
 // storage lifetime, so a booking created here still has 30 days of readable
-// life after its deadline — the window `resolve_cancel` acts in.
+// life after its deadline — the window `claim_no_show` acts in.
 #[test]
 fn deadline_at_the_edge_of_the_accepted_window_is_accepted() {
     let mut f = Fixture::new(1_000_000_000);
@@ -672,7 +698,7 @@ fn a_client_cannot_be_their_own_professional() {
 }
 
 // The escrow is the custodian, never a counterparty: a deposit owed to the
-// contract itself could not be reached by release or by resolve_cancel.
+// contract itself could not be reached by any settlement path.
 #[test]
 fn the_escrow_contract_cannot_be_the_professional() {
     let mut f = Fixture::new(1_000_000_000);
@@ -842,22 +868,25 @@ fn locked_fixture() -> Fixture {
     f
 }
 
-/// A rejected `release` moved no tokens and left the record exactly as it was.
+/// A rejected settlement moved no tokens and left the record exactly as it was.
+///
+/// Shared by all four settlement paths — `release` and Story 1.5's three — since
+/// what a rejected call must leave behind is the same for every one of them.
 ///
 /// `before` is taken *before* the call. The event check comes first because
 /// `events().all()` only ever describes the most recent contract invocation, and
 /// reading a balance is one; on its own it is also weak evidence, since the host
 /// discards a failed invocation's events anyway. The snapshot comparison is what
 /// actually shows nothing happened.
-fn assert_release_changed_nothing(f: &Fixture, before: &Snapshot) {
+fn assert_nothing_changed(f: &Fixture, before: &Snapshot) {
     assert!(
         f.own_events().events().is_empty(),
-        "a rejected release emitted an event"
+        "a rejected call emitted an event"
     );
     assert_eq!(
         f.snapshot(),
         *before,
-        "a rejected release moved tokens or rewrote the record"
+        "a rejected call moved tokens or rewrote the record"
     );
 }
 
@@ -901,34 +930,9 @@ fn deposit_is_released_and_the_professional_is_paid() {
     });
 }
 
-// The release write must bump the TTL too, or a released record could be
-// archived while the backend still needs to read the outcome.
-#[test]
-fn releasing_a_deposit_bumps_the_bookings_ttl() {
-    let f = locked_fixture();
-
-    // Advance past the bump threshold first: straight after `create_booking`
-    // the TTL is already at its ceiling, so a `release` that never bumped would
-    // still look correct.
-    let sequence = f.env.ledger().sequence();
-    f.env
-        .ledger()
-        .set_sequence_number(sequence + 2 * (BUMP_LEDGERS - BUMP_THRESHOLD_LEDGERS));
-
-    let key = DataKey::Booking(f.booking_id.clone());
-    f.env.as_contract(&f.contract_id, || {
-        assert!(
-            f.env.storage().persistent().get_ttl(&key) < BUMP_THRESHOLD_LEDGERS,
-            "the entry was not yet due for a bump, so this test proves nothing"
-        );
-    });
-
-    f.release().unwrap().unwrap();
-
-    f.env.as_contract(&f.contract_id, || {
-        assert_eq!(f.env.storage().persistent().get_ttl(&key), BUMP_LEDGERS);
-    });
-}
+// `release`'s own TTL bump is covered by
+// `every_settlement_path_bumps_the_bookings_ttl`, which runs this same check
+// over all four settlement paths.
 
 // Matrix row: unknown booking id.
 #[test]
@@ -943,7 +947,7 @@ fn releasing_an_unknown_booking_id_is_rejected_and_changes_nothing() {
         Err(Ok(Error::BookingNotFound))
     );
 
-    assert_release_changed_nothing(&f, &before);
+    assert_nothing_changed(&f, &before);
     // The snapshot only watches the fixture's own id, so the id that was asked
     // for needs its own check: a rejected call must not have created it either.
     f.env.as_contract(&f.contract_id, || {
@@ -972,7 +976,7 @@ fn an_unknown_booking_id_is_reported_without_any_authorization() {
     );
 
     // What it may disclose is the id's absence — never anyone's money.
-    assert_release_changed_nothing(&f, &before);
+    assert_nothing_changed(&f, &before);
 }
 
 // Matrix row: already released.
@@ -985,7 +989,7 @@ fn releasing_an_already_released_booking_is_rejected_and_changes_nothing() {
 
     assert_eq!(f.release(), Err(Ok(Error::InvalidState)));
 
-    assert_release_changed_nothing(&f, &before);
+    assert_nothing_changed(&f, &before);
     assert_eq!(
         before.booking.as_ref().map(|b| b.state),
         Some(BookingState::Released),
@@ -1033,27 +1037,12 @@ fn releasing_a_refunded_booking_is_rejected_and_changes_nothing() {
 
     assert_eq!(f.release(), Err(Ok(Error::InvalidState)));
 
-    assert_release_changed_nothing(&f, &before);
+    assert_nothing_changed(&f, &before);
 }
 
-// Matrix row: client did not authorize.
-#[test]
-fn release_without_the_clients_authorization_changes_nothing() {
-    let f = locked_fixture();
-    let before = f.snapshot();
-
-    // Switch from `mock_all_auths` to enforcing auth with no signatures supplied.
-    f.env.set_auths(&[]);
-
-    // A host auth error (`Err(Err(..))`), not a contract error (`Err(Ok(..))`).
-    assert_eq!(
-        f.release(),
-        Err(Err(InvokeError::Abort)),
-        "expected the host auth error, not a contract error"
-    );
-
-    assert_release_changed_nothing(&f, &before);
-}
+// Matrix row: client did not authorize. Covered by
+// `no_settlement_path_moves_money_without_a_signature`, which runs the unsigned
+// call over all four settlement paths.
 
 // Matrix row: someone else authorizes. Only the client recorded on the booking
 // can release it — not the payee, and not the platform's own key.
@@ -1075,7 +1064,7 @@ fn only_the_clients_own_authorization_releases_the_deposit() {
         },
     }]);
     assert_eq!(f.release(), Err(Err(InvokeError::Abort)));
-    assert_release_changed_nothing(&f, &before);
+    assert_nothing_changed(&f, &before);
 
     // Nor does a third party's — the backend's signing key, in practice.
     let stranger = Address::generate(&f.env);
@@ -1089,7 +1078,7 @@ fn only_the_clients_own_authorization_releases_the_deposit() {
         },
     }]);
     assert_eq!(f.release(), Err(Err(InvokeError::Abort)));
-    assert_release_changed_nothing(&f, &before);
+    assert_nothing_changed(&f, &before);
 
     // The client's own signature for that same call does. The payout itself
     // needs no signature: the escrow is paying from its own address.
@@ -1159,7 +1148,7 @@ fn release_checks_authorization_before_the_state_check() {
         "expected the host auth error, not Error::InvalidState"
     );
 
-    assert_release_changed_nothing(&f, &before);
+    assert_nothing_changed(&f, &before);
 }
 
 // Bookings settle one at a time: releasing one pays its own professional and
@@ -1191,6 +1180,698 @@ fn releasing_one_booking_leaves_another_untouched() {
         "the other booking's deposit left the escrow"
     );
 
+    f.env.as_contract(&f.contract_id, || {
+        assert_eq!(
+            storage::get_booking(&f.env, &second_id).unwrap().state,
+            BookingState::Locked
+        );
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Story 1.5 — cancel_by_professional, cancel_by_client, claim_no_show
+// ---------------------------------------------------------------------------
+
+/// The three paths this story adds, for the matrix rows that hold for all of
+/// them. `release` joins them in [`EVERY_SETTLEMENT_PATH`] where the row covers
+/// every way a deposit can leave the escrow.
+const CANCELLATION_PATHS: [(&str, fn(&Fixture) -> CallResult); 3] = [
+    ("cancel_by_professional", Fixture::cancel_by_professional),
+    ("cancel_by_client", Fixture::cancel_by_client),
+    ("claim_no_show", Fixture::claim_no_show),
+];
+
+/// Every way a deposit leaves the escrow: the three above plus `release`.
+const EVERY_SETTLEMENT_PATH: [(&str, fn(&Fixture) -> CallResult); 4] = [
+    ("cancel_by_professional", Fixture::cancel_by_professional),
+    ("cancel_by_client", Fixture::cancel_by_client),
+    ("claim_no_show", Fixture::claim_no_show),
+    ("release", Fixture::release),
+];
+
+/// The stored record, asserted field by field against the fixture's inputs with
+/// only `state` allowed to have moved.
+fn assert_only_the_state_moved(f: &Fixture, state: BookingState) {
+    f.env.as_contract(&f.contract_id, || {
+        assert_eq!(
+            storage::get_booking(&f.env, &f.booking_id).unwrap(),
+            Booking {
+                professional: f.professional.clone(),
+                client: f.client.clone(),
+                token: f.token.clone(),
+                amount: f.amount,
+                cancel_deadline: f.cancel_deadline,
+                state,
+            }
+        );
+    });
+}
+
+/// The client's balance is whole again, the escrow holds nothing for this
+/// booking and the professional was paid nothing: no fee, no cut, no partial
+/// refund. Reads balances, so it runs *after* any event assertion.
+fn assert_the_client_was_made_whole(f: &Fixture) {
+    let token = f.token_client();
+    assert_eq!(token.balance(&f.client), FUNDING, "the client is short");
+    assert_eq!(
+        token.balance(&f.contract_id),
+        0,
+        "the escrow still holds the deposit"
+    );
+    assert_eq!(
+        token.balance(&f.professional),
+        0,
+        "the professional was paid out of a refund"
+    );
+}
+
+/// The professional holds the whole deposit, the escrow holds nothing for this
+/// booking and the client is out of pocket by exactly it. Reads balances, so it
+/// runs *after* any event assertion.
+fn assert_the_professional_was_paid(f: &Fixture) {
+    let token = f.token_client();
+    assert_eq!(
+        token.balance(&f.professional),
+        f.amount,
+        "the professional was not paid the whole deposit"
+    );
+    assert_eq!(
+        token.balance(&f.contract_id),
+        0,
+        "the escrow still holds the deposit"
+    );
+    assert_eq!(
+        token.balance(&f.client),
+        FUNDING - f.amount,
+        "the client's balance moved by something other than the deposit"
+    );
+}
+
+// Matrix row: professional cancels early.
+#[test]
+fn a_professional_cancelling_before_the_deadline_refunds_the_client() {
+    let f = locked_fixture();
+    f.env.ledger().set_timestamp(f.cancel_deadline - 1);
+
+    assert_eq!(f.cancel_by_professional(), Ok(Ok(())));
+
+    // `cancelled`, not `refunded`: the provider's cancellation count is derived
+    // from this name alone. Checked first — `events().all()` only covers the
+    // last invocation, and reading a balance is one.
+    assert_eq!(f.own_events(), f.expected_cancelled_event());
+
+    assert_the_client_was_made_whole(&f);
+    assert_only_the_state_moved(&f, BookingState::Refunded);
+}
+
+// Matrix row: professional cancels late. The clock never applies to this path —
+// a passed deadline ends the *client's* free-cancellation window and says
+// nothing about what the professional owes.
+#[test]
+fn a_professional_cancelling_after_the_deadline_still_refunds_the_client() {
+    // Just past it, and long past it: neither is a reason to pay the
+    // professional for a session they called off themselves.
+    for timestamp in [NOW + 86_400 + 1, NOW + 86_400 + SETTLEMENT_MARGIN_SECONDS] {
+        let f = locked_fixture();
+        assert!(timestamp > f.cancel_deadline);
+        f.env.ledger().set_timestamp(timestamp);
+
+        assert_eq!(f.cancel_by_professional(), Ok(Ok(())), "at {timestamp}");
+
+        assert_eq!(f.own_events(), f.expected_cancelled_event());
+        assert_the_client_was_made_whole(&f);
+        assert_only_the_state_moved(&f, BookingState::Refunded);
+    }
+}
+
+// Matrix row: client cancels in time.
+#[test]
+fn a_client_cancelling_before_the_deadline_is_refunded() {
+    let f = locked_fixture();
+    f.env.ledger().set_timestamp(f.cancel_deadline - 1);
+
+    assert_eq!(f.cancel_by_client(), Ok(Ok(())));
+
+    assert_eq!(f.own_events(), f.expected_refunded_event());
+    assert_the_client_was_made_whole(&f);
+    assert_only_the_state_moved(&f, BookingState::Refunded);
+}
+
+// Matrix row: client cancels on the boundary. The deadline is published to the
+// client as the end of their free-cancellation window, so the window has to
+// include the second it names.
+#[test]
+fn a_client_cancelling_exactly_on_the_deadline_is_refunded() {
+    let f = locked_fixture();
+    f.env.ledger().set_timestamp(f.cancel_deadline);
+
+    assert_eq!(f.cancel_by_client(), Ok(Ok(())));
+
+    assert_eq!(f.own_events(), f.expected_refunded_event());
+    assert_the_client_was_made_whole(&f);
+    assert_only_the_state_moved(&f, BookingState::Refunded);
+}
+
+// Matrix row: client cancels late. One second past the deadline the deposit is
+// forfeit — and the event is `forfeited`, never `released`, or the professional
+// would be credited with a session they never held.
+#[test]
+fn a_client_cancelling_after_the_deadline_forfeits_the_deposit() {
+    let f = locked_fixture();
+    f.env.ledger().set_timestamp(f.cancel_deadline + 1);
+
+    assert_eq!(f.cancel_by_client(), Ok(Ok(())));
+
+    assert_eq!(f.own_events(), f.expected_forfeited_event());
+    assert_the_professional_was_paid(&f);
+    assert_only_the_state_moved(&f, BookingState::Released);
+}
+
+// Matrix row: no-show claimed. The same outcome a late client cancellation
+// produces, down to the event name: either the client admits the late
+// cancellation or the professional claims the silence, and the deposit is
+// forfeit the same way.
+#[test]
+fn a_no_show_claimed_after_the_deadline_forfeits_the_deposit() {
+    let f = locked_fixture();
+    f.env.ledger().set_timestamp(f.cancel_deadline + 1);
+
+    assert_eq!(f.claim_no_show(), Ok(Ok(())));
+
+    assert_eq!(f.own_events(), f.expected_forfeited_event());
+    assert_the_professional_was_paid(&f);
+    assert_only_the_state_moved(&f, BookingState::Released);
+}
+
+// Matrix row: no-show claimed too early. While the client may still cancel for
+// free, the professional may not claim — including on the boundary second,
+// which belongs to the client on both paths.
+#[test]
+fn a_no_show_claimed_before_the_deadline_is_rejected_as_too_early() {
+    let f = locked_fixture();
+    let before = f.snapshot();
+
+    for timestamp in [NOW, f.cancel_deadline - 1, f.cancel_deadline] {
+        f.env.ledger().set_timestamp(timestamp);
+
+        assert_eq!(
+            f.claim_no_show(),
+            Err(Ok(Error::TooEarly)),
+            "at {timestamp}"
+        );
+
+        assert_nothing_changed(&f, &before);
+    }
+
+    // And the very next second the same call goes all the way through, so the
+    // refusals above were the clock and nothing else.
+    f.env.ledger().set_timestamp(f.cancel_deadline + 1);
+    assert_eq!(f.claim_no_show(), Ok(Ok(())));
+
+    assert_eq!(f.own_events(), f.expected_forfeited_event());
+    assert_the_professional_was_paid(&f);
+    assert_only_the_state_moved(&f, BookingState::Released);
+}
+
+// Matrix row: wrong party signs. `cancel_by_professional` moves the deposit back
+// to the client, so only the professional recorded on the booking may call it —
+// not the client, who would otherwise refund themselves past their own deadline.
+#[test]
+fn only_the_professionals_own_authorization_cancels_by_professional() {
+    let f = locked_fixture();
+    let before = f.snapshot();
+    let args: Vec<Val> = (f.booking_id.clone(),).into_val(&f.env);
+
+    for signer in [f.client.clone(), Address::generate(&f.env)] {
+        f.env.mock_auths(&[MockAuth {
+            address: &signer,
+            invoke: &MockAuthInvoke {
+                contract: &f.contract_id,
+                fn_name: "cancel_by_professional",
+                args: args.clone(),
+                sub_invokes: &[],
+            },
+        }]);
+        assert_eq!(f.cancel_by_professional(), Err(Err(InvokeError::Abort)));
+        assert_nothing_changed(&f, &before);
+    }
+
+    // The professional's own signature for that same call does. The payout
+    // itself needs no signature: the escrow is paying from its own address.
+    f.env.mock_auths(&[MockAuth {
+        address: &f.professional,
+        invoke: &MockAuthInvoke {
+            contract: &f.contract_id,
+            fn_name: "cancel_by_professional",
+            args,
+            sub_invokes: &[],
+        },
+    }]);
+    assert_eq!(f.cancel_by_professional(), Ok(Ok(())));
+    assert_eq!(f.own_events(), f.expected_cancelled_event());
+    assert_the_client_was_made_whole(&f);
+}
+
+// Matrix row: wrong party signs. Only the client recorded on the booking may
+// cancel on the client's side — a professional who could call it before the
+// deadline would be refunding their own client's deposit in their name.
+#[test]
+fn only_the_clients_own_authorization_cancels_by_client() {
+    let f = locked_fixture();
+    let before = f.snapshot();
+    let args: Vec<Val> = (f.booking_id.clone(),).into_val(&f.env);
+
+    for signer in [f.professional.clone(), Address::generate(&f.env)] {
+        f.env.mock_auths(&[MockAuth {
+            address: &signer,
+            invoke: &MockAuthInvoke {
+                contract: &f.contract_id,
+                fn_name: "cancel_by_client",
+                args: args.clone(),
+                sub_invokes: &[],
+            },
+        }]);
+        assert_eq!(f.cancel_by_client(), Err(Err(InvokeError::Abort)));
+        assert_nothing_changed(&f, &before);
+    }
+
+    f.env.mock_auths(&[MockAuth {
+        address: &f.client,
+        invoke: &MockAuthInvoke {
+            contract: &f.contract_id,
+            fn_name: "cancel_by_client",
+            args,
+            sub_invokes: &[],
+        },
+    }]);
+    assert_eq!(f.cancel_by_client(), Ok(Ok(())));
+    assert_eq!(f.own_events(), f.expected_refunded_event());
+    assert_the_client_was_made_whole(&f);
+}
+
+// Matrix row: wrong party signs. A client cannot forfeit their own deposit by
+// claiming they were a no-show, and no third party can claim it for anybody.
+#[test]
+fn only_the_professionals_own_authorization_claims_a_no_show() {
+    let f = locked_fixture();
+    f.env.ledger().set_timestamp(f.cancel_deadline + 1);
+    let before = f.snapshot();
+    let args: Vec<Val> = (f.booking_id.clone(),).into_val(&f.env);
+
+    for signer in [f.client.clone(), Address::generate(&f.env)] {
+        f.env.mock_auths(&[MockAuth {
+            address: &signer,
+            invoke: &MockAuthInvoke {
+                contract: &f.contract_id,
+                fn_name: "claim_no_show",
+                args: args.clone(),
+                sub_invokes: &[],
+            },
+        }]);
+        assert_eq!(f.claim_no_show(), Err(Err(InvokeError::Abort)));
+        assert_nothing_changed(&f, &before);
+    }
+
+    f.env.mock_auths(&[MockAuth {
+        address: &f.professional,
+        invoke: &MockAuthInvoke {
+            contract: &f.contract_id,
+            fn_name: "claim_no_show",
+            args,
+            sub_invokes: &[],
+        },
+    }]);
+    assert_eq!(f.claim_no_show(), Ok(Ok(())));
+    assert_eq!(f.own_events(), f.expected_forfeited_event());
+    assert_the_professional_was_paid(&f);
+}
+
+// Matrix row: nobody signs. No settlement path is permissionless, `release`
+// included, so the platform's own key — which signs nothing on a booking's
+// behalf — can call none of them.
+#[test]
+fn no_settlement_path_moves_money_without_a_signature() {
+    let f = locked_fixture();
+    let before = f.snapshot();
+
+    // Switch from `mock_all_auths` to enforcing auth with no signatures supplied.
+    f.env.set_auths(&[]);
+
+    // Past the deadline, so the clock is no part of why `claim_no_show` is
+    // refused, and the others are unaffected by where it sits.
+    f.env.ledger().set_timestamp(f.cancel_deadline + 1);
+
+    for (name, call) in EVERY_SETTLEMENT_PATH {
+        // A host auth error (`Err(Err(..))`), not a contract error.
+        assert_eq!(
+            call(&f),
+            Err(Err(InvokeError::Abort)),
+            "{name} ran unsigned"
+        );
+        assert_nothing_changed(&f, &before);
+    }
+}
+
+// A party to the booking is the only one who may learn whether it is still
+// settleable, so a terminal state must not be reported to an unsigned caller —
+// the ordering `release_checks_authorization_before_the_state_check` pins for
+// `release`, here for the three paths this story adds. Without this, moving the
+// state guard above `require_auth` would break nothing.
+#[test]
+fn every_cancellation_path_checks_authorization_before_the_state_check() {
+    for (name, call) in CANCELLATION_PATHS {
+        let f = locked_fixture();
+        // Settle it first, so every path below has a terminal state to report.
+        f.release().unwrap().unwrap();
+
+        let before = f.snapshot();
+
+        // Past the deadline, so `claim_no_show` is ripe and the state check is
+        // the only contract error it could return.
+        f.env.ledger().set_timestamp(f.cancel_deadline + 1);
+
+        // Switch to enforcing auth with no signatures supplied.
+        f.env.set_auths(&[]);
+
+        assert_eq!(
+            call(&f),
+            Err(Err(InvokeError::Abort)),
+            "{name}: expected the host auth error, not Error::InvalidState"
+        );
+
+        assert_nothing_changed(&f, &before);
+    }
+}
+
+// `claim_no_show` has a second check behind its auth: auth must sit in front of
+// the clock too, or an unsigned caller could probe whether a booking's
+// free-cancellation window has closed.
+#[test]
+fn claim_no_show_checks_authorization_before_the_clock() {
+    let f = locked_fixture();
+    let before = f.snapshot();
+
+    // Inside the window, where a signed claim would be refused as TooEarly.
+    assert!(f.env.ledger().timestamp() <= f.cancel_deadline);
+
+    // Switch to enforcing auth with no signatures supplied.
+    f.env.set_auths(&[]);
+
+    assert_eq!(
+        f.claim_no_show(),
+        Err(Err(InvokeError::Abort)),
+        "expected the host auth error, not Error::TooEarly"
+    );
+
+    assert_nothing_changed(&f, &before);
+}
+
+// Matrix row: unknown booking id. Every path has to read the record before it
+// knows whose signature to demand, so an unknown id is answerable without one —
+// booking ids are off-chain ULIDs and carry no secret.
+#[test]
+fn settling_an_unknown_booking_id_is_rejected_and_changes_nothing() {
+    let f = locked_fixture();
+    let before = f.snapshot();
+    let unknown_id = BytesN::from_array(&f.env, &[0x77; 16]);
+
+    // Enforcing auth with no signatures supplied: the absence of the id is all
+    // this may disclose, and it is disclosed without anyone signing.
+    f.env.set_auths(&[]);
+
+    assert_eq!(
+        f.client_contract.try_cancel_by_professional(&unknown_id),
+        Err(Ok(Error::BookingNotFound))
+    );
+    assert_nothing_changed(&f, &before);
+
+    assert_eq!(
+        f.client_contract.try_cancel_by_client(&unknown_id),
+        Err(Ok(Error::BookingNotFound))
+    );
+    assert_nothing_changed(&f, &before);
+
+    assert_eq!(
+        f.client_contract.try_claim_no_show(&unknown_id),
+        Err(Ok(Error::BookingNotFound))
+    );
+    assert_nothing_changed(&f, &before);
+
+    // The snapshot only watches the fixture's own id, so the id that was asked
+    // for needs its own check: a rejected call must not have created it either.
+    f.env.as_contract(&f.contract_id, || {
+        assert!(
+            !storage::has_booking(&f.env, &unknown_id),
+            "a rejected settlement wrote a booking under the unknown id"
+        );
+    });
+}
+
+// Matrix row: already released. `Released` is terminal for every path, and the
+// state check runs before the clock — a no-show claim on a released booking is
+// an illegal state, not a timing problem.
+#[test]
+fn every_path_rejects_an_already_released_booking() {
+    let f = locked_fixture();
+    f.release().unwrap().unwrap();
+
+    let before = f.snapshot();
+    assert_eq!(
+        before.booking.as_ref().map(|b| b.state),
+        Some(BookingState::Released)
+    );
+
+    // The clock sits inside the free-cancellation window, where an unsettled
+    // `claim_no_show` would answer `TooEarly` instead.
+    assert!(f.env.ledger().timestamp() < f.cancel_deadline);
+
+    for (name, call) in EVERY_SETTLEMENT_PATH {
+        assert_eq!(call(&f), Err(Ok(Error::InvalidState)), "{name}");
+        assert_nothing_changed(&f, &before);
+    }
+}
+
+// Matrix row: already refunded. The mirror of the row above, reached through a
+// real refund rather than a hand-written record.
+#[test]
+fn every_path_rejects_an_already_refunded_booking() {
+    let f = locked_fixture();
+    f.cancel_by_professional().unwrap().unwrap();
+
+    let before = f.snapshot();
+    assert_eq!(
+        before.booking.as_ref().map(|b| b.state),
+        Some(BookingState::Refunded)
+    );
+
+    for (name, call) in EVERY_SETTLEMENT_PATH {
+        assert_eq!(call(&f), Err(Ok(Error::InvalidState)), "{name}");
+        assert_nothing_changed(&f, &before);
+    }
+}
+
+// Matrix row: settled twice. The state check is what stands between a repeated
+// call and a second payout — checked on each path's own success, since each
+// writes its own terminal state.
+#[test]
+fn a_settled_booking_moves_its_deposit_exactly_once() {
+    // A professional's cancellation, then the same call again.
+    let f = locked_fixture();
+    assert_eq!(f.cancel_by_professional(), Ok(Ok(())));
+    assert_eq!(f.cancel_by_professional(), Err(Ok(Error::InvalidState)));
+    assert!(
+        f.own_events().events().is_empty(),
+        "the second cancellation emitted an event"
+    );
+    assert_the_client_was_made_whole(&f);
+
+    // An on-time client cancellation, then the same call again.
+    let g = locked_fixture();
+    assert_eq!(g.cancel_by_client(), Ok(Ok(())));
+    assert_eq!(g.cancel_by_client(), Err(Ok(Error::InvalidState)));
+    assert!(
+        g.own_events().events().is_empty(),
+        "the second client cancellation emitted an event"
+    );
+    assert_the_client_was_made_whole(&g);
+
+    // A no-show claim, then the same call again — still ripe by the clock, and
+    // still refused.
+    let h = locked_fixture();
+    h.env.ledger().set_timestamp(h.cancel_deadline + 1);
+    assert_eq!(h.claim_no_show(), Ok(Ok(())));
+    assert_eq!(h.claim_no_show(), Err(Ok(Error::InvalidState)));
+    assert!(
+        h.own_events().events().is_empty(),
+        "the second no-show claim emitted an event"
+    );
+    assert_the_professional_was_paid(&h);
+
+    // A late client cancellation, then the professional claiming the same
+    // booking as a no-show: the deposit is already forfeit and moves no further.
+    let i = locked_fixture();
+    i.env.ledger().set_timestamp(i.cancel_deadline + 1);
+    assert_eq!(i.cancel_by_client(), Ok(Ok(())));
+    assert_eq!(i.claim_no_show(), Err(Ok(Error::InvalidState)));
+    assert!(
+        i.own_events().events().is_empty(),
+        "the no-show claim after a late cancellation emitted an event"
+    );
+    assert_the_professional_was_paid(&i);
+}
+
+// Every settlement write must bump the TTL, or a settled record could be
+// archived while the backend still needs to read the outcome.
+#[test]
+fn every_settlement_path_bumps_the_bookings_ttl() {
+    for (name, call) in EVERY_SETTLEMENT_PATH {
+        let f = locked_fixture();
+        // Past the deadline, where all four are legal: a refund by the
+        // professional, a forfeit by the client, a ripe no-show claim, and a
+        // release, which never consults the clock at all.
+        f.env.ledger().set_timestamp(f.cancel_deadline + 1);
+
+        // Advance past the bump threshold first: straight after `create_booking`
+        // the TTL is already at its ceiling, so a path that never bumped would
+        // still look correct.
+        let sequence = f.env.ledger().sequence();
+        f.env
+            .ledger()
+            .set_sequence_number(sequence + 2 * (BUMP_LEDGERS - BUMP_THRESHOLD_LEDGERS));
+
+        let key = DataKey::Booking(f.booking_id.clone());
+        f.env.as_contract(&f.contract_id, || {
+            assert!(
+                f.env.storage().persistent().get_ttl(&key) < BUMP_THRESHOLD_LEDGERS,
+                "{name}: the entry was not yet due for a bump, so this proves nothing"
+            );
+        });
+
+        assert_eq!(call(&f), Ok(Ok(())), "{name}");
+
+        f.env.as_contract(&f.contract_id, || {
+            assert_eq!(
+                f.env.storage().persistent().get_ttl(&key),
+                BUMP_LEDGERS,
+                "{name}"
+            );
+        });
+    }
+}
+
+// `released` means the client confirmed the session: Story 4.3's verified
+// session counter increments on that name alone. None of the four outcomes
+// added here may emit it — a no-show that did would be counted as a session the
+// professional held.
+//
+// Each assertion below pins an outcome to one exact event, and `own_events()`
+// returns everything the escrow emitted during that invocation, so a path that
+// emitted `released` — instead of its own name or alongside it — fails here.
+// That equality is what carries the claim; a companion `assert_ne!` against the
+// `released` event would be implied by it and could never fail on its own.
+#[test]
+fn released_is_emitted_by_release_alone() {
+    // A professional's cancellation.
+    let a = locked_fixture();
+    a.cancel_by_professional().unwrap().unwrap();
+    assert_eq!(a.own_events(), a.expected_cancelled_event());
+
+    // An on-time client cancellation.
+    let b = locked_fixture();
+    b.cancel_by_client().unwrap().unwrap();
+    assert_eq!(b.own_events(), b.expected_refunded_event());
+
+    // A late client cancellation — pays the professional, but is not a session.
+    let c = locked_fixture();
+    c.env.ledger().set_timestamp(c.cancel_deadline + 1);
+    c.cancel_by_client().unwrap().unwrap();
+    assert_eq!(c.own_events(), c.expected_forfeited_event());
+
+    // A claimed no-show — likewise.
+    let d = locked_fixture();
+    d.env.ledger().set_timestamp(d.cancel_deadline + 1);
+    d.claim_no_show().unwrap().unwrap();
+    assert_eq!(d.own_events(), d.expected_forfeited_event());
+
+    // And `release` itself still does emit it.
+    let e = locked_fixture();
+    e.release().unwrap().unwrap();
+    assert_eq!(e.own_events(), e.expected_released_event());
+}
+
+// Bookings settle one at a time: a refund returns its own deposit and leaves
+// every other one in the contract's custody.
+#[test]
+fn cancelling_one_booking_leaves_another_untouched() {
+    let f = locked_fixture();
+
+    let second_id = BytesN::from_array(&f.env, &[0x2e; 16]);
+    let second_amount = 75_000_000_i128;
+    let second_professional = Address::generate(&f.env);
+    f.client_contract.create_booking(
+        &second_id,
+        &second_professional,
+        &f.client,
+        &f.token,
+        &second_amount,
+        &(f.cancel_deadline + 3_600),
+    );
+
+    assert_eq!(f.cancel_by_professional(), Ok(Ok(())));
+
+    let token = f.token_client();
+    assert_eq!(token.balance(&f.client), FUNDING - second_amount);
+    assert_eq!(
+        token.balance(&f.contract_id),
+        second_amount,
+        "the other booking's deposit left the escrow"
+    );
+    assert_eq!(token.balance(&f.professional), 0);
+    assert_eq!(token.balance(&second_professional), 0);
+
+    f.env.as_contract(&f.contract_id, || {
+        assert_eq!(
+            storage::get_booking(&f.env, &second_id).unwrap().state,
+            BookingState::Locked
+        );
+    });
+}
+
+// The same for a forfeit, which pays out rather than refunds — and the other
+// booking's own deadline is still ahead, so one deposit being claimable says
+// nothing about the next.
+#[test]
+fn claiming_one_no_show_leaves_another_booking_untouched() {
+    let f = locked_fixture();
+
+    let second_id = BytesN::from_array(&f.env, &[0x2e; 16]);
+    let second_amount = 75_000_000_i128;
+    let second_deadline = f.cancel_deadline + 3_600;
+    f.client_contract.create_booking(
+        &second_id,
+        &f.professional,
+        &f.client,
+        &f.token,
+        &second_amount,
+        &second_deadline,
+    );
+
+    f.env.ledger().set_timestamp(f.cancel_deadline + 1);
+    assert_eq!(f.claim_no_show(), Ok(Ok(())));
+
+    let token = f.token_client();
+    assert_eq!(token.balance(&f.professional), f.amount);
+    assert_eq!(
+        token.balance(&f.contract_id),
+        second_amount,
+        "the other booking's deposit left the escrow"
+    );
+
+    // And the second booking is not yet claimable: its own window is still open.
+    assert_eq!(
+        f.client_contract.try_claim_no_show(&second_id),
+        Err(Ok(Error::TooEarly))
+    );
     f.env.as_contract(&f.contract_id, || {
         assert_eq!(
             storage::get_booking(&f.env, &second_id).unwrap().state,
