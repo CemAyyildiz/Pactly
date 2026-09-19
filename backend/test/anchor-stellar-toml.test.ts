@@ -89,6 +89,32 @@ test("parseSepEndpoints throws, naming the domain, when SIGNING_KEY is missing",
   );
 });
 
+test("parseSepEndpoints rejects a WEB_AUTH_ENDPOINT that is not https:", () => {
+  assert.throws(
+    () =>
+      parseSepEndpoints(
+        'WEB_AUTH_ENDPOINT="http://anchor.example/auth"\nSIGNING_KEY="GDKM7BQVFI7YFRKJZW7VP2QRTGGQBZIVIMSQ3EYKPXKN2ZFOZ6RA6OFY"',
+        "anchor.example",
+      ),
+    (error: unknown) =>
+      error instanceof AnchorDiscoveryError &&
+      error.message.includes("anchor.example") &&
+      error.message.includes("WEB_AUTH_ENDPOINT") &&
+      /https:/.test(error.message),
+  );
+});
+
+test("parseSepEndpoints rejects a WEB_AUTH_ENDPOINT that is not a valid URL at all", () => {
+  assert.throws(
+    () =>
+      parseSepEndpoints(
+        'WEB_AUTH_ENDPOINT="not a url"\nSIGNING_KEY="GDKM7BQVFI7YFRKJZW7VP2QRTGGQBZIVIMSQ3EYKPXKN2ZFOZ6RA6OFY"',
+        "anchor.example",
+      ),
+    AnchorDiscoveryError,
+  );
+});
+
 test("parseSepEndpoints leaves optional fields undefined when the toml omits them", () => {
   const endpoints = parseSepEndpoints(
     'WEB_AUTH_ENDPOINT="https://anchor.example/auth"\nSIGNING_KEY="GDKM7BQVFI7YFRKJZW7VP2QRTGGQBZIVIMSQ3EYKPXKN2ZFOZ6RA6OFY"',

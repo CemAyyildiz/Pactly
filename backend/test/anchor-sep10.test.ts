@@ -108,7 +108,10 @@ test("a non-OK challenge response surfaces the anchor's own reason, and nothing 
   let postCalled = false;
   const fetchImpl: Sep10FetchLike = async (_url, init) => {
     if (init?.method === "POST") postCalled = true;
-    return { ok: false, status: 400, json: async () => ({ error: "unknown account" }), text: async () => "" };
+    // A non-OK response's body is read via `.text()`, never `.json()` (see
+    // sep10.ts's own comment on why) -- so the fixture's `.text()`, not its
+    // `.json()`, is what the module under test actually reads here.
+    return { ok: false, status: 400, json: async () => ({ error: "unknown account" }), text: async () => JSON.stringify({ error: "unknown account" }) };
   };
 
   await assert.rejects(
@@ -135,11 +138,19 @@ test("a challenge signed by a server key other than the discovered SIGNING_KEY i
   const declaredSigningKey = Keypair.random(); // what stellar.toml said, never matches the challenge below
   const challengeXdr = buildAnchorChallenge(impostorAnchorServer, wallet.publicKey());
 
+  let postCalled = false;
   const fetchImpl: Sep10FetchLike = async (_url, init) => {
-    if (init?.method === "POST") throw new Error("must not submit an unvalidated challenge");
+    if (init?.method === "POST") postCalled = true;
     return { ok: true, status: 200, json: async () => ({ transaction: challengeXdr }), text: async () => "" };
   };
 
+  // Mutation-proven gap this test used to have: `runAnchorSep10` wraps
+  // *any* thrown error (including one from an unvalidated POST) into
+  // `AnchorAuthError`, so asserting only the error class passed even with
+  // the authenticity check deleted entirely. Asserting `postCalled` stayed
+  // `false`, plus the specific "did not pass validation" message this
+  // check (and only this check) produces, is what actually proves the
+  // validation ran and stopped the exchange before signing.
   await assert.rejects(
     () =>
       runAnchorSep10(
@@ -153,8 +164,80 @@ test("a challenge signed by a server key other than the discovered SIGNING_KEY i
         },
         fetchImpl,
       ),
+    (error: unknown) => error instanceof AnchorAuthError && /did not pass validation/.test(error.message),
+  );
+  assert.equal(postCalled, false);
+});
+
+test("a challenge that validates but names a different account than the one being authenticated is refused before it is ever signed", async () => {
+  const anchorServer = Keypair.random();
+  const wallet = Keypair.random();
+  const otherWallet = Keypair.random();
+  // A well-formed, genuinely anchor-signed challenge -- just for the wrong
+  // account. This is the exact gap the patch round found: `readChallengeTx`'s
+  // return value (`clientAccountID`) was discarded, so this backend signed
+  // whatever challenge the anchor returned without checking who it named.
+  const challengeXdr = buildAnchorChallenge(anchorServer, otherWallet.publicKey());
+
+  let postCalled = false;
+  const fetchImpl: Sep10FetchLike = async (_url, init) => {
+    if (init?.method === "POST") postCalled = true;
+    return { ok: true, status: 200, json: async () => ({ transaction: challengeXdr }), text: async () => "" };
+  };
+
+  await assert.rejects(
+    () =>
+      runAnchorSep10(
+        {
+          webAuthEndpoint: WEB_AUTH_ENDPOINT,
+          signingKey: anchorServer.publicKey(),
+          homeDomain: HOME_DOMAIN,
+          networkPassphrase: NETWORK_PASSPHRASE,
+          account: wallet.publicKey(),
+          signer: wallet,
+        },
+        fetchImpl,
+      ),
+    (error: unknown) =>
+      error instanceof AnchorAuthError &&
+      error.message.includes(otherWallet.publicKey()) &&
+      error.message.includes(wallet.publicKey()),
+  );
+  assert.equal(postCalled, false);
+});
+
+test("a challenge response declaring a different network_passphrase than configured is refused", async () => {
+  const anchorServer = Keypair.random();
+  const wallet = Keypair.random();
+  const challengeXdr = buildAnchorChallenge(anchorServer, wallet.publicKey());
+
+  let postCalled = false;
+  const fetchImpl: Sep10FetchLike = async (_url, init) => {
+    if (init?.method === "POST") postCalled = true;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ transaction: challengeXdr, network_passphrase: "Public Global Stellar Network ; September 2015" }),
+      text: async () => "",
+    };
+  };
+
+  await assert.rejects(
+    () =>
+      runAnchorSep10(
+        {
+          webAuthEndpoint: WEB_AUTH_ENDPOINT,
+          signingKey: anchorServer.publicKey(),
+          homeDomain: HOME_DOMAIN,
+          networkPassphrase: NETWORK_PASSPHRASE,
+          account: wallet.publicKey(),
+          signer: wallet,
+        },
+        fetchImpl,
+      ),
     AnchorAuthError,
   );
+  assert.equal(postCalled, false);
 });
 
 test("the anchor rejecting the signed challenge (invalid signature) throws surfacing its own reason, and stores nothing here", async () => {
@@ -166,7 +249,12 @@ test("the anchor rejecting the signed challenge (invalid signature) throws surfa
     if (!init || init.method === "GET" || init.method === undefined) {
       return { ok: true, status: 200, json: async () => ({ transaction: challengeXdr }), text: async () => "" };
     }
-    return { ok: false, status: 401, json: async () => ({ error: "signature verification failed" }), text: async () => "" };
+    return {
+      ok: false,
+      status: 401,
+      json: async () => ({ error: "signature verification failed" }),
+      text: async () => JSON.stringify({ error: "signature verification failed" }),
+    };
   };
 
   await assert.rejects(
@@ -183,6 +271,36 @@ test("the anchor rejecting the signed challenge (invalid signature) throws surfa
         fetchImpl,
       ),
     (error: unknown) => error instanceof AnchorAuthError && error.message.includes("signature verification failed"),
+  );
+});
+
+test("a token that is already expired on arrival is refused rather than cached as usable", async () => {
+  const anchorServer = Keypair.random();
+  const wallet = Keypair.random();
+  const challengeXdr = buildAnchorChallenge(anchorServer, wallet.publicKey());
+  const alreadyExpiredToken = fakeAnchorJwt(wallet.publicKey(), -60); // exp one minute in the past
+
+  const fetchImpl: Sep10FetchLike = async (_url, init) => {
+    if (!init || init.method === "GET" || init.method === undefined) {
+      return { ok: true, status: 200, json: async () => ({ transaction: challengeXdr }), text: async () => "" };
+    }
+    return { ok: true, status: 200, json: async () => ({ token: alreadyExpiredToken }), text: async () => "" };
+  };
+
+  await assert.rejects(
+    () =>
+      runAnchorSep10(
+        {
+          webAuthEndpoint: WEB_AUTH_ENDPOINT,
+          signingKey: anchorServer.publicKey(),
+          homeDomain: HOME_DOMAIN,
+          networkPassphrase: NETWORK_PASSPHRASE,
+          account: wallet.publicKey(),
+          signer: wallet,
+        },
+        fetchImpl,
+      ),
+    (error: unknown) => error instanceof AnchorAuthError && /already expired/.test(error.message),
   );
 });
 

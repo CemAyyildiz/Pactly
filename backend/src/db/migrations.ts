@@ -72,6 +72,11 @@ const STATEMENTS: readonly string[] = [
     comment TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS used_challenge_nonces (
+    nonce TEXT PRIMARY KEY,
+    expires_at INTEGER NOT NULL,
+    used_at INTEGER NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS anchor_jwts (
     wallet_address TEXT PRIMARY KEY,
     jwt TEXT NOT NULL,

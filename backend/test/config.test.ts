@@ -67,6 +67,18 @@ test("exits 1 and names the variable when PACTLY_AUTH_SIGNING_SECRET is unset", 
   assert.match(stderr, /PACTLY_AUTH_SIGNING_SECRET/);
 });
 
+test("exits 1 and names the length requirement when PACTLY_AUTH_SIGNING_SECRET is too short", async () => {
+  const env = baseEnv(await freePort());
+  env.PACTLY_AUTH_SIGNING_SECRET = "short-secret"; // 12 chars, under the 32-char floor
+  const child = startBackend(env);
+  let stderr = "";
+  child.stderr.on("data", (chunk) => (stderr += chunk));
+  const code = await new Promise<number | null>((done) => child.on("exit", done));
+  assert.equal(code, 1);
+  assert.match(stderr, /PACTLY_AUTH_SIGNING_SECRET/);
+  assert.match(stderr, /32/);
+});
+
 test("starts and serves /health when declared-but-empty variables are empty", async () => {
   const port = await freePort();
   const child = startBackend(baseEnv(port));

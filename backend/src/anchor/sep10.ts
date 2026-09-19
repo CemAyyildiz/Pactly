@@ -42,9 +42,13 @@ export interface RunAnchorSep10Params {
   networkPassphrase: string;
   /** The wallet the JWT should be issued for. */
   account: string;
-  /** Signs the anchor's challenge -- caller-supplied because this backend
-   * never holds a user's real wallet key; later stories pass a managed
-   * account's key here instead. */
+  /** Signs the anchor's challenge. Must be `account`'s own keypair -- the
+   * anchor's SEP-10 endpoint needs the wallet's real signature, not merely
+   * its address, and `services/auth.ts`'s caller enforces this today.
+   * Nothing in this story calls this function yet; whether a *real* (not
+   * managed) wallet's anchor session needs its own frontend round-trip,
+   * separate from Pactly's own login, to obtain that signature is a design
+   * question left to whichever of Story 2.3/2.4 first calls this. */
   signer: Keypair;
 }
 
@@ -78,14 +82,37 @@ async function readJson(response: Pick<Response, "json" | "text">, homeDomain: s
   }
 }
 
-/** Pulls the anchor's own explanation out of an error response body, if it
- * supplied one -- the I/O matrix's "surfacing the anchor's own reason". */
+/** Pulls the anchor's own explanation out of an already-parsed error
+ * response body, if it supplied one -- the I/O matrix's "surfacing the
+ * anchor's own reason". */
 function anchorReason(body: unknown): string | undefined {
   if (typeof body === "object" && body !== null && "error" in body) {
     const error = (body as { error?: unknown }).error;
     if (typeof error === "string" && error.trim() !== "") return error.trim();
   }
   return undefined;
+}
+
+/** Reads a non-OK response's body exactly once (via `.text()`, never
+ * `.json()` -- a real `Response`'s body can only be consumed once, so this
+ * must not try `.json()` first and fall back to `.text()` on the same
+ * response) and extracts a reason to surface: the anchor's own `error`
+ * field when the body happens to be JSON, otherwise the raw text (a 502
+ * page, an empty body) -- never an opaque "not valid JSON" failure hiding
+ * the anchor's real status and reason. */
+async function anchorReasonFromResponse(response: Pick<Response, "text">): Promise<string | undefined> {
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    return undefined;
+  }
+  if (text.trim() === "") return undefined;
+  try {
+    return anchorReason(JSON.parse(text)) ?? text.trim();
+  } catch {
+    return text.trim();
+  }
 }
 
 /** Decodes (never verifies -- this backend has no way to, and does not need
@@ -111,7 +138,15 @@ function decodeJwtExpiryMs(token: string, homeDomain: string): number {
   if (typeof exp !== "number" || !Number.isFinite(exp)) {
     throw new AnchorAuthError(`${homeDomain} returned a token with no usable "exp" claim`);
   }
-  return exp * 1000;
+  const expiresAt = exp * 1000;
+  // A token already expired (or expiring this same millisecond) the moment
+  // it arrives cannot safely seed the cache: it would look either
+  // permanently stale (never reused) or, worse, be misread as fresh by a
+  // caller that mishandles the boundary. Refuse it outright instead.
+  if (expiresAt <= Date.now()) {
+    throw new AnchorAuthError(`${homeDomain} returned a token that is already expired (exp ${new Date(expiresAt).toISOString()})`);
+  }
+  return expiresAt;
 }
 
 /** Runs the anchor's real SEP-10 exchange end to end and returns its JWT.
@@ -123,33 +158,53 @@ export async function runAnchorSep10(
 ): Promise<AnchorSep10Result> {
   const { webAuthEndpoint, signingKey, homeDomain, networkPassphrase, account, signer } = params;
 
+  const challengeUrl = new URL(webAuthEndpoint);
+  challengeUrl.searchParams.set("account", account);
+
   let challengeResponse: Pick<Response, "ok" | "status" | "json" | "text">;
   try {
-    challengeResponse = await fetchImpl(`${webAuthEndpoint}?account=${encodeURIComponent(account)}`, { method: "GET" });
+    challengeResponse = await fetchImpl(challengeUrl.toString(), { method: "GET" });
   } catch (cause) {
     const reason = cause instanceof Error ? cause.message : String(cause);
     throw new AnchorAuthError(`Could not reach ${homeDomain}'s SEP-10 endpoint: ${reason}`);
   }
-  const challengeBody = (await readJson(challengeResponse, homeDomain)) as ChallengeResponseBody;
+  // Check the status before ever parsing the body as JSON: an error page
+  // (a 502, an empty body) is not JSON, and the anchor's real status and
+  // reason -- what the I/O matrix asks to be surfaced -- must win over an
+  // opaque "not valid JSON" failure.
   if (!challengeResponse.ok) {
-    const reason = anchorReason(challengeBody);
+    const reason = await anchorReasonFromResponse(challengeResponse);
     throw new AnchorAuthError(
       `${homeDomain} refused the SEP-10 challenge request (HTTP ${challengeResponse.status})${reason ? `: ${reason}` : ""}`,
     );
   }
+  const challengeBody = (await readJson(challengeResponse, homeDomain)) as ChallengeResponseBody;
   if (typeof challengeBody.transaction !== "string" || challengeBody.transaction.trim() === "") {
     throw new AnchorAuthError(`${homeDomain}'s SEP-10 challenge response did not include a transaction`);
+  }
+  if (typeof challengeBody.network_passphrase === "string" && challengeBody.network_passphrase !== networkPassphrase) {
+    throw new AnchorAuthError(
+      `${homeDomain}'s SEP-10 challenge declared network_passphrase "${challengeBody.network_passphrase}", ` +
+        `expected "${networkPassphrase}"`,
+    );
   }
   const challengeXdr = challengeBody.transaction;
 
   // Confirm this really is a challenge from the anchor -- signed by its own
-  // `SIGNING_KEY`, naming its own home domain -- before this backend ever
-  // signs it. Uses the SDK's own reader, never a hand-rolled check.
+  // `SIGNING_KEY`, naming its own home domain -- and that it names the
+  // wallet this exchange is for, before this backend ever signs it. Uses
+  // the SDK's own reader, never a hand-rolled check.
+  let clientAccountID: string;
   try {
-    WebAuth.readChallengeTx(challengeXdr, signingKey, networkPassphrase, homeDomain, new URL(webAuthEndpoint).host);
+    ({ clientAccountID } = WebAuth.readChallengeTx(challengeXdr, signingKey, networkPassphrase, homeDomain, challengeUrl.host));
   } catch (cause) {
     const reason = cause instanceof Error ? cause.message : String(cause);
     throw new AnchorAuthError(`${homeDomain}'s SEP-10 challenge did not pass validation: ${reason}`);
+  }
+  if (clientAccountID !== account) {
+    throw new AnchorAuthError(
+      `${homeDomain}'s SEP-10 challenge names account "${clientAccountID}", but this exchange is for "${account}"`,
+    );
   }
 
   const transaction: Transaction = TransactionBuilder.fromXdr(challengeXdr, networkPassphrase) as Transaction;
@@ -167,13 +222,13 @@ export async function runAnchorSep10(
     const reason = cause instanceof Error ? cause.message : String(cause);
     throw new AnchorAuthError(`Could not reach ${homeDomain}'s SEP-10 endpoint: ${reason}`);
   }
-  const tokenBody = (await readJson(tokenResponse, homeDomain)) as TokenResponseBody;
   if (!tokenResponse.ok) {
-    const reason = anchorReason(tokenBody);
+    const reason = await anchorReasonFromResponse(tokenResponse);
     throw new AnchorAuthError(
       `${homeDomain} rejected the signed SEP-10 challenge (HTTP ${tokenResponse.status})${reason ? `: ${reason}` : ""}`,
     );
   }
+  const tokenBody = (await readJson(tokenResponse, homeDomain)) as TokenResponseBody;
   if (typeof tokenBody.token !== "string" || tokenBody.token.trim() === "") {
     throw new AnchorAuthError(`${homeDomain}'s SEP-10 response did not include a token`);
   }

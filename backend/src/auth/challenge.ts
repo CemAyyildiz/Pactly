@@ -22,11 +22,19 @@
  * sleep for real minutes.
  */
 import { createHash } from "node:crypto";
-import { Keypair, StrKey, WebAuth } from "@stellar/stellar-sdk";
+import { Keypair, StrKey, WebAuth, type Transaction } from "@stellar/stellar-sdk";
 import { SignJWT, jwtVerify } from "jose";
 
 import { config } from "../config.js";
-import { PactlyChallengeExpiredError, PactlyChallengeInvalidError, PactlyInvalidAccountError, PactlyJwtError } from "./errors.js";
+import { redeemChallengeNonceIfUnused } from "../db/challengeNonces.js";
+import type { Db } from "../db/client.js";
+import {
+  PactlyChallengeExpiredError,
+  PactlyChallengeInvalidError,
+  PactlyChallengeReplayedError,
+  PactlyInvalidAccountError,
+  PactlyJwtError,
+} from "./errors.js";
 
 /** SEP-10's own default validity window; `readChallengeTx`/
  * `verifyChallengeTxSigners` additionally allow a 5-minute grace period on
@@ -100,21 +108,44 @@ function translateChallengeError(cause: unknown): Error {
   return cause instanceof Error ? cause : new Error(String(cause));
 }
 
+/** The challenge's own single-use nonce: the (already length- and
+ * shape-validated, by `readChallengeTx`) `manage_data` operation's raw
+ * value, taken as an opaque byte string. Random per challenge
+ * (`buildChallengeTx` fills it with 48 random bytes), so it is exactly the
+ * thing to key replay detection on -- unlike the transaction's XDR, it does
+ * not change if a wallet re-serializes/re-encodes the same signed envelope. */
+function challengeNonce(tx: Transaction): string {
+  const [operation] = tx.operations;
+  const value = operation && operation.type === "manageData" ? operation.value : undefined;
+  if (!value) {
+    // Unreachable in practice: readChallengeTx already required exactly
+    // this shape before returning `tx`. Guarded anyway rather than assumed.
+    throw new PactlyChallengeInvalidError();
+  }
+  return Buffer.from(value).toString("base64");
+}
+
 /**
  * Verifies a challenge transaction signed and returned by a wallet: it must
  * be the one this backend issued (server-signed, correct home domain,
- * unexpired) and must carry a signature from the exact wallet the challenge
+ * unexpired), must carry a signature from the exact wallet the challenge
  * named when it was built -- a signature from a *different* key is rejected
- * exactly as no signature would be (I/O matrix). The wallet is read from
- * the challenge itself (the `manage_data` operation's source, fixed at
- * build time by {@link buildPactlyChallenge}), never supplied separately by
- * the caller -- there is nothing for a caller to lie about.
+ * exactly as no signature would be (I/O matrix) -- and must not have been
+ * verified successfully before: a signed envelope is single-use, recorded
+ * as redeemed in `used_challenge_nonces` at the moment it first succeeds,
+ * so replaying the same signed envelope for a second Pactly JWT is refused
+ * (confirmed exploitable before this check existed -- the same signed
+ * request POSTed twice both returned 200 with a fresh token). The wallet is
+ * read from the challenge itself (the `manage_data` operation's source,
+ * fixed at build time by {@link buildPactlyChallenge}), never supplied
+ * separately by the caller -- there is nothing for a caller to lie about.
  */
-export function verifyPactlyChallenge(signedChallengeXdr: string): VerifiedChallenge {
+export async function verifyPactlyChallenge(db: Db, signedChallengeXdr: string): Promise<VerifiedChallenge> {
   const server = serverKeypair();
   let clientAccountID: string;
+  let tx: Transaction;
   try {
-    ({ clientAccountID } = WebAuth.readChallengeTx(
+    ({ clientAccountID, tx } = WebAuth.readChallengeTx(
       signedChallengeXdr,
       server.publicKey(),
       config.stellarNetworkPassphrase,
@@ -136,6 +167,17 @@ export function verifyPactlyChallenge(signedChallengeXdr: string): VerifiedChall
   } catch (cause) {
     throw translateChallengeError(cause);
   }
+
+  const nonce = challengeNonce(tx);
+  // The challenge's own expiry (its timebounds' maxTime), so a future
+  // cleanup pass has a basis to prune this row -- not required for
+  // correctness (a nonce is never valid to reuse, ever), only for hygiene.
+  const expiresAt = tx.timeBounds ? Number(tx.timeBounds.maxTime) * 1000 : Date.now();
+  const firstUse = await redeemChallengeNonceIfUnused(db, nonce, expiresAt);
+  if (!firstUse) {
+    throw new PactlyChallengeReplayedError();
+  }
+
   return { walletAddress: clientAccountID };
 }
 

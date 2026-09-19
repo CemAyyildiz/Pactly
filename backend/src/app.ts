@@ -22,9 +22,11 @@ import {
 import {
   PactlyChallengeExpiredError,
   PactlyChallengeInvalidError,
+  PactlyChallengeReplayedError,
   PactlyInvalidAccountError,
   PactlyJwtError,
 } from "./auth/errors.js";
+import type { Db } from "./db/client.js";
 
 export interface Variables {
   /** Set by `requirePactlyAuth` once a request's Pactly JWT verifies --
@@ -40,9 +42,13 @@ export type App = Hono<{ Variables: Variables }>;
  * missing, expired or tampered token is rejected the same way, with a
  * meaningful JSON error, never a stack trace (this story's own Acceptance
  * Criteria). */
+const BEARER_PREFIX = /^bearer\s+/i;
+
 export async function requirePactlyAuth(c: Context<{ Variables: Variables }>, next: Next) {
   const header = c.req.header("Authorization");
-  const token = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : undefined;
+  // Case-insensitive per RFC 7235's auth-scheme grammar -- "bearer <token>"
+  // is just as valid as "Bearer <token>".
+  const token = header && BEARER_PREFIX.test(header) ? header.replace(BEARER_PREFIX, "") : undefined;
   if (!token) {
     return c.json({ code: "unauthorized", message: "Sign in required." }, 401);
   }
@@ -58,8 +64,17 @@ export async function requirePactlyAuth(c: Context<{ Variables: Variables }>, ne
   await next();
 }
 
-export function createApp(): App {
+export function createApp(db: Db): App {
   const app: App = new Hono<{ Variables: Variables }>();
+
+  // Every route above handles its own typed failures and returns the
+  // `{code, message}` envelope itself; this is only the backstop for a
+  // failure none of them anticipated -- still the same envelope, never
+  // Hono's own default plain-text 500.
+  app.onError((error, c) => {
+    console.error("[app] unhandled error", error);
+    return c.json({ code: "internal_error", message: "Something went wrong. Please try again." }, 500);
+  });
 
   app.get("/health", (c) => c.json({ status: "ok" }));
 
@@ -92,12 +107,15 @@ export function createApp(): App {
       return c.json({ code: "invalid_request", message: "transaction is required." }, 400);
     }
     try {
-      const { walletAddress } = verifyPactlyChallenge(transaction);
+      const { walletAddress } = await verifyPactlyChallenge(db, transaction);
       const token = await issuePactlyJwt(walletAddress);
       return c.json({ token, walletAddress });
     } catch (error) {
       if (error instanceof PactlyChallengeExpiredError) {
         return c.json({ code: "challenge_expired", message: error.message }, 401);
+      }
+      if (error instanceof PactlyChallengeReplayedError) {
+        return c.json({ code: "challenge_replayed", message: error.message }, 401);
       }
       if (error instanceof PactlyChallengeInvalidError) {
         return c.json({ code: "challenge_invalid", message: error.message }, 401);

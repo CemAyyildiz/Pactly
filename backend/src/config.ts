@@ -71,6 +71,20 @@ function databasePath(name: string): string {
   return isAbsolute(value) ? value : resolve(backendDir, value);
 }
 
+/** Same as {@link required}, plus a minimum length -- for a secret this
+ * codebase derives cryptographic key material from directly (both the
+ * Pactly JWT's HMAC key and its own SEP-10 server keypair; see
+ * `auth/challenge.ts`), a short value is a full authentication bypass on
+ * both, not merely a weak one. 32 characters is a reasonable floor for an
+ * HMAC-256 key. */
+function secret(name: string, minLength: number): string {
+  const value = required(name);
+  if (value.length < minLength) {
+    throw new ConfigError(`Environment variable ${name} must be at least ${minLength} characters long`);
+  }
+  return value;
+}
+
 export interface Config {
   backendPort: number;
   stellarNetworkPassphrase: string;
@@ -98,7 +112,7 @@ function loadConfig(): Config {
     sorobanRpcUrl: required("SOROBAN_RPC_URL"),
     anchorHomeDomain: required("ANCHOR_HOME_DOMAIN"),
     pactlyHomeDomain: required("PACTLY_HOME_DOMAIN"),
-    pactlyAuthSigningSecret: required("PACTLY_AUTH_SIGNING_SECRET"),
+    pactlyAuthSigningSecret: secret("PACTLY_AUTH_SIGNING_SECRET", 32),
     escrowContractId: declared("ESCROW_CONTRACT_ID"),
     adminWallets: list("PACTLY_ADMIN_WALLETS"),
     databasePath: databasePath("DATABASE_PATH"),

@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { Keypair, WebAuth } from "@stellar/stellar-sdk";
 
 import { getOrRefreshAnchorJwt } from "../src/services/auth.js";
+import { AnchorSignerMismatchError } from "../src/anchor/errors.js";
 import { getAnchorJwt, upsertAnchorJwt } from "../src/db/anchorJwts.js";
 import { config } from "../src/config.js";
 import type { FetchLike } from "../src/anchor/stellar-toml.js";
@@ -132,6 +133,25 @@ test("a cached JWT expiring exactly now is treated as expired (not reused)", asy
   }
 });
 
+test("a cached JWT with only a few seconds left (inside the freshness margin) is treated as stale, not reused", async () => {
+  const result = openTestDatabase();
+  try {
+    const wallet = Keypair.random();
+    const { token, tomlFetch, sep10Fetch } = anchorFixture(wallet);
+    const now = 1_000_000;
+    // 10s of real time left -- "still valid" by a naive `expiresAt > now`
+    // check, but inside the 30-60s safety margin: handing this out would
+    // very plausibly have it rejected by the anchor mid-request.
+    await upsertAnchorJwt(result.db, { walletAddress: wallet.publicKey(), jwt: "almost-expired-jwt", expiresAt: now + 10_000 });
+
+    const jwt = await getOrRefreshAnchorJwt(result.db, wallet.publicKey(), wallet, { tomlFetch, sep10Fetch, now: () => now });
+    assert.equal(jwt, token);
+    assert.notEqual(jwt, "almost-expired-jwt");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
 test("a signer that does not match walletAddress is refused before any network access", async () => {
   const result = openTestDatabase();
   try {
@@ -143,7 +163,7 @@ test("a signer that does not match walletAddress is refused before any network a
           tomlFetch: async () => unreachable(),
           sep10Fetch: async () => unreachable(),
         }),
-      TypeError,
+      AnchorSignerMismatchError,
     );
   } finally {
     closeDatabase(result);

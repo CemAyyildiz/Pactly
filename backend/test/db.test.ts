@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm";
 
 import { getBookingById, updateBalanceState, updateEscrowState } from "../src/db/bookings.js";
 import { getAnchorJwt, upsertAnchorJwt } from "../src/db/anchorJwts.js";
+import { redeemChallengeNonceIfUnused } from "../src/db/challengeNonces.js";
 import { getCursor, setCursor } from "../src/db/cursor.js";
 import { getProcessedEvent, insertProcessedEventIfNew } from "../src/db/processedEvents.js";
 import { providerApplications, reviews } from "../src/db/schema.js";
@@ -137,6 +138,28 @@ test("upsertAnchorJwt replaces a wallet's cached anchor JWT in place (never a se
     const row = await getAnchorJwt(result.db, "GWALLET1");
     assert.equal(row?.jwt, "jwt-2");
     assert.equal(row?.expiresAt, 2_000);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("redeemChallengeNonceIfUnused returns true for a fresh nonce and false for a replay of the same one", async () => {
+  const result = openTestDatabase();
+  try {
+    const first = await redeemChallengeNonceIfUnused(result.db, "nonce-1", Date.now() + 1_000);
+    assert.equal(first, true);
+    const replay = await redeemChallengeNonceIfUnused(result.db, "nonce-1", Date.now() + 1_000);
+    assert.equal(replay, false);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("redeemChallengeNonceIfUnused treats different nonces independently", async () => {
+  const result = openTestDatabase();
+  try {
+    assert.equal(await redeemChallengeNonceIfUnused(result.db, "nonce-a", Date.now() + 1_000), true);
+    assert.equal(await redeemChallengeNonceIfUnused(result.db, "nonce-b", Date.now() + 1_000), true);
   } finally {
     closeDatabase(result);
   }

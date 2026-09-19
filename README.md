@@ -86,7 +86,7 @@ scripts/            # testnet funding, trustlines, deployment (npm run setup:tes
 
 ```bash
 npm install                 # installs both workspaces (backend, frontend)
-cp .env.example .env        # the defaults point at Stellar testnet and run as-is
+cp .env.example .env        # the defaults point at Stellar testnet and run as-is (PACTLY_AUTH_SIGNING_SECRET ships a random placeholder good for local dev only -- rotate it before deploying anywhere real)
 npm run dev                 # backend + frontend together
 ```
 

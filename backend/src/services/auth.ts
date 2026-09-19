@@ -17,10 +17,17 @@ import { verifyPactlyJwt, type PactlyJwtOptions, type VerifiedPactlyJwt } from "
 import { config } from "../config.js";
 import { discoverAnchorSepEndpoints, type FetchLike } from "../anchor/stellar-toml.js";
 import { runAnchorSep10, type Sep10FetchLike } from "../anchor/sep10.js";
+import { AnchorSignerMismatchError } from "../anchor/errors.js";
 import { getAnchorJwt, upsertAnchorJwt } from "../db/anchorJwts.js";
 import type { Db } from "../db/client.js";
 
 export { verifyPactlyJwt, type PactlyJwtOptions, type VerifiedPactlyJwt };
+
+/** A cached anchor JWT within this margin of its real expiry is treated as
+ * stale and refreshed early, rather than handed out and then rejected by
+ * the anchor mid-request (a token with only milliseconds left is
+ * technically "still valid" but practically useless to a caller). */
+const CACHE_FRESHNESS_MARGIN_MS = 30_000;
 
 export interface GetOrRefreshAnchorJwtDeps {
   /** Injectable clock -- defaults to the real one. Lets a test assert the
@@ -49,13 +56,13 @@ export async function getOrRefreshAnchorJwt(
   deps: GetOrRefreshAnchorJwtDeps = {},
 ): Promise<string> {
   if (signer.publicKey() !== walletAddress) {
-    throw new TypeError(
+    throw new AnchorSignerMismatchError(
       `signer (${signer.publicKey()}) does not match walletAddress (${walletAddress}); the anchor's SEP-10 exchange requires the named wallet's own signature.`,
     );
   }
   const now = deps.now ?? (() => Date.now());
   const cached = await getAnchorJwt(db, walletAddress);
-  if (cached && cached.expiresAt > now()) {
+  if (cached && cached.expiresAt > now() + CACHE_FRESHNESS_MARGIN_MS) {
     return cached.jwt;
   }
 

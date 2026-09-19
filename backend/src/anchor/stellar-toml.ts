@@ -74,6 +74,25 @@ function requireField(toml: Record<string, unknown>, key: string, homeDomain: st
   return value.trim();
 }
 
+/** Same as {@link requireField}, plus: the URL must declare `https:` --
+ * refused before it is ever used to request a challenge from or submit a
+ * signed one to, since a `stellar.toml` served over HTTPS declaring a
+ * plain-`http:` `WEB_AUTH_ENDPOINT` cannot be trusted to reach the anchor
+ * it claims to. */
+function requireHttpsUrlField(toml: Record<string, unknown>, key: string, homeDomain: string): string {
+  const value = requireField(toml, key, homeDomain);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new AnchorDiscoveryError(`${homeDomain}'s stellar.toml field "${key}" is not a valid URL: "${value}"`);
+  }
+  if (url.protocol !== "https:") {
+    throw new AnchorDiscoveryError(`${homeDomain}'s stellar.toml field "${key}" must be an https: URL, got "${value}"`);
+  }
+  return value;
+}
+
 function optionalField(toml: Record<string, unknown>, key: string): string | undefined {
   const value = toml[key];
   return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
@@ -96,7 +115,7 @@ export function parseSepEndpoints(tomlBody: string, homeDomain: string): AnchorS
   }
   const table = parsed as Record<string, unknown>;
   return {
-    webAuthEndpoint: requireField(table, "WEB_AUTH_ENDPOINT", homeDomain),
+    webAuthEndpoint: requireHttpsUrlField(table, "WEB_AUTH_ENDPOINT", homeDomain),
     signingKey: requireField(table, "SIGNING_KEY", homeDomain),
     transferServer: optionalField(table, "TRANSFER_SERVER"),
     kycServer: optionalField(table, "KYC_SERVER"),

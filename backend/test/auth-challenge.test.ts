@@ -3,11 +3,14 @@
  * challenge (issued and verified entirely by this backend, never the
  * anchor's) and its own JWT. Nothing here reaches the network -- challenge
  * construction/verification is pure cryptography over a transaction
- * envelope, and clock-dependent cases (challenge expiry, JWT expiry) are
- * driven through an injected/mocked clock rather than a real wait, per the
- * story's own testing constraint. Covers the I/O matrix's full
- * chain-of-custody for Pactly's login: challenge issued -> signed ->
- * verified -> JWT usable, plus every refusal row.
+ * envelope plus a real, temporary SQLite database (`openDatabase(":memory:")`)
+ * for the replay guard, and clock-dependent cases (challenge expiry, JWT
+ * expiry) are driven through an injected/mocked clock rather than a real
+ * wait, per the story's own testing constraint. Covers the I/O matrix's
+ * full chain-of-custody for Pactly's login: challenge issued -> signed ->
+ * verified -> JWT usable, plus every refusal row, including the challenge
+ * replay guard (patch round: a live HTTP probe showed the same signed
+ * envelope could be replayed for unlimited fresh tokens before this).
  */
 import "./testConfigEnv.js";
 import { test } from "node:test";
@@ -23,10 +26,12 @@ import {
 import {
   PactlyChallengeExpiredError,
   PactlyChallengeInvalidError,
+  PactlyChallengeReplayedError,
   PactlyInvalidAccountError,
   PactlyJwtError,
 } from "../src/auth/errors.js";
 import { config } from "../src/config.js";
+import { closeDatabase, openTestDatabase } from "./helpers.js";
 
 /** Decodes a challenge XDR and signs it as the given wallet, returning the
  * base64 envelope a caller would submit to `/auth/verify`. */
@@ -54,70 +59,126 @@ test("buildPactlyChallenge rejects a public key that is not a valid Stellar acco
 });
 
 test("chain of custody: challenge issued -> signed by the named wallet -> verified -> Pactly JWT usable", async () => {
-  const wallet = Keypair.random();
-  const challengeXdr = buildPactlyChallenge(wallet.publicKey());
-  const signedXdr = signChallenge(challengeXdr, wallet);
-
-  const verified = verifyPactlyChallenge(signedXdr);
-  assert.equal(verified.walletAddress, wallet.publicKey());
-
-  const token = await issuePactlyJwt(verified.walletAddress);
-  const session = await verifyPactlyJwt(token);
-  assert.equal(session.walletAddress, wallet.publicKey());
-});
-
-test("verifyPactlyChallenge rejects a challenge signed by a different key", () => {
-  const named = Keypair.random();
-  const impostor = Keypair.random();
-  const challengeXdr = buildPactlyChallenge(named.publicKey());
-  const signedByImpostor = signChallenge(challengeXdr, impostor);
-
-  assert.throws(() => verifyPactlyChallenge(signedByImpostor), PactlyChallengeInvalidError);
-});
-
-test("verifyPactlyChallenge rejects an unsigned challenge with the same error shape as a wrong-signer one", () => {
-  const named = Keypair.random();
-  const challengeXdr = buildPactlyChallenge(named.publicKey());
-  // Never signed by the wallet at all (only by Pactly's own server key,
-  // already present in `challengeXdr`).
-
-  const impostor = Keypair.random();
-  const signedByImpostor = signChallenge(challengeXdr, impostor);
-
-  let unsignedError: unknown;
-  let wrongSignerError: unknown;
+  const result = openTestDatabase();
   try {
-    verifyPactlyChallenge(challengeXdr);
-  } catch (error) {
-    unsignedError = error;
-  }
-  try {
-    verifyPactlyChallenge(signedByImpostor);
-  } catch (error) {
-    wrongSignerError = error;
-  }
+    const wallet = Keypair.random();
+    const challengeXdr = buildPactlyChallenge(wallet.publicKey());
+    const signedXdr = signChallenge(challengeXdr, wallet);
 
-  assert.ok(unsignedError instanceof PactlyChallengeInvalidError);
-  assert.ok(wrongSignerError instanceof PactlyChallengeInvalidError);
-  assert.equal((unsignedError as Error).name, (wrongSignerError as Error).name);
-  assert.equal((unsignedError as Error).message, (wrongSignerError as Error).message);
+    const verified = await verifyPactlyChallenge(result.db, signedXdr);
+    assert.equal(verified.walletAddress, wallet.publicKey());
+
+    const token = await issuePactlyJwt(verified.walletAddress);
+    const session = await verifyPactlyJwt(token);
+    assert.equal(session.walletAddress, wallet.publicKey());
+  } finally {
+    closeDatabase(result);
+  }
 });
 
-test("verifyPactlyChallenge rejects an expired challenge, naming the expiry", (t) => {
-  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
-  const wallet = Keypair.random();
-  const challengeXdr = buildPactlyChallenge(wallet.publicKey());
-  const signedXdr = signChallenge(challengeXdr, wallet);
+test("verifyPactlyChallenge rejects a challenge signed by a different key", async () => {
+  const result = openTestDatabase();
+  try {
+    const named = Keypair.random();
+    const impostor = Keypair.random();
+    const challengeXdr = buildPactlyChallenge(named.publicKey());
+    const signedByImpostor = signChallenge(challengeXdr, impostor);
 
-  // The challenge's own 300s timeout, plus the SDK's own 300s grace period
-  // (baked into readChallengeTx/verifyChallengeTxSigners) -- past both.
-  t.mock.timers.tick(601_000);
+    await assert.rejects(() => verifyPactlyChallenge(result.db, signedByImpostor), PactlyChallengeInvalidError);
+  } finally {
+    closeDatabase(result);
+  }
+});
 
-  assert.throws(() => verifyPactlyChallenge(signedXdr), (error: unknown) => {
-    assert.ok(error instanceof PactlyChallengeExpiredError);
-    assert.match(error.message, /expired/i);
-    return true;
-  });
+test("verifyPactlyChallenge rejects an unsigned challenge with the same error shape as a wrong-signer one", async () => {
+  const result = openTestDatabase();
+  try {
+    const named = Keypair.random();
+    const challengeXdr = buildPactlyChallenge(named.publicKey());
+    // Never signed by the wallet at all (only by Pactly's own server key,
+    // already present in `challengeXdr`).
+
+    const impostor = Keypair.random();
+    const signedByImpostor = signChallenge(challengeXdr, impostor);
+
+    let unsignedError: unknown;
+    let wrongSignerError: unknown;
+    try {
+      await verifyPactlyChallenge(result.db, challengeXdr);
+    } catch (error) {
+      unsignedError = error;
+    }
+    try {
+      await verifyPactlyChallenge(result.db, signedByImpostor);
+    } catch (error) {
+      wrongSignerError = error;
+    }
+
+    assert.ok(unsignedError instanceof PactlyChallengeInvalidError);
+    assert.ok(wrongSignerError instanceof PactlyChallengeInvalidError);
+    assert.equal((unsignedError as Error).name, (wrongSignerError as Error).name);
+    assert.equal((unsignedError as Error).message, (wrongSignerError as Error).message);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("verifyPactlyChallenge rejects an expired challenge, naming the expiry", async (t) => {
+  const result = openTestDatabase();
+  try {
+    t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+    const wallet = Keypair.random();
+    const challengeXdr = buildPactlyChallenge(wallet.publicKey());
+    const signedXdr = signChallenge(challengeXdr, wallet);
+
+    // The challenge's own 300s timeout, plus the SDK's own 300s grace period
+    // (baked into readChallengeTx/verifyChallengeTxSigners) -- past both.
+    t.mock.timers.tick(601_000);
+
+    await assert.rejects(() => verifyPactlyChallenge(result.db, signedXdr), (error: unknown) => {
+      assert.ok(error instanceof PactlyChallengeExpiredError);
+      assert.match(error.message, /expired/i);
+      return true;
+    });
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("verifyPactlyChallenge rejects a second submission of the same signed challenge (replay)", async () => {
+  const result = openTestDatabase();
+  try {
+    const wallet = Keypair.random();
+    const challengeXdr = buildPactlyChallenge(wallet.publicKey());
+    const signedXdr = signChallenge(challengeXdr, wallet);
+
+    const first = await verifyPactlyChallenge(result.db, signedXdr);
+    assert.equal(first.walletAddress, wallet.publicKey());
+
+    // The exact same signed envelope, submitted again -- this is precisely
+    // what a live HTTP probe demonstrated returning 200 with a fresh token
+    // twice before the replay guard existed.
+    await assert.rejects(() => verifyPactlyChallenge(result.db, signedXdr), PactlyChallengeReplayedError);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("two different wallets' challenges do not collide in the replay guard", async () => {
+  const result = openTestDatabase();
+  try {
+    const walletA = Keypair.random();
+    const walletB = Keypair.random();
+    const signedA = signChallenge(buildPactlyChallenge(walletA.publicKey()), walletA);
+    const signedB = signChallenge(buildPactlyChallenge(walletB.publicKey()), walletB);
+
+    const verifiedA = await verifyPactlyChallenge(result.db, signedA);
+    const verifiedB = await verifyPactlyChallenge(result.db, signedB);
+    assert.equal(verifiedA.walletAddress, walletA.publicKey());
+    assert.equal(verifiedB.walletAddress, walletB.publicKey());
+  } finally {
+    closeDatabase(result);
+  }
 });
 
 test("issuePactlyJwt + verifyPactlyJwt round-trips the wallet address", async () => {

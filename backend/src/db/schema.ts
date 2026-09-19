@@ -136,6 +136,22 @@ export const reviews = sqliteTable("reviews", {
 });
 
 /**
+ * Single-use enforcement for Pactly's own SEP-10-shaped challenge (Story
+ * 2.1 patch round -- a live HTTP probe showed the same signed challenge
+ * could be replayed for unlimited fresh Pactly JWTs). `nonce` is the
+ * challenge's own `manage_data` value, unique per issued challenge;
+ * `../auth/challenge.ts` records one row here the first time a challenge
+ * verifies successfully, and refuses a second submission of the same
+ * nonce. `expiresAt` mirrors the challenge's own timebounds so a cleanup
+ * job (not yet needed at this scale) would know what is safe to prune.
+ */
+export const usedChallengeNonces = sqliteTable("used_challenge_nonces", {
+  nonce: text("nonce").primaryKey(),
+  expiresAt: integer("expires_at").notNull(),
+  usedAt: integer("used_at").notNull(),
+});
+
+/**
  * The anchor's JWT cache (Story 2.1): one row per wallet, keyed by wallet
  * address, so the anchor's real SEP-10 exchange is not re-run on every call
  * that needs it (`../anchor/sep10.ts` is expensive and hits a third

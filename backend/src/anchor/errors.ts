@@ -27,3 +27,14 @@ export class AnchorAuthError extends Error {
     this.name = "AnchorAuthError";
   }
 }
+
+/** A caller-supplied signer does not match the wallet address the anchor
+ * exchange (or the cache it feeds) was asked for -- refused before any
+ * network access, the same discipline `chain/client.ts`'s typed errors
+ * established. */
+export class AnchorSignerMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AnchorSignerMismatchError";
+  }
+}

@@ -40,6 +40,19 @@ export class PactlyInvalidAccountError extends Error {
   }
 }
 
+/** The challenge was valid and correctly signed, but its nonce (the
+ * `manage_data` value) was already redeemed by an earlier, successful
+ * `/auth/verify` call -- a replay of a signed envelope, not a fresh login.
+ * Kept distinct from {@link PactlyChallengeInvalidError} because the
+ * underlying cause is different (this challenge *did* check out once) and
+ * there is nothing sensitive to hide by naming it. */
+export class PactlyChallengeReplayedError extends Error {
+  constructor(message = "This challenge has already been used. Request a new one.") {
+    super(message);
+    this.name = "PactlyChallengeReplayedError";
+  }
+}
+
 /** Every way a Pactly JWT can fail to verify -- missing, expired or
  * tampered -- collapsed into one shape on purpose (I/O matrix: "same shape
  * as expired ... no signature-forgery oracle"). Never carries the
