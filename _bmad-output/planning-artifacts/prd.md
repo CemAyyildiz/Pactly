@@ -305,7 +305,7 @@ As a developer, I need a backend that holds booking and user data, so the fronte
 1. The provider profile (availability, price, deposit rate, cancellation policy) is stored.
 1a. Marketplace concepts are stored: category, provider application and its state, verified-session counter, review (see §3 Data Model Additions).
 2. Booking records are matched with the on-chain booking_id.
-3. Contract calls (create/release/resolve) can be made from the service layer.
+3. Contract calls can be made from the service layer: `create_booking`, `release`, `cancel_by_professional`, `cancel_by_client` and `claim_no_show`.
 4. Contract events are consumed and the booking state is updated.
 
 ---
