@@ -2,7 +2,7 @@
 title: 'Story 1.3 — Locking the deposit (create_booking)'
 type: 'feature'
 created: '2026-09-18'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '07ee8a697706684193a5d687344c53b122a048aa'
