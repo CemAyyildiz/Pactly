@@ -2,10 +2,10 @@
 title: 'Story 3.4 — Client booking flow (Lock with Pactly)'
 type: 'feature'
 created: '2026-09-19'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: 'ba00a8b4467f54643b4c45eff3bb745fa08ebc02'
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-2-6-trustless-work-escrow-adapter-and-reconciliation.md'
@@ -118,7 +118,28 @@ deferred: []
 
 ## Spec Change Log
 
+### 2026-09-20 — Review kararları (kullanıcının devrettiği yetki)
+- **Tetikleyen:** B1 (submit her XDR'ı iletiyor), B2/B3/I-R4/E4 (eskimiş deploy XDR'ı), B6 (akış ortasında hold'un süresi doluyor), E1/VG-O1 (FK hatası), B17 (iade edilmiş rezervasyon slotu tutuyor).
+- **Değişen:** (1) Submit yalnızca Pactly'nin bu rezervasyon için kurduğu deploy ya da fund işleminin hash'iyle eşleşen imzalı XDR'ı iletir. (2) Başarılı deploy submit'i kaydedilir ve hold 10 dakika uzatılır. Yeniden `lock` çağrısı bu kaydı görünce istemciyi doğrudan fund'a yönlendirir; kayıt yoksa istemci istediğinde deploy yeniden kurulur. `listEscrows` "zincirde yok" tahmini bu yoldan kaldırıldı. Fund, kayıtlı bir deploy submit'i gerektirir. (3) Süresi dolmuş bir hold'un bağlı olduğu slot silinmez, `withdrawn_at` ile geri çekilir. (4) `refunded` durumu slotu tutmaz. (5) Aynı cüzdan kendi hold'una geri döner. Cüzdan başına en fazla 3 aktif hold vardır. `sameDaySlots` istemcinin saat dilimiyle hesaplanır.
+- **Kaçınılan kötü durum:** Pactly'nin API anahtarının rastgele işlemler için kullanılması. Kurtarılamaz rezervasyonlar. Öksüz kalan escrow'lar. Müsaitlik kaydının tamamen kırılması. Satılamaz kalan slotlar.
+- **KEEP:** Atomik hold insert'i, sunucuda türetilen tutarlar, `stellar.toml` ile çözülen USDC, sahiplik kontrolünde 404'e düşürme, runner'da her tick'in izole çalışması, seal'in yalnızca reconcile edilmiş `locked` durumunda basılması, "Local currency" seçeneğinin kullanılamaz olarak gösterilmesi.
+
 ## Review Triage Log
+
+### 2026-09-20 — Review pass (4 katman, Opus: Blind Hunter, Intent Alignment, Edge Case Hunter, Verification Gap)
+- verdicts: 55 bulgu — high 8, medium 24, low 16, false 3, maybe-false 4
+- Kök neden grupları ve rotalar (satırlar grup içinde listelendi; hepsi patch değilse belirtildi):
+  - **G1 submit bağı (high, patch):** B1 submit her imzalı XDR'ı iletiyor; I-9 "her zincir çağrısı yalnızca o id ile" submit'te zorlanmıyor; E18 yabancıya 400 dönüp varlığı sızdırıyor (low) — hash eşleşmesi ve önce sahiplik kontrolü.
+  - **G2 deploy yeniden deneme durumu (high, patch):** B2 eskimiş XDR sonsuza dek dönüyor; B3 reddedilen imza ile gönderilmiş deploy ayırt edilemiyor, sahte txHash; I-R4 kurtarma yolu gerçek rezervasyonlarda erişilemez; E4 inmiş deploy yeniden imzalatılıyor; E17 retry'da txHash = contractId (low); I-R5 fund'un "deploy gönderildikten sonra" ön koşulu yok (medium); B11/E7 indexer boş dönünce ikinci escrow kurulur (maybe-false, high) — deploy submit kaydı + açık `rebuild`.
+  - **G3 akış ortasında süre dolması (high, patch):** B6 deploy sonrası hold'un süresi dolup escrow öksüz kalıyor — deploy submit'inde hold uzatılıyor.
+  - **G4 FK ile kırılan müsaitlik kaydı (high, patch):** E1, E20 (claim), VG-O1 (yeniden üretildi) — `withdrawn_at`.
+  - **G5 frontend akış state'i (high/medium, patch):** B4/E3/VG-O2 eski closure deploy'u yeniden imzalatıyor (high); B5/E5/VG-O3 "Open wallet again" ikinci akış ve olası çift fonlama (high); E2 ilk girişte hold token'sız gidiyor (high); E11/E19 HOLD_EXPIRED sonrası yeniden hold yolu yok; E12 geri sayım 0'da Lock açık; B13/E13 "Locking" ekranında sonsuz bekleme; E15 süresi dolan JWT kurtarılamıyor; B14 fund retry gerçek redleri gizliyor; E14/B15c `?slot=abc` NaN (low); I-R7 escrow kanıtı `locked` öncesi gösteriliyor (low).
+  - **G6 kendi hold'u ve kötüye kullanım (medium, patch):** B7/E10 yeniden yüklemede kendi hold'u SLOT_TAKEN; B10 cüzdan başına hold sınırı yok.
+  - **G7 sınır ve tanımlar (medium, patch):** B8/E8 süre dolma karşılaştırması tutarsız; B17 `refunded` slotu sonsuza dek tutuyor; B16 `slot_id` index'i yok (low); E6 eşzamanlı lock untyped 500.
+  - **G8 çift satış tespiti (medium, patch):** B9 aynı anomali her 30 sn yeniden loglanıyor ve asıl durum kaçıyor; E9 ve I-R3 aynı.
+  - **G9 doğrulama ve girdi (low/medium, patch):** B15b `slotStartsAt` tamsayı değil; I-R6 `sameDaySlots` UTC (low); E16 slot iptal penceresinin içindeyse deadline geçmiş (medium).
+  - **G10 testler (patch):** VG1 locked + süresi dolmuş hold slotu korumalı (high); VG2 profil/kart dışlaması testsiz; VG3 fund süresi ve route kodları testsiz; VG4 runner'ın canlı reconciler yolu testsiz (I-runner aynı); VG5 hold 201 testi canlı anchor'a bağlı; B18 test boşlukları; I-routes route hata kodları.
+  - **Reddedilen:** B12 frontend testnet'e sabit (low: demo yalnızca testnet, tek passphrase kaynağı sonraya); B15a runner config kontrolünde PLATFORM_ID yok (false: 2.6'da isteğe bağlı attribution başlığı); I-R1 cüzdanın hold'da istenmesi (false: hold için JWT şart, tek okuma bu); I-frontend testsiz (false: epic manuel doğrulamayı kabul ediyor); B11, E7, B2 alt noktaları, I-R5 ve I-R6 dışındaki maybe-false satırlar G2 ile ortadan kalkıyor.
 
 ## Design Notes
 
@@ -169,3 +190,15 @@ Status: implemented, not yet reviewed.
 - "Same day" for `SLOT_TAKEN`'s alternatives is computed in UTC, not the client's own timezone (the backend has no notion of it) -- for a viewer far from UTC this can occasionally omit or include a slot a strict local-day reading would not.
 - The hold-expiry tick is a read-only anomaly *detector* (logs a double-sale risk); it never mutates a row itself -- the actual slot-freeing is implicit at the next `holdSlot` call's own atomic insert. This matches the spec's "row is kept" rule but means no alert reaches anyone but the process log.
 - No frontend test runner exists in this workspace (Epic 3's own accepted gap); the booking flow's correctness rests on the backend's test suite plus this session's manual HTTP verification, not on an automated UI test.
+
+### Kapanış (2026-09-20)
+
+Status: done
+
+**Commit'ler:** `8e80be3`/`f4957a6` spec, `a2f5f7d` start, `be4f606` feat (worktree'de yazıldı, 3.3 ile çakışmalar birleştirmede çözüldü), fix(3.4), chore(3.4).
+
+**Review:** 55 bulgu (high 8, medium 24, low 16, false 3, maybe-false 4). G1–G10 patch edildi. Reddedilenler: B12, B15a, I-R1 ve I-frontend (gerekçeleri triage kaydında). Takip review önerisi: `true`. Submit bağı, deploy yeniden deneme durum makinesi ve `withdrawn_at` para yolunda bir sonraki review turundan geçmedi. Kullanıcının 2026-09-19 kuralı gereği takip turu çalıştırılmadı.
+
+**Doğrulama:** backend typecheck ve build temiz, test 331/331 (2 koşu); frontend typecheck ve build temiz.
+
+**Kalan riskler:** Gerçek Trustless Work anahtarıyla uçtan uca bir kilitleme hiç çalıştırılmadı (host dev.api mı beta.api mı, fund zamanlaması, gerçek read-model alanları). Frontend testi yok. Yerel para (SEP-6) Story 2.4'e bırakıldı.
