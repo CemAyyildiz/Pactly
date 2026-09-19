@@ -18,7 +18,9 @@
     "@stellar/stellar-sdk": "17.1.0",
     "better-sqlite3": "13.0.3",
     "drizzle-orm": "0.45.2",
-    "hono": "4.13.8"
+    "hono": "4.13.8",
+    "jose": "6.2.12",
+    "smol-toml": "1.8.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",

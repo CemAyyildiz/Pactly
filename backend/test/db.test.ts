@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { eq } from "drizzle-orm";
 
 import { getBookingById, updateBalanceState, updateEscrowState } from "../src/db/bookings.js";
+import { getAnchorJwt, upsertAnchorJwt } from "../src/db/anchorJwts.js";
 import { getCursor, setCursor } from "../src/db/cursor.js";
 import { getProcessedEvent, insertProcessedEventIfNew } from "../src/db/processedEvents.js";
 import { providerApplications, reviews } from "../src/db/schema.js";
@@ -102,6 +103,40 @@ test("setCursor persists and can be updated in place (restart resumes from the l
     assert.equal(await getCursor(result.db), "cursor-1");
     await setCursor(result.db, "cursor-2");
     assert.equal(await getCursor(result.db), "cursor-2");
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("getAnchorJwt is undefined for a wallet with no cached anchor JWT", async () => {
+  const result = openTestDatabase();
+  try {
+    assert.equal(await getAnchorJwt(result.db, "GNOCACHE"), undefined);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("upsertAnchorJwt writes a wallet's anchor JWT and getAnchorJwt reads it back", async () => {
+  const result = openTestDatabase();
+  try {
+    await upsertAnchorJwt(result.db, { walletAddress: "GWALLET1", jwt: "jwt-1", expiresAt: 1_000 });
+    const row = await getAnchorJwt(result.db, "GWALLET1");
+    assert.equal(row?.jwt, "jwt-1");
+    assert.equal(row?.expiresAt, 1_000);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("upsertAnchorJwt replaces a wallet's cached anchor JWT in place (never a second row)", async () => {
+  const result = openTestDatabase();
+  try {
+    await upsertAnchorJwt(result.db, { walletAddress: "GWALLET1", jwt: "jwt-1", expiresAt: 1_000 });
+    await upsertAnchorJwt(result.db, { walletAddress: "GWALLET1", jwt: "jwt-2", expiresAt: 2_000 });
+    const row = await getAnchorJwt(result.db, "GWALLET1");
+    assert.equal(row?.jwt, "jwt-2");
+    assert.equal(row?.expiresAt, 2_000);
   } finally {
     closeDatabase(result);
   }

@@ -31,6 +31,8 @@ writeFileSync(
     'STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"',
     "SOROBAN_RPC_URL=https://soroban-testnet.stellar.org",
     "ANCHOR_HOME_DOMAIN=tr-mock-anchor.fly.dev",
+    "PACTLY_HOME_DOMAIN=pactly.test",
+    "PACTLY_AUTH_SIGNING_SECRET=test-signing-secret-not-for-production-use",
     "ESCROW_CONTRACT_ID=",
     "PACTLY_ADMIN_WALLETS=",
     "DATABASE_PATH=./data/pactly-test.db",

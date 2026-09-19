@@ -33,6 +33,8 @@ function baseEnv(port: number): NodeJS.ProcessEnv {
     STELLAR_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015",
     SOROBAN_RPC_URL: "https://soroban-testnet.stellar.org",
     ANCHOR_HOME_DOMAIN: "tr-mock-anchor.fly.dev",
+    PACTLY_HOME_DOMAIN: "pactly.test",
+    PACTLY_AUTH_SIGNING_SECRET: "test-signing-secret-not-for-production-use",
     ESCROW_CONTRACT_ID: "",
     PACTLY_ADMIN_WALLETS: "",
     DATABASE_PATH: "./data/pactly.db",
@@ -52,6 +54,17 @@ test("exits 1 and names the variable when a required one is unset", async () => 
   const code = await new Promise<number | null>((done) => child.on("exit", done));
   assert.equal(code, 1);
   assert.match(stderr, /SOROBAN_RPC_URL/);
+});
+
+test("exits 1 and names the variable when PACTLY_AUTH_SIGNING_SECRET is unset", async () => {
+  const env = baseEnv(await freePort());
+  delete env.PACTLY_AUTH_SIGNING_SECRET;
+  const child = startBackend(env);
+  let stderr = "";
+  child.stderr.on("data", (chunk) => (stderr += chunk));
+  const code = await new Promise<number | null>((done) => child.on("exit", done));
+  assert.equal(code, 1);
+  assert.match(stderr, /PACTLY_AUTH_SIGNING_SECRET/);
 });
 
 test("starts and serves /health when declared-but-empty variables are empty", async () => {

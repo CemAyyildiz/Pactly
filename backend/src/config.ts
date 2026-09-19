@@ -76,6 +76,13 @@ export interface Config {
   stellarNetworkPassphrase: string;
   sorobanRpcUrl: string;
   anchorHomeDomain: string;
+  /** The domain Pactly's own SEP-10-shaped challenge is issued under (AD-5)
+   * -- never the anchor's home domain, which is `anchorHomeDomain` above. */
+  pactlyHomeDomain: string;
+  /** Signs Pactly's own JWT (via `jose`) and, domain-separated, derives the
+   * server keypair Pactly's own challenge is issued and verified under (see
+   * `auth/challenge.ts`). Never the anchor's key. */
+  pactlyAuthSigningSecret: string;
   /** Empty until the escrow contract is deployed (Story 1.7). */
   escrowContractId: string;
   /** Stellar account ids granted the `admin` role (AD-12). */
@@ -90,6 +97,8 @@ function loadConfig(): Config {
     stellarNetworkPassphrase: required("STELLAR_NETWORK_PASSPHRASE"),
     sorobanRpcUrl: required("SOROBAN_RPC_URL"),
     anchorHomeDomain: required("ANCHOR_HOME_DOMAIN"),
+    pactlyHomeDomain: required("PACTLY_HOME_DOMAIN"),
+    pactlyAuthSigningSecret: required("PACTLY_AUTH_SIGNING_SECRET"),
     escrowContractId: declared("ESCROW_CONTRACT_ID"),
     adminWallets: list("PACTLY_ADMIN_WALLETS"),
     databasePath: databasePath("DATABASE_PATH"),

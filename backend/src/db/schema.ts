@@ -136,6 +136,23 @@ export const reviews = sqliteTable("reviews", {
 });
 
 /**
+ * The anchor's JWT cache (Story 2.1): one row per wallet, keyed by wallet
+ * address, so the anchor's real SEP-10 exchange is not re-run on every call
+ * that needs it (`../anchor/sep10.ts` is expensive and hits a third
+ * party; `../services/auth.ts` reads this first and only refreshes once
+ * `expiresAt` has actually passed). Never read by any route directly, and
+ * never present in this backend's own HTTP responses -- only the Pactly JWT
+ * goes to the caller (AD-5).
+ */
+export const anchorJwts = sqliteTable("anchor_jwts", {
+  walletAddress: text("wallet_address").primaryKey(),
+  jwt: text("jwt").notNull(),
+  /** Epoch milliseconds, decoded from the anchor's own JWT `exp` claim. */
+  expiresAt: integer("expires_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/**
  * The event worker's own bookkeeping (AD-9): a single row holding the last
  * processed RPC events cursor. `id` is always `1` -- this table never holds
  * more than one row, so "the stored cursor" needs no further lookup key.

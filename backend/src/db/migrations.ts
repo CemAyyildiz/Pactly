@@ -72,6 +72,12 @@ const STATEMENTS: readonly string[] = [
     comment TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS anchor_jwts (
+    wallet_address TEXT PRIMARY KEY,
+    jwt TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS event_worker_state (
     id INTEGER PRIMARY KEY,
     cursor TEXT,
