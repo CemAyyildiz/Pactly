@@ -5,8 +5,9 @@
 //! Story 1.2 defines the on-chain data model — [`Booking`], [`BookingState`],
 //! [`Error`] and the storage keys — plus `initialize`, which records the
 //! administrator. Story 1.3 adds `create_booking`, the one path that locks a
-//! deposit in the contract's own custody. `release` and `resolve_cancel` arrive
-//! in Stories 1.4 and 1.5 and extend the same `#[contractimpl]` block.
+//! deposit in the contract's own custody, and Story 1.4 adds `release`, the one
+//! path it leaves for the professional. `resolve_cancel` arrives in Story 1.5
+//! and extends the same `#[contractimpl]` block.
 
 pub mod error;
 pub mod events;
@@ -151,6 +152,58 @@ impl EscrowContract {
         // Emitted last: the event is how the rest of the system learns money
         // moved, so it must not exist unless it did.
         events::Locked { booking_id, amount }.publish(&env);
+
+        Ok(())
+    }
+
+    /// Pay a locked deposit out to the booking's professional.
+    ///
+    /// Requires the authorization of the **client recorded on the booking**, not
+    /// of whoever submitted the transaction: the payer is the only party who can
+    /// declare the work done, so the platform's own key can never release a
+    /// deposit. The record has to be read before the contract knows whose
+    /// signature to demand, so the lookup precedes the auth check and an unknown
+    /// id is answerable without a signature — booking ids are generated off
+    /// chain and carry no secret.
+    ///
+    /// The full stored `amount` moves from `env.current_contract_address()` to
+    /// the professional through the booking's own token; no fee, no cut, no
+    /// partial release. The record then becomes [`BookingState::Released`],
+    /// which is terminal.
+    ///
+    /// [`Error::BookingNotFound`] for an unknown id, and [`Error::InvalidState`]
+    /// for a booking that has already been released or refunded — so a repeated
+    /// call pays the professional exactly once.
+    pub fn release(env: Env, booking_id: BookingId) -> Result<(), Error> {
+        let mut booking = storage::get_booking(&env, &booking_id)?;
+
+        booking.client.require_auth();
+
+        // Checked after auth: only the client may learn whether their own
+        // booking is still releasable.
+        if booking.state != BookingState::Locked {
+            return Err(Error::InvalidState);
+        }
+
+        // Same order as `create_booking`. Atomicity is the host's doing, not the
+        // ordering's: a token that traps aborts the whole invocation and rolls
+        // back every write, so no booking can read `Released` without the money
+        // having moved whichever way round these two run. The order that is kept
+        // is the house pattern — one shape for every money path in this
+        // contract, so `resolve_cancel` has nothing new to decide.
+        TokenClient::new(&env, &booking.token).transfer(
+            &env.current_contract_address(),
+            &booking.professional,
+            &booking.amount,
+        );
+
+        booking.state = BookingState::Released;
+        let amount = booking.amount;
+        storage::set_booking(&env, &booking_id, &booking);
+
+        // Emitted last, for the same reason as `locked`: the event must not
+        // exist unless the money really moved.
+        events::Released { booking_id, amount }.publish(&env);
 
         Ok(())
     }

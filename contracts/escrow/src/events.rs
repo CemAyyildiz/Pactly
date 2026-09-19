@@ -2,8 +2,9 @@
 //!
 //! Events are the only way the rest of the system learns that money moved, so
 //! their names and payloads are a public contract: Epic 2's event worker reads
-//! them, and Stories 1.4 and 1.5 add their own events here rather than
-//! publishing ad hoc topics at a call site.
+//! them, and every story adds its event here rather than publishing ad hoc
+//! topics at a call site. Story 1.5's refund event joins `locked` and
+//! `released` below.
 //!
 //! Wire shape, fixed for all of them: topics are `(name, booking_id)` and the
 //! data is the amount alone. The booking id sits in the topics so a consumer
@@ -32,5 +33,22 @@ pub struct Locked {
     #[topic]
     pub booking_id: BookingId,
     /// Deposit amount in the token's smallest unit.
+    pub amount: i128,
+}
+
+/// A deposit has left the contract for the professional.
+///
+/// Emitted by `release` only after the transfer out of the contract address
+/// succeeded, so the event's existence means the money really moved. Its wire
+/// shape is [`Locked`]'s, so the event worker handles both symmetrically.
+///
+/// Topics: `("released", booking_id)`. Data: `amount`.
+#[contractevent(topics = ["released"], data_format = "single-value")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Released {
+    /// The booking whose deposit was paid out.
+    #[topic]
+    pub booking_id: BookingId,
+    /// Amount paid to the professional, in the token's smallest unit.
     pub amount: i128,
 }
