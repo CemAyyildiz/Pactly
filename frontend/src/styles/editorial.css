@@ -1,0 +1,572 @@
+/**
+ * "Editorial Warmth" — the app-wide visual language adopted 2026-09-20
+ * (see `tokens.css`'s own header). Loaded globally from `main.tsx`;
+ * `.editorial-page` is the shared page-shell class any page can use for
+ * the warm masthead/trust-strip/card patterns first built for Discover.
+ * Keeps the escrow-black + Pactly-blue trust vocabulary (deposit pill,
+ * verified badge) untouched — only paper tone, type rhythm, card format
+ * and icon set change.
+ */
+.editorial-page {
+  background: var(--color-paper);
+  color: var(--color-body);
+  min-height: 100vh;
+  padding: var(--space-8) var(--space-gutter) var(--space-14);
+  max-width: 1180px;
+  margin: 0 auto;
+  font-family: var(--font-body);
+}
+
+.editorial-page * {
+  box-sizing: border-box;
+}
+
+/* ---------- Masthead ---------- */
+
+.editorial-masthead {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-bottom: var(--space-7);
+  border-bottom: 1px solid var(--color-rule-strong);
+  margin-bottom: var(--space-8);
+}
+
+.editorial-masthead__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-label);
+  font-size: var(--text-12);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-warm);
+}
+
+.editorial-masthead__eyebrow svg {
+  flex: none;
+}
+
+.editorial-masthead h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(2.4rem, 5vw, var(--text-56));
+  line-height: 1.02;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+  margin: 0;
+}
+
+.editorial-masthead__sub {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--text-18);
+  color: var(--color-muted);
+  max-width: 46ch;
+  margin: 0;
+}
+
+/* Compact sibling used by every non-Discover page (`PageMasthead`). */
+.editorial-masthead--page {
+  gap: var(--space-2);
+  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-6);
+}
+
+.editorial-masthead--page h1 {
+  font-size: clamp(2rem, 4vw, var(--text-44));
+}
+
+.editorial-masthead__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.editorial-masthead__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: var(--text-14);
+  font-weight: 600;
+}
+
+.editorial-masthead__actions a {
+  color: var(--color-ink);
+  text-decoration: none;
+  padding-bottom: 2px;
+  border-bottom: 1px solid transparent;
+}
+
+.editorial-masthead__actions a:hover {
+  border-bottom-color: var(--color-ink);
+}
+
+/* ---------- Trust strip ---------- */
+
+.editorial-trust {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-8);
+}
+
+.editorial-trust__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  background: var(--color-card);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+}
+
+.editorial-trust__item svg {
+  flex: none;
+  color: var(--color-accent);
+  margin-top: 2px;
+}
+
+.editorial-trust__item--live svg {
+  color: #1a7a4c;
+}
+
+.editorial-trust__item p {
+  margin: 0;
+  font-size: var(--text-13);
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
+.editorial-trust__item b {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+/* ---------- Search + filters row ---------- */
+
+.editorial-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+.editorial-controls .search-box {
+  flex: 1;
+}
+
+.editorial-filters-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 44px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-rule-strong);
+  background: var(--color-card);
+  color: var(--color-ink);
+  font-family: var(--font-label);
+  font-size: var(--text-14);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.editorial-filters-trigger:hover {
+  border-color: var(--color-warm);
+  color: var(--color-warm-ink);
+}
+
+/* ---------- Category rail (restyled, same CategoryTabs component) ---------- */
+
+.editorial-page .category-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0;
+  margin-bottom: var(--space-7);
+  border: none;
+}
+
+.editorial-page .category-tab {
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-rule-strong);
+  background: var(--color-card);
+  color: var(--color-body);
+  font-family: var(--font-label);
+}
+
+.editorial-page .category-tab--selected {
+  background: var(--color-ink);
+  border-color: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.editorial-page .category-tab__count {
+  opacity: 0.6;
+}
+
+/* ---------- Results heading ---------- */
+
+.editorial-results-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.editorial-results-head h2 {
+  font-family: var(--font-display);
+  font-size: var(--text-27);
+  font-weight: 600;
+  color: var(--color-ink);
+  margin: 0;
+}
+
+.editorial-results-head p {
+  margin: 4px 0 0;
+  font-size: var(--text-13);
+  color: var(--color-muted);
+}
+
+/* ---------- Layout: rail + results ---------- */
+
+.editorial-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: var(--space-8);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .editorial-layout {
+    grid-template-columns: 1fr;
+  }
+  .editorial-rail {
+    display: none;
+  }
+}
+
+.editorial-rail {
+  background: var(--color-card);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  position: sticky;
+  top: var(--space-6);
+}
+
+/* ---------- Featured (hero) card ---------- */
+
+.editorial-featured {
+  position: relative;
+  display: grid;
+  grid-template-columns: 220px 1fr auto;
+  gap: var(--space-6);
+  align-items: center;
+  background: var(--color-card);
+  border: 1px solid var(--color-rule-strong);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  margin-bottom: var(--space-7);
+}
+
+@media (max-width: 720px) {
+  .editorial-featured {
+    grid-template-columns: 1fr;
+    text-align: left;
+  }
+}
+
+.editorial-featured__link {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.editorial-featured__tile {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(160deg, var(--color-warm-soft), var(--color-canvas));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.editorial-featured__tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.editorial-featured__initials {
+  font-family: var(--font-display);
+  font-size: var(--text-38);
+  font-weight: 600;
+  color: var(--color-warm-ink);
+}
+
+.editorial-featured__badge {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--color-warm);
+  color: #fff;
+  font-size: var(--text-11);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+}
+
+.editorial-featured__eyebrow {
+  font-family: var(--font-label);
+  font-size: var(--text-12);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-warm-ink);
+  margin: 0 0 6px;
+}
+
+.editorial-featured__name {
+  font-family: var(--font-display);
+  font-size: var(--text-30);
+  font-weight: 600;
+  color: var(--color-ink);
+  margin: 0;
+}
+
+.editorial-featured__role {
+  font-size: var(--text-14);
+  color: var(--color-muted);
+  margin: 2px 0 var(--space-3);
+}
+
+.editorial-featured__quote {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--text-15);
+  color: var(--color-body);
+  margin: 0 0 var(--space-4);
+  max-width: 46ch;
+}
+
+.editorial-featured__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  font-size: var(--text-13);
+  color: var(--color-muted);
+}
+
+.editorial-featured__meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.editorial-featured__meta svg {
+  color: var(--color-accent);
+}
+
+.editorial-featured__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-3);
+  position: relative;
+}
+
+@media (max-width: 720px) {
+  .editorial-featured__side {
+    align-items: flex-start;
+  }
+}
+
+.editorial-cta {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-accent);
+  color: #fff;
+  font-family: var(--font-label);
+  font-weight: 600;
+  font-size: var(--text-14);
+  padding: 0 var(--space-5);
+  height: 46px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+}
+
+.editorial-cta:hover {
+  background: var(--color-accent-ink);
+}
+
+/* ---------- Grid of compact editorial cards ---------- */
+
+.editorial-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-5);
+}
+
+.editorial-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-card);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  gap: var(--space-3);
+}
+
+.editorial-card__link {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.editorial-card__top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.editorial-card__tile {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-md);
+  background: var(--color-canvas);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex: none;
+}
+
+.editorial-card__tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.editorial-card__initials {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--color-warm-ink);
+}
+
+.editorial-card__name {
+  font-family: var(--font-display);
+  font-size: var(--text-17);
+  font-weight: 600;
+  color: var(--color-ink);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.editorial-card__name svg {
+  color: var(--color-accent);
+  flex: none;
+}
+
+.editorial-card__role {
+  font-size: var(--text-12-5);
+  color: var(--color-muted);
+  margin: 2px 0 0;
+}
+
+.editorial-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--text-12-5);
+  color: var(--color-muted);
+}
+
+.editorial-card__meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.editorial-card__meta svg {
+  color: var(--color-warm);
+}
+
+/* The production `.deposit-row` pill assumes a wider row (it was designed
+   for `provider-card__deposit`'s own full-width slot); this narrower
+   compact card needs its caption to truncate instead of overflowing past
+   the card edge. */
+.editorial-page .editorial-card .deposit-row,
+.editorial-page .editorial-featured .deposit-row {
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+}
+
+.editorial-page .editorial-card .deposit-row__caption,
+.editorial-page .editorial-featured .deposit-row__caption {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.editorial-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-rule);
+}
+
+.editorial-card__price {
+  font-family: var(--font-body);
+  font-weight: 700;
+  color: var(--color-ink);
+}
+
+.editorial-card__cta {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-accent-ink);
+  font-weight: 600;
+  font-size: var(--text-13);
+}
+
+.editorial-card__cta svg {
+  transition: transform 150ms ease;
+}
+
+.editorial-card:hover .editorial-card__cta svg {
+  transform: translateX(3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editorial-card:hover .editorial-card__cta svg {
+    transform: none;
+  }
+}

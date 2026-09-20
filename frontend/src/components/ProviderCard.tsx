@@ -1,14 +1,21 @@
-import { Link, useNavigate } from "react-router";
+import { motion, useReducedMotion } from "motion/react";
+import { ArrowRightIcon, ClockIcon, MapPinIcon, SealCheckIcon } from "@phosphor-icons/react";
+import { Link } from "react-router";
 
 import type { ProviderCard as ProviderCardData } from "../api/types";
 import { formatMoney } from "../lib/money";
 import { providerPhotoSrc } from "../lib/providerPhotos";
 import { formatSessionFormat } from "../lib/sessionFormat";
 import { DepositPill } from "./DepositPill";
-import { SlotChip } from "./SlotChip";
 
 export interface ProviderCardProps {
   provider: ProviderCardData;
+  /** `"featured"` is the Discover page's own magazine-style hero for its
+   * first result; every other result renders `"compact"` (the default). */
+  variant?: "featured" | "compact";
+  /** Stagger index for the compact grid's entrance animation (ui-ux-pro-max
+   * `stagger-list`: 0.03-0.06s per item). Unused for `variant="featured"`. */
+  index?: number;
 }
 
 /** Two-letter initials for the photo tile -- there is no photo field
@@ -22,7 +29,6 @@ function initialsFor(displayName: string): string {
   const trimmed = displayName.trim();
   const words = trimmed.split(/\s+/).filter((word) => word.length > 0);
   const nameWords = words.length > 1 && words[0]!.endsWith(".") ? words.slice(1) : words;
-
   let initials = "";
   if (nameWords.length === 1) {
     initials = nameWords[0]!.replace(/\./g, "").slice(0, 2).toUpperCase();
@@ -32,113 +38,128 @@ function initialsFor(displayName: string): string {
   return initials || trimmed.slice(0, 1).toUpperCase();
 }
 
-function placeLabel(provider: ProviderCardData): string {
-  const title = provider.title.toLowerCase();
-  if (title.includes("clinic") || title.includes("transplant")) return "CLINIC";
-  if (title.includes("salon")) return "SALON";
-  if (title.includes("barber")) return "SHOP";
-  switch (provider.category.slug) {
-    case "fitness-and-beauty":
-      return "SHOP";
-    case "education-and-lessons":
-      return "STUDIO";
-    default:
-      return "OFFICE";
-  }
-}
-
-function depositRateLabel(priceAmount: string, depositAmount: string): string | undefined {
-  try {
-    const price = BigInt(priceAmount);
-    const deposit = BigInt(depositAmount);
-    if (price <= 0n) return undefined;
-    const percent = Number((deposit * 100n) / price);
-    return `deposit ${percent}%`;
-  } catch {
-    return undefined;
-  }
-}
-
-/** DESIGN.md's `card-provider`, ported from `discover-v2-marketplace.html`'s
- * own `.card`: a white marketplace card with a photo tile, role pill,
- * escrow deposit capsule, open slots, and a blue "Lock with Pactly" CTA.
- *
- * The whole card links to `/providers/:id` through a "stretched link" --
- * an absolutely-positioned, otherwise empty `<a>` painted first, so the
- * slot chips and the CTA (real buttons/links painted after it, lifted with
- * `position: relative`) sit visually and for hit-testing above it and
- * never also trigger the card's own navigation. This avoids ever nesting a
- * `<button>` inside an `<a>` (invalid HTML) while still making the whole
- * card a single, keyboard-reachable link with one visible focus ring. */
-export function ProviderCard({ provider }: ProviderCardProps) {
-  const navigate = useNavigate();
+/** "Editorial Warmth" provider card (adopted app-wide 2026-09-20, replacing
+ * the original flat marketplace-row card): a magazine-style featured hero
+ * for the Discover page's first result, compact cards for the rest. The
+ * whole card links to `/providers/:id` through a "stretched link" -- an
+ * absolutely-positioned, otherwise empty `<a>` painted first, so the real
+ * buttons/links painted after it sit above it for hit-testing and never
+ * also trigger the card's own navigation, without ever nesting a
+ * `<button>` inside an `<a>`. */
+export function ProviderCard({ provider, variant = "compact", index = 0 }: ProviderCardProps) {
+  const reduceMotion = useReducedMotion();
   const initials = initialsFor(provider.displayName);
   const photoSrc = providerPhotoSrc(provider.id);
   const firstSlot = provider.earliestSlots[0];
   const lockHref = firstSlot ? `/book/${provider.id}?slot=${firstSlot}` : `/providers/${provider.id}`;
-  const rateLabel = depositRateLabel(provider.price.amount, provider.deposit.amount);
+
+  const tile = photoSrc ? (
+    <img src={photoSrc} alt="" />
+  ) : (
+    <span className={variant === "featured" ? "editorial-featured__initials" : "editorial-card__initials"}>{initials}</span>
+  );
+
+  if (variant === "featured") {
+    return (
+      <motion.article
+        className="editorial-featured"
+        initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: "easeOut" }}
+      >
+        <Link to={`/providers/${provider.id}`} className="editorial-featured__link" aria-label={`View ${provider.displayName}`} />
+        <div className="editorial-featured__tile" aria-hidden="true">
+          {tile}
+          <span className="editorial-featured__badge">Featured near you</span>
+        </div>
+        <div>
+          <p className="editorial-featured__eyebrow">{provider.category.name}</p>
+          <h3 className="editorial-featured__name">{provider.displayName}</h3>
+          <p className="editorial-featured__role">{provider.title}</p>
+          <p className="editorial-featured__quote">
+            {provider.verifiedSessionCount > 0
+              ? `“${provider.verifiedSessionCount} verified sessions, deposit held in escrow until the appointment is done.”`
+              : "“Deposit held in escrow until the appointment is done — no blind prepay.”"}
+          </p>
+          <div className="editorial-featured__meta">
+            <span>
+              <MapPinIcon size={15} weight="fill" aria-hidden="true" />
+              {provider.location}
+            </span>
+            <span>
+              <ClockIcon size={15} weight="fill" aria-hidden="true" />
+              {formatSessionFormat(provider.sessionFormat)} · {provider.sessionLengthMinutes} min
+            </span>
+            {provider.verifiedSessionCount > 0 ? (
+              <span>
+                <SealCheckIcon size={15} weight="fill" aria-hidden="true" />
+                {provider.verifiedSessionCount} verified
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <div className="editorial-featured__side">
+          <span className="editorial-card__price" style={{ fontSize: "var(--text-18)" }}>
+            {formatMoney(provider.price.amount, provider.price.asset)}
+          </span>
+          <DepositPill
+            variant="row"
+            amount={provider.deposit.amount}
+            asset={provider.deposit.asset}
+            cancellationWindowHours={provider.cancellationWindowHours}
+          />
+          <Link to={lockHref} className="editorial-cta">
+            {firstSlot ? "Lock with Pactly" : "View calendar"}
+            <ArrowRightIcon size={16} weight="bold" aria-hidden="true" />
+          </Link>
+        </div>
+      </motion.article>
+    );
+  }
 
   return (
-    <article className="provider-card">
-      <Link to={`/providers/${provider.id}`} className="provider-card__link" aria-label={`View ${provider.displayName}`} />
-
-      <div className={`provider-card__monogram provider-card__monogram--${provider.category.slug}`} aria-hidden="true">
-        {photoSrc ? <img src={photoSrc} alt="" className="provider-card__photo" /> : null}
-        <span className="provider-card__place">{placeLabel(provider)}</span>
-        {provider.verifiedSessionCount > 0 ? <span className="provider-card__verified">✓</span> : null}
-        {photoSrc ? null : <span className="provider-card__initials">{initials}</span>}
-      </div>
-
-      <div className="provider-card__body">
-        <h3 className="provider-card__name">{provider.displayName}</h3>
-        <span className="provider-card__role">{provider.title}</span>
-        <p className="provider-card__meta">
-          {formatSessionFormat(provider.sessionFormat)} · {provider.sessionLengthMinutes} min. Deposit holds the
-          chair if a client no-shows.
-        </p>
-        <div className="provider-card__stats">
-          <span>
-            <b>{provider.verifiedSessionCount} verified</b> · {provider.providerCancellationCount} cancellations
-          </span>
-          <span>{provider.location}</span>
-          <span>
-            {formatSessionFormat(provider.sessionFormat)} · {provider.sessionLengthMinutes} min
-          </span>
+    <motion.article
+      className="editorial-card"
+      initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: "easeOut", delay: reduceMotion ? 0 : Math.min(index, 10) * 0.04 }}
+    >
+      <Link to={`/providers/${provider.id}`} className="editorial-card__link" aria-label={`View ${provider.displayName}`} />
+      <div className="editorial-card__top">
+        <div className="editorial-card__tile" aria-hidden="true">
+          {tile}
+        </div>
+        <div>
+          <h3 className="editorial-card__name">
+            {provider.displayName}
+            {provider.verifiedSessionCount > 0 ? <SealCheckIcon size={14} weight="fill" aria-label="Verified provider" /> : null}
+          </h3>
+          <p className="editorial-card__role">{provider.title}</p>
         </div>
       </div>
-
-      <div className="provider-card__price-rail">
-        <div className="provider-card__price-lab">Service</div>
-        <div className="provider-card__price tabular-nums">{formatMoney(provider.price.amount, provider.price.asset)}</div>
-        {rateLabel ? <div className="provider-card__price-note">{rateLabel}</div> : null}
+      <div className="editorial-card__meta">
+        <span>
+          <MapPinIcon size={13} aria-hidden="true" />
+          {provider.location}
+        </span>
+        <span>
+          <ClockIcon size={13} aria-hidden="true" />
+          {provider.sessionLengthMinutes} min
+        </span>
       </div>
-
-      <div className="provider-card__deposit">
-        <DepositPill
-          variant="row"
-          amount={provider.deposit.amount}
-          asset={provider.deposit.asset}
-          cancellationWindowHours={provider.cancellationWindowHours}
-        />
-      </div>
-
-      <div className="provider-card__slots">
-        {provider.earliestSlots.map((startsAt, index) => (
-          <SlotChip
-            key={startsAt}
-            startsAt={startsAt}
-            showDay
-            selected={index === 0}
-            onSelect={() => navigate(`/providers/${provider.id}?slot=${startsAt}`)}
-          />
-        ))}
-        <Link
-          to={lockHref}
-          className={firstSlot ? "provider-card__cta" : "provider-card__cta provider-card__cta--ghost"}
-        >
-          {firstSlot ? "Lock with Pactly →" : "View calendar"}
+      <DepositPill
+        variant="row"
+        amount={provider.deposit.amount}
+        asset={provider.deposit.asset}
+        cancellationWindowHours={provider.cancellationWindowHours}
+      />
+      <div className="editorial-card__foot">
+        <span className="editorial-card__price tabular-nums">{formatMoney(provider.price.amount, provider.price.asset)}</span>
+        <Link to={lockHref} className="editorial-card__cta">
+          {firstSlot ? "Lock" : "View"}
+          <ArrowRightIcon size={14} weight="bold" aria-hidden="true" />
         </Link>
       </div>
-    </article>
+    </motion.article>
   );
 }

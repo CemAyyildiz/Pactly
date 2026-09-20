@@ -1,20 +1,25 @@
 /**
  * DESIGN.md tokens as CSS custom properties.
  *
- * Visual reference: `mockups/discover-v2-marketplace.html` — cool grey
- * canvas, white cards, Instrument Sans with Newsreader display, blue
- * `#1F4BFF` as the marketplace accent, escrow black for the deposit pill.
+ * "Editorial Warmth" — the app-wide direction adopted 2026-09-20, replacing
+ * the original `discover-v2-marketplace.html` cool-grey palette. Warm paper
+ * tones, Newsreader serif for display headlines, Instrument Sans for body,
+ * a terracotta `--color-warm` for decorative/eyebrow accents. The escrow
+ * black and Pactly blue (`--color-escrow`, `--color-accent`) are the trust
+ * vocabulary — deposit pill, verified badge, primary CTA — and keep their
+ * role even though their exact values shifted warmer; every consumer reads
+ * them by variable, never by hex, so nothing downstream needed to change.
  */
 :root {
-  --color-paper: #f4f5f7;
-  --color-canvas: #e8eaee;
-  --color-card: #ffffff;
-  --color-ink: #111318;
-  --color-body: #111318;
-  --color-muted: #5c6370;
-  --color-rule: #e3e5ea;
-  --color-rule-strong: #c9cdd6;
-  --color-lane: #ffffff;
+  --color-paper: #faf6ee;
+  --color-canvas: #f2e9d6;
+  --color-card: #fffdf8;
+  --color-ink: #1c1a15;
+  --color-body: #2b271f;
+  --color-muted: #7a7160;
+  --color-rule: #e7dcc2;
+  --color-rule-strong: #d8c99f;
+  --color-lane: #fffdf8;
 
   --color-accent: #1f4bff;
   --color-accent-soft: #e8edff;
@@ -24,14 +29,22 @@
   --color-stellar-soft: var(--color-accent-soft);
   --color-gold-ink: var(--color-accent-ink);
 
-  --color-escrow: #111318;
-  --color-escrow-text: #f4f5f7;
-  --color-escrow-muted: #8c919c;
-  --color-escrow-line: #2a2d36;
+  /* Decorative-only warm accent (eyebrows, featured badges, category
+   * highlights) — never used for money-path/trust elements; those stay on
+   * `--color-accent`/`--color-escrow` so the deposit vocabulary doesn't
+   * compete with decoration. */
+  --color-warm: #b1502a;
+  --color-warm-soft: #f5e3d4;
+  --color-warm-ink: #7c3417;
+
+  --color-escrow: #17140e;
+  --color-escrow-text: #faf6ee;
+  --color-escrow-muted: #9a8f78;
+  --color-escrow-line: #332c20;
   --color-ok: #1a7a4c;
   --color-alert: #9a3412;
   --color-alert-soft: #fbeae0;
-  --color-disabled-text: #9aa1ad;
+  --color-disabled-text: #a89d89;
 
   --font-display: "Newsreader", Georgia, serif;
   --font-heading: "Instrument Sans", system-ui, sans-serif;

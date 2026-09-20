@@ -1,26 +1,21 @@
 /** Six of these show on the Discover page's first load (AC5), matching
- * `ProviderCard`'s own layout so the page never jumps once real cards
- * arrive. The pulse animation honours `prefers-reduced-motion` in CSS
- * (`.skeleton-block`, `styles/base.css`), never here. */
+ * `ProviderCard`'s own compact-card layout so the page never jumps once
+ * real cards arrive. The pulse animation honours `prefers-reduced-motion`
+ * in CSS (`.skeleton-block`, `styles/base.css`), never here. */
 export function ProviderCardSkeleton() {
   return (
-    <article className="provider-card provider-card--skeleton" aria-hidden="true">
-      <div className="provider-card__monogram provider-card__monogram--skeleton skeleton-block" />
-      <div className="provider-card__body">
-        <div className="skeleton-block skeleton-block--name" />
-        <div className="skeleton-block skeleton-block--meta" />
-        <div className="skeleton-block skeleton-block--meta" />
+    <article className="editorial-card" aria-hidden="true">
+      <div className="editorial-card__top">
+        <div className="skeleton-block skeleton-block--tile" />
+        <div style={{ flex: 1 }}>
+          <div className="skeleton-block skeleton-block--name" />
+          <div className="skeleton-block skeleton-block--meta" />
+        </div>
       </div>
-      <div className="provider-card__price-rail">
+      <div className="skeleton-block skeleton-block--meta" style={{ width: "60%" }} />
+      <div className="skeleton-block skeleton-block--pill-sm" />
+      <div className="editorial-card__foot">
         <div className="skeleton-block skeleton-block--price" />
-      </div>
-      <div className="provider-card__deposit">
-        <div className="skeleton-block skeleton-block--pill" />
-      </div>
-      <div className="provider-card__slots">
-        <div className="skeleton-block skeleton-block--chip" />
-        <div className="skeleton-block skeleton-block--chip" />
-        <div className="skeleton-block skeleton-block--chip" />
       </div>
     </article>
   );

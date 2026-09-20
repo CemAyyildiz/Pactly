@@ -6,6 +6,7 @@ import { BrowserRouter } from "react-router";
 import { App } from "./App";
 import "./styles/tokens.css";
 import "./styles/base.css";
+import "./styles/editorial.css";
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {

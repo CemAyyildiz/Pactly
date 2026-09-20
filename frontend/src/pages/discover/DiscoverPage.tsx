@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
+import { motion, useReducedMotion } from "motion/react";
+import { FunnelSimpleIcon, PulseIcon, ScrollIcon, ShieldCheckIcon } from "@phosphor-icons/react";
 
 import { useCategories, useDiscoverProviders, useProviderSuggestions } from "../../api/hooks";
 import type { DiscoverAvailability, DiscoverSuggestion } from "../../api/types";
@@ -24,20 +26,22 @@ const MIN_DEPOSIT_RATE_BPS_FILTER = 1;
 const MAX_DEPOSIT_RATE_BPS_FILTER = 10000;
 
 /**
- * `/` -- the Discover page. Story 3.2 built the category rail, the card
- * grid, and its URL state; Story 3.3 adds the search box (with debounced
- * autocomplete), the filter rail/bottom sheet, and the richer "no results"
- * state, all sitting on top of 3.2's list without replacing it.
+ * `/discover` -- the Discover page, in the "Editorial Warmth" format
+ * adopted app-wide 2026-09-20 (see `styles/tokens.css`'s own header):
+ * a magazine masthead, a featured hero card for the first result, and
+ * Phosphor icons throughout. The filter/URL-state logic below is
+ * unchanged from the original marketplace-grid version -- only the
+ * presentation changed.
  *
- * Every filter and the query live in the URL alongside 3.2's own
- * `category` (`q`, `format` [repeated], `minPrice`, `maxPrice`,
- * `maxDepositBps`, `when`) so the back button restores them and results
- * update without a reload (AC4). An unknown or invalid value is simply
- * absent from what this page reads back out of `searchParams` -- the
- * backend applies the same "ignore, never error" rule to whatever actually
- * reaches it (the spec's own "Always" rule).
+ * Every filter and the query live in the URL alongside `category` (`q`,
+ * `format` [repeated], `minPrice`, `maxPrice`, `maxDepositBps`, `when`) so
+ * the back button restores them and results update without a reload. An
+ * unknown or invalid value is simply absent from what this page reads back
+ * out of `searchParams` -- the backend applies the same "ignore, never
+ * error" rule to whatever actually reaches it.
  */
 export function DiscoverPage() {
+  const reduceMotion = useReducedMotion();
   const [searchParams, setSearchParams] = useSearchParams();
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const categoriesQuery = useCategories();
@@ -187,6 +191,7 @@ export function DiscoverPage() {
 
   const selectedCategoryName = categories.find((category) => category.slug === selectedSlug)?.name;
   const providers = providersQuery.data?.providers ?? [];
+  const [featured, ...rest] = providers;
   const showProvidersSkeleton = waitingForCategoryResolution || providersQuery.isLoading;
 
   const activeFilterCount = [formats.length > 0, minPrice !== undefined || maxPrice !== undefined, maxDepositBps !== undefined, availability !== undefined].filter(Boolean).length;
@@ -233,10 +238,46 @@ export function DiscoverPage() {
     : `${providers.length} ${providers.length === 1 ? "place" : "places"}${resultsQualifier ? ` · ${resultsQualifier}` : ""}`;
 
   return (
-    <div className="page discover">
-      <h1 className="discover__heading">Discover</h1>
+    <div className="editorial-page">
+      <motion.header
+        className="editorial-masthead"
+        initial={reduceMotion ? false : { opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+      >
+        <span className="editorial-masthead__eyebrow">
+          <ScrollIcon size={14} weight="bold" aria-hidden="true" />
+          Pactly Journal — local appointments
+        </span>
+        <h1>Discover, held in trust</h1>
+        <p className="editorial-masthead__sub">
+          A hand-picked look at shops, salons and clinics — every seat backed by a deposit that waits in escrow, not
+          your provider&rsquo;s pocket.
+        </p>
+      </motion.header>
 
-      <div className="discover__search-row">
+      <div className="editorial-trust">
+        <div className="editorial-trust__item">
+          <ShieldCheckIcon size={20} weight="fill" aria-hidden="true" />
+          <p>
+            <b>No blind prepay.</b> Deposit waits in escrow until the appointment happens.
+          </p>
+        </div>
+        <div className="editorial-trust__item">
+          <FunnelSimpleIcon size={20} weight="fill" aria-hidden="true" />
+          <p>
+            <b>Clear booking policy</b> for cancellations and no-shows, shown before you lock a slot.
+          </p>
+        </div>
+        <div className="editorial-trust__item editorial-trust__item--live">
+          <PulseIcon size={20} weight="fill" aria-hidden="true" />
+          <p>
+            <b>Trustless Work escrow</b> · operational
+          </p>
+        </div>
+      </div>
+
+      <div className="editorial-controls">
         <SearchBox
           value={q}
           onCommit={setQuery}
@@ -244,11 +285,8 @@ export function DiscoverPage() {
           suggestionsLoading={suggestionsQuery.isLoading}
           onSelectSuggestion={handleSelectSuggestion}
         />
-        <button
-          type="button"
-          className="discover__filters-trigger button-ghost"
-          onClick={() => setFilterSheetOpen(true)}
-        >
+        <button type="button" className="editorial-filters-trigger" onClick={() => setFilterSheetOpen(true)}>
+          <FunnelSimpleIcon size={16} weight="bold" aria-hidden="true" />
           Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
         </button>
       </div>
@@ -264,33 +302,21 @@ export function DiscoverPage() {
         <>
           <CategoryTabs categories={categories} selectedSlug={selectedSlug} onSelect={selectCategory} />
 
-          <div className="discover__trust">
-            <span>
-              <b>No blind prepay</b> — deposit waits in escrow until the appointment
-            </span>
-            <span>
-              <b>Clear booking policy</b> for cancellations and no-shows
-            </span>
-            <span className="discover__trust-live">Trustless Work escrow · operational</span>
-          </div>
-
-          <div className="discover__layout">
-            <div className="discover__rail">
+          <div className="editorial-layout">
+            <div className="editorial-rail">
               <FilterRail {...filterFieldsProps} />
             </div>
 
-            <div className="discover__results">
+            <div>
               {showProvidersSkeleton ? (
                 <>
-                  <div className="discover__results-head">
+                  <div className="editorial-results-head">
                     <div>
                       <h2>{resultsHeading}</h2>
-                      <div className="discover__results-meta">
-                        Physical appointments — shops, salons and clinics with a real chair or room
-                      </div>
+                      <p>Physical appointments — shops, salons and clinics with a real chair or room</p>
                     </div>
                   </div>
-                  <div className="provider-grid">
+                  <div className="editorial-grid">
                     {Array.from({ length: SKELETON_COUNT }, (_, index) => (
                       <ProviderCardSkeleton key={index} />
                     ))}
@@ -315,19 +341,22 @@ export function DiscoverPage() {
                 />
               ) : (
                 <>
-                  <div className="discover__results-head">
+                  <div className="editorial-results-head">
                     <div>
                       <h2>{resultsHeading}</h2>
-                      <div className="discover__results-meta">
-                        Physical appointments — shops, salons and clinics with a real chair or room
-                      </div>
+                      <p>Physical appointments — shops, salons and clinics with a real chair or room</p>
                     </div>
                   </div>
-                  <div className="provider-grid">
-                    {providers.map((provider) => (
-                      <ProviderCard key={provider.id} provider={provider} />
-                    ))}
-                  </div>
+
+                  {featured ? <ProviderCard provider={featured} variant="featured" /> : null}
+
+                  {rest.length > 0 ? (
+                    <div className="editorial-grid">
+                      {rest.map((provider, index) => (
+                        <ProviderCard key={provider.id} provider={provider} index={index} />
+                      ))}
+                    </div>
+                  ) : null}
                 </>
               )}
             </div>
