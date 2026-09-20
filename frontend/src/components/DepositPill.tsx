@@ -1,8 +1,8 @@
-import { formatMoney } from "../lib/money";
+import { TryAmount } from "./TryAmount";
 
 export interface DepositPillProps {
+  /** Integer string, USDC smallest units (AD-7) -- shown in TRY. */
   amount: string;
-  asset: string;
   cancellationWindowHours: number;
   /** Review follow-up: `true` only once a real hold's own `cancelDeadline`
    * has already passed -- overrides the generic window label with the
@@ -21,18 +21,20 @@ export interface DepositPillProps {
 
 /** DESIGN.md's `pill-deposit` -- amount and free-cancellation window
  * together, always. */
-export function DepositPill({ amount, asset, cancellationWindowHours, freeCancellationEnded, variant = "pill" }: DepositPillProps) {
+export function DepositPill({ amount, cancellationWindowHours, freeCancellationEnded, variant = "pill" }: DepositPillProps) {
   const windowLabel = freeCancellationEnded
     ? "free-cancellation window has passed"
     : cancellationWindowHours === 0
       ? "no free cancellation"
       : `full refund up to ${cancellationWindowHours}h before`;
-  const amountLabel = formatMoney(amount, asset);
 
   if (variant === "row") {
     return (
       <p className="deposit-row tabular-nums">
-        <b className="deposit-row__amount">{amountLabel}</b> deposit
+        <b className="deposit-row__amount">
+          <TryAmount amount={amount} />
+        </b>{" "}
+        deposit
         <span className="deposit-row__caption"> · {windowLabel}</span>
       </p>
     );
@@ -40,7 +42,10 @@ export function DepositPill({ amount, asset, cancellationWindowHours, freeCancel
 
   return (
     <p className="deposit-pill tabular-nums">
-      <b className="deposit-pill__amount">{amountLabel}</b> deposit
+      <b className="deposit-pill__amount">
+        <TryAmount amount={amount} />
+      </b>{" "}
+      deposit
       <span className="deposit-pill__caption">{windowLabel}</span>
     </p>
   );

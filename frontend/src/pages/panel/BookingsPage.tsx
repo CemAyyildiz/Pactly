@@ -9,7 +9,7 @@ import { BookingCard, BALANCE_STATE_LABEL } from "../../components/BookingCard";
 import { Countdown } from "../../components/Countdown";
 import { PageMasthead } from "../../components/PageMasthead";
 import { StateLabel } from "../../components/StateLabel";
-import { formatMoney } from "../../lib/money";
+import { TryAmount } from "../../components/TryAmount";
 import { shortenStellarId, stellarExplorerContractUrl, stellarExplorerTransactionUrl, trustlessWorkViewerUrl } from "../../lib/stellar";
 import { formatSlotDay, formatSlotTime } from "../../lib/time";
 import { SignInPanel } from "../../components/SignInPanel";
@@ -112,7 +112,7 @@ export function BookingsPage() {
                   <th>Balance</th>
                   <th>State</th>
                   <th>Free cancellation</th>
-                  <th>Explorer</th>
+                  <th>Records</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -125,9 +125,11 @@ export function BookingsPage() {
                         : "—"}
                     </td>
                     <td className="tabular-nums">{shortenStellarId(booking.clientWalletAddress)}</td>
-                    <td className="tabular-nums">{formatMoney(booking.deposit.amount, booking.deposit.asset)}</td>
                     <td className="tabular-nums">
-                      {formatMoney(booking.balance.amount, booking.balance.asset)} · {BALANCE_STATE_LABEL[booking.balanceState]}
+                      <TryAmount amount={booking.deposit.amount} />
+                    </td>
+                    <td className="tabular-nums">
+                      <TryAmount amount={booking.balance.amount} /> · {BALANCE_STATE_LABEL[booking.balanceState]}
                       {/* Review follow-up: lives in this cell, not
                        * `BookingActions`'s own Actions column, which renders
                        * nothing once the booking leaves `locked` -- exactly
@@ -137,7 +139,7 @@ export function BookingsPage() {
                         <>
                           {" · "}
                           <a href={stellarExplorerTransactionUrl(booking.balancePaymentTxHash)} target="_blank" rel="noreferrer">
-                            View on Stellar Expert
+                            View payment record
                           </a>
                         </>
                       )}
@@ -152,7 +154,7 @@ export function BookingsPage() {
                       {booking.contractId && (
                         <>
                           <a href={stellarExplorerContractUrl(booking.contractId)} target="_blank" rel="noreferrer">
-                            View on Stellar Expert
+                            View escrow record
                           </a>
                           {" · "}
                           <a href={trustlessWorkViewerUrl(booking.contractId)} target="_blank" rel="noreferrer">

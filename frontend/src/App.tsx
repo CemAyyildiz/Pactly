@@ -20,7 +20,7 @@ function TopBar() {
       <Link to="/" className="top-bar__brand">
         Pactly
       </Link>
-      <span className="top-bar__escrow-note">Escrow powered by Trustless Work · Stellar</span>
+      <span className="top-bar__escrow-note">Deposits held in escrow by Trustless Work</span>
       <nav className="top-bar__nav">
         <Link to="/discover">Discover</Link>
         <Link to="/me/bookings">My bookings</Link>

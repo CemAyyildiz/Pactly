@@ -1,19 +1,20 @@
 import { useEffect, useState } from "react";
 
-import { parseDecimalToSmallestUnit, smallestUnitToDecimalInput } from "../lib/money";
+import { useTryRate } from "../api/hooks";
+import { tryToUsdcSmallestUnit, usdcToTry } from "../lib/money";
 import { formatSessionFormat } from "../lib/sessionFormat";
 import type { DiscoverAvailability } from "../api/types";
 
 /** Same shape the backend's own `parseDiscoverFilters` requires (AD-7's
  * smallest-unit integer strings, `"0"` allowed) -- a `minPrice`/`maxPrice`
- * that fails this must never reach `smallestUnitToDecimalInput`'s own
- * `BigInt(...)` call below, even if some future caller forgets to
- * pre-validate it (defence in depth alongside `DiscoverPage`'s own read of
- * the URL). */
+ * that fails this must never reach `usdcToTry`'s own `BigInt(...)` call
+ * below, even if some future caller forgets to pre-validate it (defence in
+ * depth alongside `DiscoverPage`'s own read of the URL). */
 const NON_NEGATIVE_INTEGER_STRING = /^(0|[1-9]\d*)$/;
 
-function toPriceInputText(amount: string | undefined): string {
-  return amount !== undefined && NON_NEGATIVE_INTEGER_STRING.test(amount) ? smallestUnitToDecimalInput(amount) : "";
+/** The URL carries the smallest-unit string; the field shows lira. */
+function toPriceInputText(amount: string | undefined, rate: string): string {
+  return amount !== undefined && NON_NEGATIVE_INTEGER_STRING.test(amount) ? usdcToTry(amount, rate) : "";
 }
 
 /** The complete universe of `sessionFormat` values the demo seed and the
@@ -41,31 +42,35 @@ export interface FilterFieldsProps {
   onAvailabilityChange: (value: DiscoverAvailability | undefined) => void;
 }
 
-/** The min/max USDC price inputs -- local draft text so a half-typed
- * number is never clobbered by the URL's own re-render, committed on blur
- * or Enter (AC4: "every change updates results without a reload", not
- * necessarily on every keystroke). */
+/** The min/max price inputs, typed in TRY and converted to the URL's own
+ * smallest-unit string at the current rate -- local draft text so a
+ * half-typed number is never clobbered by the URL's own re-render,
+ * committed on blur or Enter (AC4: "every change updates results without a
+ * reload", not necessarily on every keystroke). A committed value is
+ * re-derived from the URL, so it may come back a kuruş off what was typed
+ * (two roundings at the rate) -- harmless for a filter bound. */
 function PriceRangeField({ minPrice, maxPrice, onPriceRangeChange }: Pick<FilterFieldsProps, "minPrice" | "maxPrice" | "onPriceRangeChange">) {
-  const [minText, setMinText] = useState(toPriceInputText(minPrice));
-  const [maxText, setMaxText] = useState(toPriceInputText(maxPrice));
+  const { rate } = useTryRate();
+  const [minText, setMinText] = useState(toPriceInputText(minPrice, rate));
+  const [maxText, setMaxText] = useState(toPriceInputText(maxPrice, rate));
 
   useEffect(() => {
-    setMinText(toPriceInputText(minPrice));
-  }, [minPrice]);
+    setMinText(toPriceInputText(minPrice, rate));
+  }, [minPrice, rate]);
   useEffect(() => {
-    setMaxText(toPriceInputText(maxPrice));
-  }, [maxPrice]);
+    setMaxText(toPriceInputText(maxPrice, rate));
+  }, [maxPrice, rate]);
 
   function commit() {
-    const min = minText.trim() === "" ? undefined : parseDecimalToSmallestUnit(minText);
-    const max = maxText.trim() === "" ? undefined : parseDecimalToSmallestUnit(maxText);
+    const min = minText.trim() === "" ? undefined : tryToUsdcSmallestUnit(minText, rate);
+    const max = maxText.trim() === "" ? undefined : tryToUsdcSmallestUnit(maxText, rate);
     onPriceRangeChange(min, max);
   }
 
   return (
     <div className="filter-field__price-range">
       <label className="filter-field__price-input">
-        <span>Min (USDC)</span>
+        <span>Min (TRY)</span>
         <input
           inputMode="decimal"
           value={minText}
@@ -77,7 +82,7 @@ function PriceRangeField({ minPrice, maxPrice, onPriceRangeChange }: Pick<Filter
         />
       </label>
       <label className="filter-field__price-input">
-        <span>Max (USDC)</span>
+        <span>Max (TRY)</span>
         <input
           inputMode="decimal"
           value={maxText}
@@ -207,7 +212,7 @@ export function FilterRail(props: FilterFieldsProps) {
       <FilterFields {...props} />
       <div className="filter-rail__depbox">
         <strong>Deposit holds the slot</strong>
-        Typical rate 20–30%. Held in Trustless Work escrow on Stellar. The booking policy
+        Typical rate 20–30%. Held in escrow by Trustless Work. The booking policy
         guides any cancellation or no-show resolution.
       </div>
     </aside>

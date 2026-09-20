@@ -69,7 +69,7 @@ export function LandingPage() {
               <p className="landing__mock-name">Marmara Hair Clinic</p>
               <p className="landing__mock-meta">Consultation · Istanbul · Fri 14:00</p>
               <div className="deposit-pill">
-                <span className="deposit-pill__amount">50 USDC</span>{" "}
+                <span className="deposit-pill__amount tabular-nums">2,400.00 TRY</span>{" "}
                 <span className="deposit-pill__caption">deposit · free cancellation until Thu 14:00</span>
               </div>
               <div className="landing__mock-status">
@@ -97,7 +97,7 @@ export function LandingPage() {
                 <CalendarBlankIcon size={22} aria-hidden="true" />
               </div>
               <h3>Discover and hold a slot</h3>
-              <p>Browse categories, pick an open slot, and hold it — no wallet needed yet.</p>
+              <p>Browse categories, pick an open slot, and hold it — nothing to pay yet.</p>
             </div>
             <div className="landing__step">
               <span className="landing__step-num-ghost">02</span>
@@ -106,8 +106,8 @@ export function LandingPage() {
               </div>
               <h3>Lock a deposit in escrow</h3>
               <p>
-                Connect a wallet and lock USDC, or pay in through a TRY bank transfer. Trustless Work holds the
-                deposit — not Pactly, not the provider.
+                Pay the deposit by bank transfer in TRY. Trustless Work holds it in escrow — not Pactly, not the
+                provider.
               </p>
             </div>
             <div className="landing__step">
@@ -211,14 +211,12 @@ export function LandingPage() {
         <div className="landing__section-inner">
           <div className="eyebrow-label">Built with</div>
           <div className="landing__badges">
-            <span className="landing__badge">Stellar testnet</span>
             <span className="landing__badge">
               <a href="https://www.trustlesswork.com/" target="_blank" rel="noreferrer">
                 Trustless Work escrow
               </a>
             </span>
-            <span className="landing__badge">USDC</span>
-            <span className="landing__badge">SEP-6 anchor · TRY sandbox</span>
+            <span className="landing__badge">Bank transfer · TRY sandbox</span>
           </div>
         </div>
       </section>
@@ -254,7 +252,7 @@ export function LandingPage() {
       <footer className="landing__footer">
         <div className="landing__section-inner landing__footer-inner">
           <span>Built for the Rise In × Stellar Pro Hackathon 2026 — Genesis Track.</span>
-          <span>Escrow powered by Trustless Work · Stellar testnet</span>
+          <span>Deposits held in escrow by Trustless Work</span>
         </div>
       </footer>
     </div>
