@@ -25,7 +25,22 @@ import {
   PactlyChallengeReplayedError,
   PactlyInvalidAccountError,
   PactlyJwtError,
+  PasskeyChallengeExpiredError,
+  PasskeyInvalidError,
+  PasskeyUnknownError,
 } from "./auth/errors.js";
+import {
+  beginPasskeyLogin,
+  beginPasskeyRegistration,
+  finishPasskeyLogin,
+  finishPasskeyRegistration,
+  type PasskeyDeps,
+} from "./auth/passkey.js";
+import { InvalidXdrError, NoCustodialAccountError } from "./custodial/errors.js";
+import { ensureAccountReadyInBackground, type EnsureAccountReadyDeps } from "./custodial/funding.js";
+import { signXdrForWallet } from "./custodial/keys.js";
+import { getUserByWalletAddress } from "./db/users.js";
+import { RateUnavailableError, getTryRate } from "./services/rate.js";
 import type { Db } from "./db/client.js";
 import {
   InvalidAvailabilitySlotsError,
@@ -253,6 +268,17 @@ export interface CreateAppOptions {
    * path makes (toml, SEP-10/12/6, SEP-38 limits, Horizon trustline check,
    * change-trust build/submit) -- a test never reaches the live anchor. */
   localDepositDeps?: LocalDepositDeps;
+  /** Passkey pivot: overrides the ceremony clock (`now`) so a test can
+   * expire a challenge without waiting. */
+  passkeyDeps?: PasskeyDeps;
+  /** Passkey pivot: overrides every network seam `ensureAccountReady`
+   * touches (friendbot, anchor toml, RPC build/submit). Defaults to the
+   * real network. A test that leaves this unset but never registers a
+   * user never triggers it either. */
+  accountReadyDeps?: EnsureAccountReadyDeps;
+  /** Passkey pivot: overrides `GET /rate`'s anchor `fetch` seam --
+   * defaults to `quoteFetchImpl`, since it is the same SEP-38 call. */
+  rateFetchImpl?: Sep38FetchLike;
 }
 
 export function createApp(db: Db, options: CreateAppOptions = {}): App {
@@ -261,6 +287,9 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
   const buildBalancePaymentDeps = options.buildBalancePaymentDeps ?? {};
   const submitBalancePaymentDeps = options.submitBalancePaymentDeps ?? {};
   const quoteFetchImpl = options.quoteFetchImpl;
+  const passkeyDeps = options.passkeyDeps ?? {};
+  const accountReadyDeps = options.accountReadyDeps ?? {};
+  const rateFetchImpl = options.rateFetchImpl ?? quoteFetchImpl;
   const localDepositDeps: LocalDepositDeps = {
     ...options.localDepositDeps,
     fetchImpl: options.localDepositDeps?.fetchImpl ?? (quoteFetchImpl as AnchorFetchLike | undefined),
@@ -318,6 +347,130 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
       }
       if (error instanceof PactlyChallengeInvalidError) {
         return c.json({ code: "challenge_invalid", message: error.message }, 401);
+      }
+      throw error;
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // Passkey pivot: sign-up/sign-in with a passkey, the embedded custodial
+  // account behind it, and the TRY rate the frontend prices everything in.
+  // The JWT these issue is the same Pactly JWT `/auth/verify` issues, with
+  // the custodial account's public key as `sub` -- every route below this
+  // block is unchanged.
+  // ---------------------------------------------------------------------
+
+  app.post("/auth/passkey/register/options", async (c) => {
+    const body = await c.req.json().catch(() => undefined);
+    const result = await beginPasskeyRegistration(db, { displayName: body?.displayName }, passkeyDeps);
+    return c.json(result);
+  });
+
+  app.post("/auth/passkey/register/verify", async (c) => {
+    const body = await c.req.json().catch(() => undefined);
+    const registrationId = typeof body?.registrationId === "string" ? body.registrationId : undefined;
+    const response: unknown = body?.response;
+    if (!registrationId || typeof response !== "object" || response === null) {
+      return c.json({ code: "invalid_request", message: "registrationId and response are required." }, 400);
+    }
+    try {
+      const session = await finishPasskeyRegistration(db, { registrationId, response }, passkeyDeps);
+      // Fund and open the trustline off the response path -- the user is
+      // signed in either way, and `GET /me/account` retries lazily.
+      ensureAccountReadyInBackground(db, session.walletAddress, accountReadyDeps);
+      return c.json(session, 201);
+    } catch (error) {
+      if (error instanceof PasskeyChallengeExpiredError) {
+        return c.json({ code: "CHALLENGE_EXPIRED", message: error.message }, 410);
+      }
+      if (error instanceof PasskeyInvalidError) {
+        return c.json({ code: "PASSKEY_INVALID", message: error.message }, 401);
+      }
+      throw error;
+    }
+  });
+
+  app.post("/auth/passkey/login/options", async (c) => {
+    const result = await beginPasskeyLogin(db, passkeyDeps);
+    return c.json(result);
+  });
+
+  app.post("/auth/passkey/login/verify", async (c) => {
+    const body = await c.req.json().catch(() => undefined);
+    const loginId = typeof body?.loginId === "string" ? body.loginId : undefined;
+    const response: unknown = body?.response;
+    if (!loginId || typeof response !== "object" || response === null) {
+      return c.json({ code: "invalid_request", message: "loginId and response are required." }, 400);
+    }
+    try {
+      const session = await finishPasskeyLogin(db, { loginId, response }, passkeyDeps);
+      return c.json(session);
+    } catch (error) {
+      if (error instanceof PasskeyUnknownError) {
+        return c.json({ code: "PASSKEY_UNKNOWN", message: error.message }, 404);
+      }
+      if (error instanceof PasskeyInvalidError) {
+        return c.json({ code: "PASSKEY_INVALID", message: error.message }, 401);
+      }
+      throw error;
+    }
+  });
+
+  /** The caller's own account: name, custodial wallet, and whether it is
+   * ready to hold USDC. A wallet-login JWT (no `users` row) gets the same
+   * `404 NO_CUSTODIAL_ACCOUNT` `/me/sign` gives. Either flag still false
+   * kicks the readiness job off again in the background -- the response
+   * itself never waits on friendbot or the network. */
+  app.get("/me/account", requirePactlyAuth, async (c) => {
+    const walletAddress = c.get("walletAddress");
+    const user = await getUserByWalletAddress(db, walletAddress);
+    if (!user) {
+      return c.json({ code: "NO_CUSTODIAL_ACCOUNT", message: "No Pactly account holds this wallet." }, 404);
+    }
+    if (!user.funded || !user.usdcTrustline) {
+      ensureAccountReadyInBackground(db, walletAddress, accountReadyDeps);
+    }
+    return c.json({
+      walletAddress: user.walletAddress,
+      displayName: user.displayName,
+      funded: user.funded,
+      usdcTrustline: user.usdcTrustline,
+    });
+  });
+
+  /** Signs an unsigned envelope with the caller's own custodial key -- the
+   * one place a user's secret is ever used, and only for the wallet the
+   * JWT names (there is no wallet field in the body to substitute). */
+  app.post("/me/sign", requirePactlyAuth, async (c) => {
+    const body = await c.req.json().catch(() => undefined);
+    const unsignedXdr = typeof body?.unsignedXdr === "string" ? body.unsignedXdr : undefined;
+    if (!unsignedXdr) {
+      return c.json({ code: "invalid_request", message: "unsignedXdr is required." }, 400);
+    }
+    try {
+      const signedXdr = await signXdrForWallet(db, c.get("walletAddress"), unsignedXdr);
+      return c.json({ signedXdr });
+    } catch (error) {
+      if (error instanceof NoCustodialAccountError) {
+        return c.json({ code: "NO_CUSTODIAL_ACCOUNT", message: error.message }, 404);
+      }
+      if (error instanceof InvalidXdrError) {
+        return c.json({ code: "invalid_request", message: error.message }, 400);
+      }
+      throw error;
+    }
+  });
+
+  /** TRY per 1 USDC, from the anchor's own SEP-38 price. Public, cached a
+   * minute, and served stale rather than failing when the anchor is down
+   * -- only a cold cache plus a down anchor is a `503`. */
+  app.get("/rate", async (c) => {
+    try {
+      const rate = await getTryRate({ fetchImpl: rateFetchImpl });
+      return c.json(rate);
+    } catch (error) {
+      if (error instanceof RateUnavailableError) {
+        return c.json({ code: "RATE_UNAVAILABLE", message: "We couldn't reach the currency exchange just now." }, 503);
       }
       throw error;
     }

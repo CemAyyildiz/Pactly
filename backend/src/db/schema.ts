@@ -520,6 +520,64 @@ export const escrowDisputeResolutions = sqliteTable("escrow_dispute_resolutions"
  * above, which records the *admin's* later decision, not the dispute's own
  * opening.
  */
+/**
+ * Passkey pivot: one row per person who signed up with a passkey. The
+ * custodial Stellar account this backend creates for them is the user's
+ * whole on-chain identity -- `walletAddress` is its public key and is the
+ * exact value every other table already keys on (`bookings
+ * .client_wallet_address`, `provider_profiles.wallet_address`, the Pactly
+ * JWT's own `sub`), so nothing downstream changes. `encryptedSecret` is
+ * the account's secret seed under AES-256-GCM (`../custodial/keys.ts`;
+ * `iv.tag.ciphertext`, base64url) -- never returned by any route, never
+ * logged. `funded`/`usdcTrustline` are the two best-effort readiness flags
+ * `../custodial/funding.ts` sets once friendbot and the change-trust have
+ * actually landed.
+ */
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  displayName: text("display_name").notNull().default(""),
+  walletAddress: text("wallet_address").notNull().unique(),
+  encryptedSecret: text("encrypted_secret").notNull(),
+  funded: integer("funded", { mode: "boolean" }).notNull().default(false),
+  usdcTrustline: integer("usdc_trustline", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at").notNull(),
+});
+
+/** A WebAuthn credential registered to a user. `id` is the base64url
+ * credential id the authenticator reports (what a discoverable-credential
+ * login sends back, so it is the lookup key); `publicKey` is the COSE key
+ * as base64url; `counter` is the signature counter
+ * `verifyAuthenticationResponse` checks and advances. */
+export const passkeyCredentials = sqliteTable("passkey_credentials", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id),
+  publicKey: text("public_key").notNull(),
+  counter: integer("counter").notNull().default(0),
+  /** JSON-encoded array of transport hints (`["internal"]`, ...). */
+  transports: text("transports").notNull().default("[]"),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const WEBAUTHN_CHALLENGE_KINDS = ["register", "login"] as const;
+export type WebauthnChallengeKind = (typeof WEBAUTHN_CHALLENGE_KINDS)[number];
+
+/** A pending passkey ceremony's challenge: issued by the `/options` step,
+ * consumed (deleted) exactly once by the matching `/verify` step. `userId`
+ * is the user id a registration will create the user under (pre-allocated
+ * so `id` and `registrationId` stay distinct); `displayName` carries the
+ * registration's own chosen name across the two steps, since the verify
+ * body only ever names the ceremony. `expiresAt` is epoch milliseconds. */
+export const webauthnChallenges = sqliteTable("webauthn_challenges", {
+  id: text("id").primaryKey(),
+  kind: text("kind", { enum: WEBAUTHN_CHALLENGE_KINDS }).notNull(),
+  challenge: text("challenge").notNull(),
+  userId: text("user_id"),
+  displayName: text("display_name"),
+  expiresAt: integer("expires_at").notNull(),
+});
+
 export const escrowDisputeOpenings = sqliteTable("escrow_dispute_openings", {
   bookingId: text("booking_id").primaryKey(),
   contractId: text("contract_id").notNull(),

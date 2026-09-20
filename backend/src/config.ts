@@ -66,6 +66,26 @@ function list(name: string): string[] {
     .filter((item) => item.length > 0);
 }
 
+/** A variable that may be absent or empty, falling back to `fallback` --
+ * for the passkey/custodial-account knobs (see `.env.example`), every one
+ * of which has a local-dev default so an existing `.env` (and every test
+ * fixture's temp env file) keeps working without being touched. */
+function optional(name: string, fallback: string): string {
+  const value = process.env[name];
+  if (value === undefined || value.trim() === "") {
+    return fallback;
+  }
+  return value.trim();
+}
+
+/** {@link optional}, split on commas like {@link list}. */
+function optionalList(name: string, fallback: string): string[] {
+  return optional(name, fallback)
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
 function databasePath(name: string): string {
   const value = required(name);
   return isAbsolute(value) ? value : resolve(backendDir, value);
@@ -122,6 +142,22 @@ export interface Config {
   trustlessWorkPlatformAddress: string;
   /** Absolute path; a relative DATABASE_PATH is resolved against backend/. */
   databasePath: string;
+  /** Passkey pivot: the key material every custodial account secret is
+   * encrypted under (`custodial/keys.ts`, AES-256-GCM; the actual key is a
+   * sha256 of this). Empty means "derive from `pactlyAuthSigningSecret`
+   * under a fixed prefix" so local dev keeps working with no new variable
+   * -- a real deployment sets its own, so rotating the JWT secret never
+   * silently locks every custodial account. */
+  custodialEncryptionKey: string;
+  /** Testnet friendbot, used once per custodial account to fund it
+   * (`custodial/funding.ts`). */
+  friendbotUrl: string;
+  /** WebAuthn relying-party id -- the frontend's own host (no scheme, no
+   * port), `localhost` in dev. */
+  passkeyRpId: string;
+  /** Every origin a passkey ceremony may be completed from (scheme + host
+   * + port) -- `http://localhost:5173` in dev; a comma list is allowed. */
+  passkeyRpOrigins: string[];
 }
 
 function loadConfig(): Config {
@@ -139,6 +175,10 @@ function loadConfig(): Config {
     trustlessWorkPlatformId: declared("TRUSTLESS_WORK_PLATFORM_ID"),
     trustlessWorkPlatformAddress: declared("TRUSTLESS_WORK_PLATFORM_ADDRESS"),
     databasePath: databasePath("DATABASE_PATH"),
+    custodialEncryptionKey: optional("PACTLY_CUSTODIAL_ENCRYPTION_KEY", ""),
+    friendbotUrl: optional("FRIENDBOT_URL", "https://friendbot.stellar.org"),
+    passkeyRpId: optional("PACTLY_RP_ID", "localhost"),
+    passkeyRpOrigins: optionalList("PACTLY_RP_ORIGIN", "http://localhost:5173"),
   };
 }
 

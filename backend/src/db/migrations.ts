@@ -145,6 +145,33 @@ const STATEMENTS: readonly string[] = [
     tx_hash TEXT NOT NULL,
     opened_at INTEGER NOT NULL
   )`,
+  // Passkey pivot: users with an embedded custodial account, their passkey
+  // credentials, and the consume-once WebAuthn challenges.
+  `CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL DEFAULT '',
+    wallet_address TEXT NOT NULL UNIQUE,
+    encrypted_secret TEXT NOT NULL,
+    funded INTEGER NOT NULL DEFAULT 0,
+    usdc_trustline INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS passkey_credentials (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    public_key TEXT NOT NULL,
+    counter INTEGER NOT NULL DEFAULT 0,
+    transports TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS webauthn_challenges (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    challenge TEXT NOT NULL,
+    user_id TEXT,
+    display_name TEXT,
+    expires_at INTEGER NOT NULL
+  )`,
 ];
 
 /** `true` when `table` already has a column named `column` -- `PRAGMA

@@ -53,6 +53,42 @@ export class PactlyChallengeReplayedError extends Error {
   }
 }
 
+// ---------------------------------------------------------------------
+// Passkey pivot (`passkey.ts`).
+// ---------------------------------------------------------------------
+
+/** The registration or login ceremony's challenge is gone -- never issued,
+ * already consumed, or past its expiry. All three collapse on purpose: the
+ * caller's remedy is the same (start the ceremony over). */
+export class PasskeyChallengeExpiredError extends Error {
+  constructor(message = "This sign-in attempt has expired. Please try again.") {
+    super(message);
+    this.name = "PasskeyChallengeExpiredError";
+  }
+}
+
+/** The credential the login response names is not registered here -- the
+ * frontend offers to create an account instead. Distinct from
+ * {@link PasskeyInvalidError} on purpose: an unknown credential id is not
+ * a forgery attempt, and a user who picked the wrong passkey needs to be
+ * told so. */
+export class PasskeyUnknownError extends Error {
+  constructor(message = "This passkey is not registered with Pactly.") {
+    super(message);
+    this.name = "PasskeyUnknownError";
+  }
+}
+
+/** The authenticator's response did not verify -- wrong origin/RP id,
+ * bad signature, malformed response, counter went backwards. Collapsed
+ * into one shape so nothing here works as a verification oracle. */
+export class PasskeyInvalidError extends Error {
+  constructor(message = "The passkey response could not be verified.") {
+    super(message);
+    this.name = "PasskeyInvalidError";
+  }
+}
+
 /** Every way a Pactly JWT can fail to verify -- missing, expired or
  * tampered -- collapsed into one shape on purpose (I/O matrix: "same shape
  * as expired ... no signature-forgery oracle"). Never carries the
