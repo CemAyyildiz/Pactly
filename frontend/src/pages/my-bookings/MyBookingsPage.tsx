@@ -1,47 +1,24 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { WalletIcon } from "@phosphor-icons/react";
+import { CalendarCheckIcon } from "@phosphor-icons/react";
 
-import { ApiError } from "../../api/client";
 import { useMyBookings } from "../../api/hooks";
 import { BookingCard } from "../../components/BookingCard";
 import { PageMasthead } from "../../components/PageMasthead";
-import { getSession, signIn, signOut, type Session } from "../../wallet";
-
-/** A sign-in failure that carries no field-level detail -- a declined
- * wallet signature, or a network drop mid-exchange (same shape as
- * `AvailabilityPage.tsx`'s own `saveErrorMessage`, this screen's own
- * equivalent case). */
-function signInErrorMessage(error: unknown): string {
-  return error instanceof ApiError ? error.message : "You didn't sign. Nothing changed.";
-}
+import { SignInPanel } from "../../components/SignInPanel";
+import { getSession, signOut, type Session } from "../../wallet";
 
 /**
  * `/me/bookings` -- "My bookings" (Task list): every booking the signed-in
- * wallet is the client on, across every provider, as mobile-first cards.
- * WalletIcon sign-in only happens here, when the client actually wants to see
- * their bookings -- never before (Epic 3 context: "the wallet is requested
- * only at payment", and now also at this read).
+ * account is the client on, across every provider, as mobile-first cards.
+ * Sign-in only happens here, when the client actually wants to see their
+ * bookings -- never before (Epic 3 context: sign-in is requested only at
+ * payment, and now also at this read).
  */
 export function MyBookingsPage() {
   const [session, setSession] = useState<Session | undefined>(() => getSession());
-  const [signInError, setSignInError] = useState<string | undefined>(undefined);
-  const [signingIn, setSigningIn] = useState(false);
 
   const bookingsQuery = useMyBookings(session);
-
-  async function handleSignIn(): Promise<void> {
-    setSigningIn(true);
-    setSignInError(undefined);
-    try {
-      const nextSession = await signIn();
-      setSession(nextSession);
-    } catch (error) {
-      setSignInError(signInErrorMessage(error));
-    } finally {
-      setSigningIn(false);
-    }
-  }
 
   function handleSignOut(): void {
     signOut();
@@ -53,18 +30,11 @@ export function MyBookingsPage() {
       <div className="page">
         <PageMasthead
           eyebrow="Your side of the escrow"
-          icon={<WalletIcon size={14} weight="bold" aria-hidden="true" />}
+          icon={<CalendarCheckIcon size={14} weight="bold" aria-hidden="true" />}
           title="My bookings"
-          lede="Sign in with your wallet to see the sessions you've locked a deposit for."
+          lede="Sign in to see the sessions you've locked a deposit for."
         />
-        <button type="button" className="button-primary" onClick={handleSignIn} disabled={signingIn}>
-          {signingIn ? "Approve it in your wallet…" : "Sign in with wallet"}
-        </button>
-        {signInError && (
-          <p className="field__error" role="alert">
-            {signInError}
-          </p>
-        )}
+        <SignInPanel onSignedIn={setSession} />
       </div>
     );
   }
@@ -100,7 +70,7 @@ export function MyBookingsPage() {
     <div className="page">
       <PageMasthead
         eyebrow="Your side of the escrow"
-        icon={<WalletIcon size={14} weight="bold" aria-hidden="true" />}
+        icon={<CalendarCheckIcon size={14} weight="bold" aria-hidden="true" />}
         title="My bookings"
         actions={
           <button type="button" className="button-ghost" onClick={handleSignOut}>

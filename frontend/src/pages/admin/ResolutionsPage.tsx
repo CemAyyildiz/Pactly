@@ -8,7 +8,8 @@ import { PageMasthead } from "../../components/PageMasthead";
 import { formatMoney } from "../../lib/money";
 import { shortenStellarId } from "../../lib/stellar";
 import { formatSlotDay, formatSlotTime } from "../../lib/time";
-import { getSession, signIn, signOut, signXdr, type Session } from "../../wallet";
+import { SignInPanel } from "../../components/SignInPanel";
+import { getSession, signOut, signXdr, type Session } from "../../wallet";
 import type { AdminDisputeListItem, DisputeOutcome } from "../../api/types";
 
 const REASON_LABEL: Record<AdminDisputeListItem["reason"], string> = {
@@ -29,10 +30,6 @@ const SUGGESTED_OUTCOME_LABEL: Record<DisputeOutcome, string> = {
   "refund-client": "Refund the client in full",
   "pay-provider": "Pay the full deposit to the provider",
 };
-
-function signInErrorMessage(error: unknown): string {
-  return error instanceof ApiError ? error.message : "You didn't sign. Nothing changed.";
-}
 
 /** One open dispute's own row: who opened it (and which role), why, the
  * policy's own suggestion (guidance only -- "The admin may pick either
@@ -66,8 +63,12 @@ function DisputeRow({
       let signedXdr: string;
       try {
         signedXdr = await signXdr(built.unsignedXdr, session.walletAddress);
-      } catch {
-        setError("You didn't sign. Nothing changed -- try again whenever you're ready.");
+      } catch (signError) {
+        if (signError instanceof ApiError && signError.status === 401) {
+          onUnauthorized();
+          return;
+        }
+        setError("That didn't go through. Nothing changed -- try again whenever you're ready.");
         return;
       }
       await submitSignedTransaction(dispute.bookingId, signedXdr, session);
@@ -78,7 +79,7 @@ function DisputeRow({
         return;
       }
       if (submitError instanceof ApiError && submitError.code === "NOT_DISPUTE_RESOLVER") {
-        setError("This admin wallet is not Pactly's own dispute resolver -- only that wallet may sign a resolution.");
+        setError("This admin account is not Pactly's own dispute resolver -- only that account may sign a resolution.");
       } else if (submitError instanceof ApiError) {
         setError(submitError.message);
       } else {
@@ -94,7 +95,7 @@ function DisputeRow({
       <header className="booking-card__header">
         <div>
           <p className="booking-card__heading">{dispute.provider.displayName || dispute.provider.id}</p>
-          <p className="booking-card__subheading">Client {shortenStellarId(dispute.clientWalletAddress)}</p>
+          <p className="booking-card__subheading">Client id {shortenStellarId(dispute.clientWalletAddress)}</p>
         </div>
       </header>
       <p className="booking-card__appointment">
@@ -123,10 +124,10 @@ function DisputeRow({
       ) : (
         <div className="booking-card__actions">
           <button type="button" className="button-primary" disabled={busy !== undefined} onClick={() => void resolve("refund-client")}>
-            {busy === "refund-client" ? "Approve it in your wallet…" : "Refund the client"}
+            {busy === "refund-client" ? "Signing…" : "Refund the client"}
           </button>
           <button type="button" className="button-primary" disabled={busy !== undefined} onClick={() => void resolve("pay-provider")}>
-            {busy === "pay-provider" ? "Approve it in your wallet…" : "Pay the provider"}
+            {busy === "pay-provider" ? "Signing…" : "Pay the provider"}
           </button>
         </div>
       )}
@@ -153,24 +154,13 @@ function DisputeRow({
  */
 export function ResolutionsPage() {
   const [session, setSession] = useState<Session | undefined>(() => getSession());
-  const [signInError, setSignInError] = useState<string | undefined>(undefined);
-  const [signingIn, setSigningIn] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
 
   const disputesQuery = useAdminDisputes(session);
 
-  async function handleSignIn(): Promise<void> {
-    setSigningIn(true);
-    setSignInError(undefined);
-    try {
-      const nextSession = await signIn();
-      setSession(nextSession);
-      setSessionExpired(false);
-    } catch (error) {
-      setSignInError(signInErrorMessage(error));
-    } finally {
-      setSigningIn(false);
-    }
+  function handleSignedIn(nextSession: Session): void {
+    setSession(nextSession);
+    setSessionExpired(false);
   }
 
   function handleSignOut(): void {
@@ -191,21 +181,14 @@ export function ResolutionsPage() {
           eyebrow="Pactly admin"
           icon={<ScalesIcon size={14} weight="bold" aria-hidden="true" />}
           title="Resolutions"
-          lede="Sign in with Pactly's admin wallet to see and resolve open disputes."
+          lede="Sign in with a Pactly admin passkey to see and resolve open disputes."
         />
         {sessionExpired && (
           <div className="banner banner--alert" role="alert">
             <p>Your session ended. Sign in again to continue.</p>
           </div>
         )}
-        <button type="button" className="button-primary" onClick={handleSignIn} disabled={signingIn}>
-          {signingIn ? "Approve it in your wallet…" : "Sign in with wallet"}
-        </button>
-        {signInError && (
-          <p className="field__error" role="alert">
-            {signInError}
-          </p>
-        )}
+        <SignInPanel onSignedIn={handleSignedIn} />
       </div>
     );
   }
@@ -236,7 +219,7 @@ export function ResolutionsPage() {
     return (
       <div className="page">
         <div className="banner" role="status">
-          <p>{notAdmin ? "This wallet is not a Pactly admin." : "Connection dropped. Try again."}</p>
+          <p>{notAdmin ? "This account is not a Pactly admin." : "Connection dropped. Try again."}</p>
         </div>
         <button type="button" className="button-ghost" onClick={handleSignOut} style={{ marginTop: "var(--space-4)" }}>
           Sign out

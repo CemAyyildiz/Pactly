@@ -612,6 +612,23 @@ button {
   font-size: var(--text-14);
 }
 
+/* The one signed-out state (components/SignInPanel.tsx): a plain card, a
+ * single line of explanation, the passkey button. */
+.sign-in-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+  max-width: 32rem;
+}
+
+.sign-in-panel__intro {
+  margin: 0;
+  color: var(--color-body);
+  font-size: var(--text-16);
+  line-height: 1.5;
+}
+
 .banner {
   background: var(--color-card);
   border: 1px solid var(--color-rule);

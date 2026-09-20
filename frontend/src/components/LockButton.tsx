@@ -8,42 +8,44 @@ export interface LockButtonProps {
   waitingOn?: string;
   disabled?: boolean;
   onClick: () => void;
-  /** Fires when the user taps "Open wallet again" after the 60s timeout --
-   * re-runs the same signature request. */
+  /** Fires when the user taps "Try again" after the 60s timeout --
+   * re-runs the same signature request. Kept under its historical name so
+   * every caller keeps compiling. */
   onOpenWalletAgain?: () => void;
 }
 
-const OPEN_WALLET_AGAIN_AFTER_MS = 60_000;
+const TRY_AGAIN_AFTER_MS = 60_000;
 
 /**
  * DESIGN.md's `button-escrow`: the only black button in the product, used
- * solely to lock a deposit. While waiting on a signature it reads "Approve
- * it in your wallet" (never a generic "Loading…"), and after 60 seconds an
- * "Open wallet again" option appears (EXPERIENCE.md's "Waiting on wallet"
- * state pattern) in case the wallet's own popup was dismissed or lost
- * focus.
+ * solely to lock a deposit. While the deposit is being signed and sent it
+ * reads "Locking…" (never a generic "Loading…") with the human action name
+ * beneath it, and after 60 seconds a "Try again" option appears
+ * (EXPERIENCE.md's waiting-state pattern) in case the request was lost on
+ * the way. Signing happens server-side now -- there is no prompt for the
+ * user to find and approve.
  */
 export function LockButton({ waitingOn, disabled, onClick, onOpenWalletAgain }: LockButtonProps) {
-  const [showOpenAgain, setShowOpenAgain] = useState(false);
+  const [showTryAgain, setShowTryAgain] = useState(false);
 
   useEffect(() => {
     if (!waitingOn) {
-      setShowOpenAgain(false);
+      setShowTryAgain(false);
       return;
     }
-    const timer = setTimeout(() => setShowOpenAgain(true), OPEN_WALLET_AGAIN_AFTER_MS);
+    const timer = setTimeout(() => setShowTryAgain(true), TRY_AGAIN_AFTER_MS);
     return () => clearTimeout(timer);
   }, [waitingOn]);
 
   return (
     <div className="lock-button-group">
       <button type="button" className="button-escrow" disabled={disabled || Boolean(waitingOn)} onClick={onClick} aria-live="polite">
-        {waitingOn ? "Approve it in your wallet" : "Lock with Pactly"}
+        {waitingOn ? "Locking…" : "Lock with Pactly"}
       </button>
       {waitingOn && <p className="lock-button-group__hint">{waitingOn}</p>}
-      {waitingOn && showOpenAgain && (
+      {waitingOn && showTryAgain && (
         <button type="button" className="button-ghost lock-button-group__retry" onClick={onOpenWalletAgain}>
-          Open wallet again
+          Try again
         </button>
       )}
     </div>

@@ -24,6 +24,7 @@ function TopBar() {
       <nav className="top-bar__nav">
         <Link to="/discover">Discover</Link>
         <Link to="/me/bookings">My bookings</Link>
+        <Link to="/panel/bookings">Provider panel</Link>
         <Link to="/providers/apply" className="button-ghost">
           List your shop
         </Link>
@@ -39,15 +40,15 @@ export function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/discover" element={<DiscoverPage />} />
-        <Route path="/providers/:id" element={<ProviderProfilePage />} />
         <Route path="/providers/apply" element={<ApplyPage />} />
+        <Route path="/providers/:id" element={<ProviderProfilePage />} />
         <Route path="/book/:providerId" element={<BookingPage />} />
         <Route path="/me/bookings" element={<MyBookingsPage />} />
         <Route path="/panel/availability" element={<AvailabilityPage />} />
         <Route path="/panel/bookings" element={<BookingsPage />} />
         <Route path="/admin/resolutions" element={<ResolutionsPage />} />
-      </Routes>
         <Route path="/admin/applications" element={<ApplicationsPage />} />
+      </Routes>
     </>
   );
 }

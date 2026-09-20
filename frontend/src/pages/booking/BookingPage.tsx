@@ -27,6 +27,7 @@ import { Seal } from "../../components/Seal";
 import { formatMoney } from "../../lib/money";
 import { providerPhotoSrc } from "../../lib/providerPhotos";
 import { formatSlotDay, formatSlotTime } from "../../lib/time";
+import { signInErrorMessage } from "../../components/SignInPanel";
 import { getSession, signIn, signOut, signXdr, type Session } from "../../wallet";
 
 /** A human-readable display phase -- distinct from the ref-based "engine"
@@ -79,11 +80,11 @@ function parseIntegerSlot(raw: string | null): number | undefined {
 
 /**
  * `/book/:providerId?slot=<epochSeconds>` -- the Story 3.4 booking screen.
- * Steps (Tasks & Acceptance): review summary; connect wallet and hold;
- * Lock with Pactly (lock -> sign -> submit -> fund -> sign -> submit); poll
- * `GET /bookings/:id` until `locked`; seal. The wallet is requested only
- * once the client actually commits to holding the slot (EXPERIENCE.md:
- * "wallet requested only at payment").
+ * Steps (Tasks & Acceptance): review summary; sign in (passkey) and hold;
+ * Lock with Pactly (lock -> sign -> submit -> fund -> sign -> submit, the
+ * signatures made server-side); poll `GET /bookings/:id` until `locked`;
+ * seal. Sign-in is requested only once the client actually commits to
+ * holding the slot (EXPERIENCE.md: "sign-in requested only at payment").
  */
 export function BookingPage() {
   const { providerId } = useParams<{ providerId: string }>();
@@ -264,9 +265,9 @@ export function BookingPage() {
       try {
         activeSession = await signIn();
         setSession(activeSession);
-      } catch {
+      } catch (error) {
         setConnecting(false);
-        setHoldError({ message: "Connection dropped. Your deposit is untouched." });
+        setHoldError({ message: signInErrorMessage(error) });
         return;
       }
       setConnecting(false);
@@ -365,7 +366,7 @@ export function BookingPage() {
           } catch {
             setPendingSignature(undefined);
             setPhase("idle");
-            setFlowNotice(`You didn't sign. The slot is still yours for ${formatCountdown(holdSecondsLeft)}.`);
+            setFlowNotice(`That didn't go through. The slot is still yours for ${formatCountdown(holdSecondsLeft)}.`);
             return;
           }
           setPhase("submitting-deploy");
@@ -406,7 +407,7 @@ export function BookingPage() {
     } catch {
       setPendingSignature(undefined);
       setPhase("deployed");
-      setFlowNotice(`You didn't sign. The slot is still yours for ${formatCountdown(holdSecondsLeft)}.`);
+      setFlowNotice(`That didn't go through. The slot is still yours for ${formatCountdown(holdSecondsLeft)}.`);
       return;
     }
     setPhase("submitting-fund");
@@ -415,9 +416,9 @@ export function BookingPage() {
     setPhase("reconciling");
   }
 
-  /** "Open wallet again": re-issues *only* the currently pending signature
-   * request -- never restarts the whole lock/fund sequence (review
-   * follow-up: the previous version's "Open wallet again" called the same
+  /** The lock button's "Try again": re-issues *only* the currently pending
+   * signature request -- never restarts the whole lock/fund sequence (review
+   * follow-up: the previous version's retry called the same
    * top-level flow function again, which could re-enter earlier steps). */
   async function retryPendingSignature(): Promise<void> {
     if (!pendingSignature || !session || !hold) return;
@@ -428,7 +429,7 @@ export function BookingPage() {
       try {
         signed = await signXdr(pendingSignature.xdr, session.walletAddress);
       } catch {
-        setFlowNotice(`You didn't sign. The slot is still yours for ${formatCountdown(holdSecondsLeft)}.`);
+        setFlowNotice(`That didn't go through. The slot is still yours for ${formatCountdown(holdSecondsLeft)}.`);
         return;
       }
       if (pendingSignature.kind === "deploy") {
@@ -478,7 +479,7 @@ export function BookingPage() {
     try {
       signed = await signXdr(challenge.unsignedXdr, activeSession.walletAddress);
     } catch {
-      setLocalNotice(`You didn't sign. The slot is still yours for ${formatCountdown(holdSecondsLeft)}.`);
+      setLocalNotice(`That didn't go through. The slot is still yours for ${formatCountdown(holdSecondsLeft)}.`);
       return false;
     }
     await verifyAnchorChallenge(bookingId, signed, activeSession);
@@ -491,17 +492,17 @@ export function BookingPage() {
     result: Awaited<ReturnType<typeof openLocalDeposit>>,
   ): Promise<void> {
     if ("needsTrustline" in result && result.needsTrustline) {
-      setLocalNotice("Getting your wallet ready");
+      setLocalNotice("Getting your account ready");
       let signed: string;
       try {
         signed = await signXdr(result.unsignedXdr, activeSession.walletAddress);
       } catch {
-        setLocalNotice(`You didn't sign. The slot is still yours for ${formatCountdown(holdSecondsLeft)}.`);
+        setLocalNotice(`That didn't go through. The slot is still yours for ${formatCountdown(holdSecondsLeft)}.`);
         return;
       }
       const opened = await submitLocalDepositTrustline(bookingId, signed, activeSession);
       if ("needsTrustline" in opened && opened.needsTrustline) {
-        setLocalNotice("Getting your wallet ready did not finish. Try again.");
+        setLocalNotice("Getting your account ready did not finish. Try again.");
         return;
       }
       setLocalDeposit(opened);
@@ -693,7 +694,7 @@ export function BookingPage() {
                 </div>
               )}
               <button type="button" className="button-primary" onClick={ensureSessionAndHold} disabled={connecting || holdMutation.isPending}>
-                {connecting ? "Connect your wallet…" : holdMutation.isPending ? "Holding your slot…" : session ? "Hold this slot" : "Connect wallet and hold"}
+                {connecting ? "Signing you in…" : holdMutation.isPending ? "Holding your slot…" : session ? "Hold this slot" : "Sign in and hold this slot"}
               </button>
             </div>
           )}

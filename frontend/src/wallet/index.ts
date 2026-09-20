@@ -1,34 +1,49 @@
 /**
- * Stellar Wallets Kit wrapper: connect, sign Pactly's own `/auth/challenge`
- * XDR, exchange it at `/auth/verify` for a Pactly JWT, keep the session in
- * `sessionStorage` (cleared on tab close -- never `localStorage`, so a
- * shared machine never carries a session forward), and sign out.
+ * Sign-in and signing for Pactly -- passkeys, not wallets.
  *
- * The wallet is asked for exactly once per sign-in, at this single call
- * (`signIn`) -- the panel's own equivalent of the client flow's "the wallet
- * is requested only at payment" rule (Epic 3 context).
+ * Wallets are gone. Pactly's users are barbers, therapists and their
+ * clients, and the pivot decision is that none of them should ever see a
+ * crypto wallet, a seed phrase or a browser extension. Sign-in is a passkey
+ * (WebAuthn: face, fingerprint or device PIN), and every Stellar signature
+ * the product needs is made server-side by a custodial key the backend
+ * holds for that account. The Stellar address is still returned as
+ * `walletAddress` -- to the user it is nothing more than an opaque customer
+ * id (shown shortened in the provider panel and admin rows), and every
+ * importer keeps compiling against the same `Session` shape.
+ *
+ * The module keeps its old name and public surface (`getSession`,
+ * `signOut`, `signIn`, `signXdr`, `Session`) so the twelve files importing
+ * it did not have to change; only the internals moved from the Stellar
+ * Wallets Kit to `@simplewebauthn/browser` plus `POST /me/sign`.
+ *
+ * The session lives in `sessionStorage` (cleared on tab close -- never
+ * `localStorage`, so a shared machine never carries a session forward).
  */
-import { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit/sdk";
-import { defaultModules } from "@creit.tech/stellar-wallets-kit/modules/utils";
-import { Networks } from "@creit.tech/stellar-wallets-kit/types";
+import { startAuthentication, startRegistration, WebAuthnError } from "@simplewebauthn/browser";
+import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 
-import { apiPost } from "../api/client";
+import { ApiError, apiPost } from "../api/client";
 
 const SESSION_STORAGE_KEY = "pactly.session";
 
 export interface Session {
   token: string;
+  /** The account's Stellar address, held custodially by the backend. An
+   * opaque customer id as far as the user is concerned. */
   walletAddress: string;
 }
 
-let kitInitialized = false;
-
-function ensureKitInitialized(): void {
-  if (kitInitialized) {
-    return;
+/**
+ * Thrown when the user (or the browser on their behalf) closed or timed
+ * out the passkey prompt without finishing it -- callers show it as neutral
+ * information ("You didn't finish signing in."), never as a warning, and
+ * distinguish it from a network drop or a backend rejection ({@link ApiError}).
+ */
+export class SignInCancelledError extends Error {
+  constructor() {
+    super("The passkey prompt was closed before it finished.");
+    this.name = "SignInCancelledError";
   }
-  StellarWalletsKit.init({ modules: defaultModules(), network: Networks.TESTNET });
-  kitInitialized = true;
 }
 
 /** Reads the session already stored in this tab, if any -- never makes a
@@ -57,8 +72,7 @@ function saveSession(session: Session): void {
     sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
   } catch {
     // Best-effort only; a page that cannot persist the session still works
-    // for the current render, it just asks the wallet to sign in again on
-    // reload.
+    // for the current render, it just asks for the passkey again on reload.
   }
 }
 
@@ -70,8 +84,14 @@ export function signOut(): void {
   }
 }
 
-interface ChallengeResponse {
-  transaction: string;
+interface LoginOptionsResponse {
+  loginId: string;
+  options: PublicKeyCredentialRequestOptionsJSON;
+}
+
+interface RegisterOptionsResponse {
+  registrationId: string;
+  options: PublicKeyCredentialCreationOptionsJSON;
 }
 
 interface VerifyResponse {
@@ -79,49 +99,94 @@ interface VerifyResponse {
   walletAddress: string;
 }
 
+/** The browser reports a dismissed, timed-out or aborted WebAuthn prompt
+ * as `NotAllowedError`/`AbortError` (SimpleWebAuthn wraps both as
+ * `ERROR_CEREMONY_ABORTED`, or passes a bare `NotAllowedError` through). */
+function isCancelled(error: unknown): boolean {
+  if (error instanceof WebAuthnError) {
+    if (error.code === "ERROR_CEREMONY_ABORTED") {
+      return true;
+    }
+    const cause = error.cause;
+    return cause instanceof Error && (cause.name === "NotAllowedError" || cause.name === "AbortError");
+  }
+  return error instanceof Error && (error.name === "NotAllowedError" || error.name === "AbortError");
+}
+
+async function register(): Promise<Session> {
+  const { registrationId, options } = await apiPost<RegisterOptionsResponse>("/auth/passkey/register/options", {});
+  let response;
+  try {
+    response = await startRegistration({ optionsJSON: options });
+  } catch (error) {
+    throw isCancelled(error) ? new SignInCancelledError() : error;
+  }
+  const verified = await apiPost<VerifyResponse>("/auth/passkey/register/verify", { registrationId, response });
+  return { token: verified.token, walletAddress: verified.walletAddress };
+}
+
+async function login(): Promise<Session> {
+  const { loginId, options } = await apiPost<LoginOptionsResponse>("/auth/passkey/login/options", {});
+  let response;
+  try {
+    response = await startAuthentication({ optionsJSON: options });
+  } catch (error) {
+    throw isCancelled(error) ? new SignInCancelledError() : error;
+  }
+  const verified = await apiPost<VerifyResponse>("/auth/passkey/login/verify", { loginId, response });
+  return { token: verified.token, walletAddress: verified.walletAddress };
+}
+
 /**
- * Opens the kit's own wallet picker, signs Pactly's SEP-10-shaped
- * challenge with the chosen wallet, and exchanges it for a Pactly JWT.
- * Throws {@link ApiError} for a backend-side rejection (expired/replayed
- * challenge) and re-throws whatever the kit itself throws for a
- * rejected-in-the-wallet signature -- callers show that as neutral
- * information, never a warning (EXPERIENCE.md: "Wallet rejected").
+ * Signs the user in with a passkey. Tries a discoverable-credential login
+ * first; if the backend has never seen this passkey (`404 PASSKEY_UNKNOWN`)
+ * it falls straight through to registration, so a first-time user gets an
+ * account from the same single tap -- there is no separate "create
+ * account" screen to explain.
+ *
+ * Throws {@link SignInCancelledError} when the prompt was closed unfinished,
+ * {@link ApiError} for a backend rejection (`401 PASSKEY_INVALID`, expired
+ * challenge), and re-throws anything else (no WebAuthn support, network
+ * drop) untouched.
  */
 export async function signIn(): Promise<Session> {
-  ensureKitInitialized();
-  const { address } = await StellarWalletsKit.authModal();
-
-  const { transaction } = await apiPost<ChallengeResponse>("/auth/challenge", { publicKey: address });
-
-  const { signedTxXdr } = await StellarWalletsKit.signTransaction(transaction, {
-    address,
-    networkPassphrase: Networks.TESTNET,
-  });
-
-  const verified = await apiPost<VerifyResponse>("/auth/verify", { transaction: signedTxXdr });
-  const session: Session = { token: verified.token, walletAddress: verified.walletAddress };
+  let session: Session;
+  try {
+    session = await login();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404 && error.code === "PASSKEY_UNKNOWN") {
+      session = await register();
+    } else {
+      throw error;
+    }
+  }
   saveSession(session);
   return session;
 }
 
+interface SignResponse {
+  signedXdr: string;
+}
+
 /**
- * Story 3.4: signs an escrow transaction (a deploy or a fund XDR) the
- * backend already built -- distinct from `signIn`'s own challenge
- * signature. Reuses whichever wallet module `signIn`'s own `authModal()`
- * call already selected (the kit remembers it), so this never re-opens the
- * wallet picker -- only the initial sign-in ever does that, per the "wallet
- * requested only at payment" rule this call is itself part of.
+ * Signs a Stellar transaction the backend already built (an escrow deploy
+ * or fund XDR, a balance payment, a dispute resolution) with the account's
+ * custodial key, server-side. There is no user prompt any more -- the
+ * passkey sign-in is the user's consent, the JWT proves it, and the backend
+ * signs on the account's behalf.
  *
- * Re-throws whatever the kit throws for a declined signature; the caller
- * (`BookingPage.tsx`) shows that as neutral information, never a warning
- * (EXPERIENCE.md: "You didn't sign. The slot is still yours for N
- * minutes.").
+ * `walletAddress` is accepted for surface compatibility with the twelve
+ * existing callers but is not needed: the backend signs with whichever key
+ * belongs to the session's own account, never one the caller names.
+ *
+ * Throws {@link ApiError} on a `401` (dead session -- callers already sign
+ * out on that) or any other backend refusal.
  */
-export async function signXdr(unsignedXdr: string, walletAddress: string): Promise<string> {
-  ensureKitInitialized();
-  const { signedTxXdr } = await StellarWalletsKit.signTransaction(unsignedXdr, {
-    address: walletAddress,
-    networkPassphrase: Networks.TESTNET,
-  });
-  return signedTxXdr;
+export async function signXdr(unsignedXdr: string, _walletAddress: string): Promise<string> {
+  const session = getSession();
+  if (!session) {
+    throw new ApiError({ code: "UNAUTHORIZED", message: "Your session ended. Sign in again to continue." }, 401);
+  }
+  const { signedXdr } = await apiPost<SignResponse>("/me/sign", { unsignedXdr }, session.token);
+  return signedXdr;
 }

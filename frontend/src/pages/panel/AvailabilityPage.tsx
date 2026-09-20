@@ -4,9 +4,10 @@ import { CalendarBlankIcon } from "@phosphor-icons/react";
 
 import { ApiError } from "../../api/client";
 import { PageMasthead } from "../../components/PageMasthead";
+import { SignInPanel } from "../../components/SignInPanel";
 import { useOwnProviderProfile, useUpdateProviderAvailability, useUpdateProviderRules } from "../../api/hooks";
 import { formatMoney, parseDecimalToSmallestUnit, smallestUnitToDecimalInput } from "../../lib/money";
-import { getSession, signIn, signOut, type Session } from "../../wallet";
+import { getSession, signOut, type Session } from "../../wallet";
 
 const GRID_DAYS = 14;
 const GRID_START_HOUR = 8;
@@ -97,8 +98,6 @@ function previewDeposit(priceSmallestUnit: string | undefined, depositRateBps: n
  * context; the grid still respects the 44px touch target floor. */
 export function AvailabilityPage() {
   const [session, setSession] = useState<Session | undefined>(() => getSession());
-  const [signInError, setSignInError] = useState<string | undefined>(undefined);
-  const [signingIn, setSigningIn] = useState(false);
 
   const profileQuery = useOwnProviderProfile(session);
   const updateRules = useUpdateProviderRules(session);
@@ -131,21 +130,6 @@ export function AvailabilityPage() {
   const now = useMemo(() => Math.floor(Date.now() / 1000), []);
   const gridDays = useMemo(() => buildGridDays(now), [now]);
   const sessionSeconds = (profileQuery.data?.sessionLengthMinutes ?? 30) * 60;
-
-  async function handleSignIn(): Promise<void> {
-    setSigningIn(true);
-    setSignInError(undefined);
-    try {
-      const nextSession = await signIn();
-      setSession(nextSession);
-    } catch (error) {
-      setSignInError(
-        error instanceof ApiError ? error.message : "You didn't sign. The slot is still yours -- nothing changed.",
-      );
-    } finally {
-      setSigningIn(false);
-    }
-  }
 
   function handleSignOut(): void {
     signOut();
@@ -223,16 +207,9 @@ export function AvailabilityPage() {
           eyebrow="Provider panel"
           icon={<CalendarBlankIcon size={14} weight="bold" aria-hidden="true" />}
           title="Availability & rules"
-          lede="Sign in with your wallet to manage your price, deposit rate, cancellation window and open slots."
+          lede="Sign in to manage your price, deposit rate, cancellation window and open slots."
         />
-        <button type="button" className="button-primary" onClick={handleSignIn} disabled={signingIn}>
-          {signingIn ? "Approve it in your wallet…" : "Sign in with wallet"}
-        </button>
-        {signInError && (
-          <p className="field__error" role="alert">
-            {signInError}
-          </p>
-        )}
+        <SignInPanel onSignedIn={setSession} />
       </div>
     );
   }
@@ -250,7 +227,7 @@ export function AvailabilityPage() {
     return (
       <div className="page">
         <div className="banner">
-          <p>{notAProvider ? "This wallet doesn't have a provider profile yet." : "Connection dropped. Try again."}</p>
+          <p>{notAProvider ? "This account doesn't have a provider profile yet." : "Connection dropped. Try again."}</p>
           {notAProvider && (
             <Link to="/providers/apply" className="button-primary" style={{ textDecoration: "none", marginTop: "var(--space-3)" }}>
               List your shop

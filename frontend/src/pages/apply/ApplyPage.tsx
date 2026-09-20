@@ -6,9 +6,10 @@ import { ApiError } from "../../api/client";
 import { useCategories, useOwnProviderApplication, useOwnProviderProfile, useSubmitProviderApplication } from "../../api/hooks";
 import type { ProviderApplication } from "../../api/types";
 import { PageMasthead } from "../../components/PageMasthead";
+import { SignInPanel } from "../../components/SignInPanel";
 import { formatMoney, parseDecimalToSmallestUnit, smallestUnitToDecimalInput } from "../../lib/money";
 import { formatSessionFormat } from "../../lib/sessionFormat";
-import { getSession, signIn, signOut, type Session } from "../../wallet";
+import { getSession, signOut, type Session } from "../../wallet";
 
 const SESSION_FORMATS = ["in_person", "video"] as const;
 
@@ -69,38 +70,20 @@ function previewDeposit(priceSmallestUnit: string | undefined, depositRateBps: n
   }
 }
 
-function signInErrorMessage(error: unknown): string {
-  return error instanceof ApiError ? error.message : "You didn't sign. Nothing changed.";
-}
-
 /**
  * `/providers/apply` -- "List your shop" (Story 4.1). Signed out, it
- * explains the three steps and asks for the wallet; signed in, it shows
- * the wallet's own application state or the form. Applying creates the
- * unapproved profile, so the panel opens right away while an admin
+ * explains the three steps and asks for a passkey sign-in; signed in, it
+ * shows the account's own application state or the form. Applying creates
+ * the unapproved profile, so the panel opens right away while an admin
  * decides (Story 4.2).
  */
 export function ApplyPage() {
   const [session, setSession] = useState<Session | undefined>(() => getSession());
-  const [signInError, setSignInError] = useState<string | undefined>(undefined);
-  const [signingIn, setSigningIn] = useState(false);
 
   const categoriesQuery = useCategories();
   const applicationQuery = useOwnProviderApplication(session);
   const profileQuery = useOwnProviderProfile(session);
   const submit = useSubmitProviderApplication(session);
-
-  async function handleSignIn(): Promise<void> {
-    setSigningIn(true);
-    setSignInError(undefined);
-    try {
-      setSession(await signIn());
-    } catch (error) {
-      setSignInError(signInErrorMessage(error));
-    } finally {
-      setSigningIn(false);
-    }
-  }
 
   function handleSignOut(): void {
     signOut();
@@ -130,8 +113,8 @@ export function ApplyPage() {
         <ol className="apply-steps">
           <li>
             <div>
-              <b>Sign in with your wallet</b>
-              <p>Your wallet is your provider account -- released deposits land there. No email, no password.</p>
+              <b>Sign in with your passkey</b>
+              <p>Your face, fingerprint or device PIN is your provider account -- released deposits land there. No email, no password, no wallet app.</p>
             </div>
           </li>
           <li>
@@ -147,14 +130,10 @@ export function ApplyPage() {
             </div>
           </li>
         </ol>
-        <button type="button" className="button-primary" onClick={handleSignIn} disabled={signingIn}>
-          {signingIn ? "Approve it in your wallet…" : "Sign in with wallet"}
-        </button>
-        {signInError && (
-          <p className="field__error" role="alert">
-            {signInError}
-          </p>
-        )}
+        <SignInPanel
+          onSignedIn={setSession}
+          intro="Sign in with your passkey — no email, no password, no wallet app. First time here? The same tap creates your account."
+        />
       </div>
     );
   }
@@ -163,7 +142,7 @@ export function ApplyPage() {
     return (
       <div className="page">
         {masthead}
-        <p>Checking this wallet…</p>
+        <p>Checking your account…</p>
       </div>
     );
   }

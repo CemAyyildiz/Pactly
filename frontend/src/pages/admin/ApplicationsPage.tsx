@@ -9,11 +9,8 @@ import { PageMasthead } from "../../components/PageMasthead";
 import { formatMoney } from "../../lib/money";
 import { formatSessionFormat } from "../../lib/sessionFormat";
 import { shortenStellarId } from "../../lib/stellar";
-import { getSession, signIn, signOut, type Session } from "../../wallet";
-
-function signInErrorMessage(error: unknown): string {
-  return error instanceof ApiError ? error.message : "You didn't sign. Nothing changed.";
-}
+import { SignInPanel } from "../../components/SignInPanel";
+import { getSession, signOut, type Session } from "../../wallet";
 
 function ApplicationRow({
   application,
@@ -122,23 +119,13 @@ function ApplicationRow({
  */
 export function ApplicationsPage() {
   const [session, setSession] = useState<Session | undefined>(() => getSession());
-  const [signInError, setSignInError] = useState<string | undefined>(undefined);
-  const [signingIn, setSigningIn] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
 
   const applicationsQuery = useAdminApplications(session);
 
-  async function handleSignIn(): Promise<void> {
-    setSigningIn(true);
-    setSignInError(undefined);
-    try {
-      setSession(await signIn());
-      setSessionExpired(false);
-    } catch (error) {
-      setSignInError(signInErrorMessage(error));
-    } finally {
-      setSigningIn(false);
-    }
+  function handleSignedIn(nextSession: Session): void {
+    setSession(nextSession);
+    setSessionExpired(false);
   }
 
   function handleSignOut(): void {
@@ -165,7 +152,7 @@ export function ApplicationsPage() {
       eyebrow="Pactly admin"
       icon={<StorefrontIcon size={14} weight="bold" aria-hidden="true" />}
       title="Applications"
-      lede={session ? undefined : "Sign in with Pactly's admin wallet to review shops waiting to be listed."}
+      lede={session ? undefined : "Sign in with a Pactly admin passkey to review shops waiting to be listed."}
       actions={
         session ? (
           <>
@@ -188,14 +175,7 @@ export function ApplicationsPage() {
             <p>Your session ended. Sign in again to continue.</p>
           </div>
         )}
-        <button type="button" className="button-primary" onClick={handleSignIn} disabled={signingIn}>
-          {signingIn ? "Approve it in your wallet…" : "Sign in with wallet"}
-        </button>
-        {signInError && (
-          <p className="field__error" role="alert">
-            {signInError}
-          </p>
-        )}
+        <SignInPanel onSignedIn={handleSignedIn} />
       </div>
     );
   }
@@ -218,7 +198,7 @@ export function ApplicationsPage() {
       <div className="page">
         {masthead}
         <div className="banner" role="status">
-          <p>{notAdmin ? "This wallet is not a Pactly admin." : "Connection dropped. Try again."}</p>
+          <p>{notAdmin ? "This account is not a Pactly admin." : "Connection dropped. Try again."}</p>
         </div>
       </div>
     );

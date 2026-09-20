@@ -12,11 +12,8 @@ import { StateLabel } from "../../components/StateLabel";
 import { formatMoney } from "../../lib/money";
 import { shortenStellarId, stellarExplorerContractUrl, stellarExplorerTransactionUrl, trustlessWorkViewerUrl } from "../../lib/stellar";
 import { formatSlotDay, formatSlotTime } from "../../lib/time";
-import { getSession, signIn, signOut, type Session } from "../../wallet";
-
-function signInErrorMessage(error: unknown): string {
-  return error instanceof ApiError ? error.message : "You didn't sign. Nothing changed.";
-}
+import { SignInPanel } from "../../components/SignInPanel";
+import { getSession, signOut, type Session } from "../../wallet";
 
 /**
  * `/panel/bookings` -- the provider panel's own "Bookings" view (Task
@@ -28,23 +25,8 @@ function signInErrorMessage(error: unknown): string {
  */
 export function BookingsPage() {
   const [session, setSession] = useState<Session | undefined>(() => getSession());
-  const [signInError, setSignInError] = useState<string | undefined>(undefined);
-  const [signingIn, setSigningIn] = useState(false);
 
   const bookingsQuery = useProviderBookings(session);
-
-  async function handleSignIn(): Promise<void> {
-    setSigningIn(true);
-    setSignInError(undefined);
-    try {
-      const nextSession = await signIn();
-      setSession(nextSession);
-    } catch (error) {
-      setSignInError(signInErrorMessage(error));
-    } finally {
-      setSigningIn(false);
-    }
-  }
 
   function handleSignOut(): void {
     signOut();
@@ -58,16 +40,9 @@ export function BookingsPage() {
           eyebrow="Provider panel"
           icon={<StorefrontIcon size={14} weight="bold" aria-hidden="true" />}
           title="Bookings"
-          lede="Sign in with your wallet to see your incoming bookings."
+          lede="Sign in to see your incoming bookings."
         />
-        <button type="button" className="button-primary" onClick={handleSignIn} disabled={signingIn}>
-          {signingIn ? "Approve it in your wallet…" : "Sign in with wallet"}
-        </button>
-        {signInError && (
-          <p className="field__error" role="alert">
-            {signInError}
-          </p>
-        )}
+        <SignInPanel onSignedIn={setSession} />
       </div>
     );
   }
@@ -85,7 +60,7 @@ export function BookingsPage() {
     return (
       <div className="page">
         <div className="banner" role="status">
-          <p>{notAProvider ? "This wallet doesn't have a provider profile yet." : "Connection dropped. Try again."}</p>
+          <p>{notAProvider ? "This account doesn't have a provider profile yet." : "Connection dropped. Try again."}</p>
           {notAProvider && (
             <Link to="/providers/apply" className="button-primary" style={{ textDecoration: "none", marginTop: "var(--space-3)" }}>
               List your shop
@@ -132,7 +107,7 @@ export function BookingsPage() {
               <thead>
                 <tr>
                   <th>Appointment</th>
-                  <th>Client</th>
+                  <th>Client id</th>
                   <th>Deposit</th>
                   <th>Balance</th>
                   <th>State</th>
@@ -214,7 +189,7 @@ export function BookingsPage() {
                 key={booking.id}
                 viewer="provider"
                 id={booking.id}
-                heading="Client"
+                heading="Client id"
                 subheading={shortenStellarId(booking.clientWalletAddress)}
                 slotStartsAt={booking.slotStartsAt}
                 deposit={booking.deposit}
@@ -244,7 +219,7 @@ export function BookingsPage() {
                 key={booking.id}
                 viewer="provider"
                 id={booking.id}
-                heading="Client"
+                heading="Client id"
                 subheading={shortenStellarId(booking.clientWalletAddress)}
                 slotStartsAt={booking.slotStartsAt}
                 deposit={booking.deposit}
