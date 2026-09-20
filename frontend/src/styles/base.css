@@ -254,24 +254,28 @@ button {
  * Slot chip -- DESIGN.md Components: chip-slot / chip-slot-taken.
  * --------------------------------------------------------------------- */
 
+/* Discover v2's own `.slot`: a quiet, neutral chip -- an open slot is not
+ * a client-blue action button, it is information the client can pick from.
+ * The selected/highlighted slot (`.slot.on`) is ink, matching the
+ * mockup's own use of black rather than blue for that state. */
 .slot-chip {
   min-height: 44px;
   min-width: 44px;
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  background: var(--color-client);
-  color: var(--color-escrow-text);
-  border: 1.5px solid var(--color-client-deep);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
   cursor: pointer;
 }
 
 .slot-chip--selected {
-  background: var(--color-client-deep);
+  background: var(--color-ink);
   color: var(--color-escrow-text);
-  border-color: var(--color-client-deep);
+  border-color: var(--color-ink);
 }
 
 .slot-chip--taken {
@@ -431,8 +435,9 @@ button {
 
 /* ---------------------------------------------------------------------
  * Discover page -- Story 3.2. DESIGN.md Layout & Spacing: a 240px left
- * rail plus a two-column grid from 1024px; below that, the category list
- * becomes horizontally-scrolling tabs above a single column.
+ * rail beside a single-column result list (Discover v2's own `.list`);
+ * below 1024px, the category list becomes horizontally-scrolling tabs
+ * above the same single column.
  * --------------------------------------------------------------------- */
 
 .discover {
@@ -465,6 +470,21 @@ button {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+}
+
+/* The mockup's own `.filters` sits in a full-height grid column beside the
+ * results; the live page scrolls (the static mockup doesn't), so getting
+ * the same "stays beside the results" read here means pinning the rail
+ * under the top bar once the page scrolls past it, with its own scroll if
+ * it is taller than the viewport. Mobile (<1024px) is untouched. */
+@media (min-width: 1024px) {
+  .discover__rail {
+    position: sticky;
+    top: var(--space-6);
+    align-self: start;
+    max-height: calc(100vh - var(--space-6) * 2);
+    overflow-y: auto;
+  }
 }
 
 .discover__results {
@@ -720,10 +740,12 @@ button {
   font-size: var(--text-12);
   color: var(--color-muted);
   flex: 1;
+  min-width: 0;
 }
 
 .filter-field__price-input input,
 .filter-field__deposit-input input {
+  width: 100%;
   min-height: 44px;
   padding: 8px 10px;
   border: 1.5px solid var(--color-ink);
@@ -864,18 +886,14 @@ button {
  * Provider card grid and card -- DESIGN.md Components: card-provider.
  * --------------------------------------------------------------------- */
 
+/* Discover v2's own `.list`: a single column of full-width cards at every
+ * width, so the card's own three columns get the room the mockup gives
+ * them -- a two-column grid here was squeezing the body column until its
+ * text wrapped after two or three words. */
 .provider-grid {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-}
-
-@media (min-width: 1024px) {
-  .provider-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--space-4);
-  }
 }
 
 /* Discover v2's own `.card`: a three-column grid -- photo/monogram, body,
@@ -889,7 +907,7 @@ button {
   border-radius: var(--radius-xl);
   padding: var(--space-card-pad);
   display: grid;
-  grid-template-columns: 76px 1fr auto;
+  grid-template-columns: 88px 1fr auto;
   column-gap: var(--space-4);
   row-gap: var(--space-2);
   align-items: start;
@@ -973,6 +991,14 @@ button {
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
+}
+
+/* Discover v2's own `.stats` row: plain inline text, not a pill -- the
+ * verified-session count reads as one quiet line next to the rest of the
+ * meta, the same way the cancellation count beside it does. */
+.provider-card__verified {
+  font-size: var(--text-12);
+  color: var(--color-muted);
 }
 
 /* The provider's own cancellation count: one fact among the others, never

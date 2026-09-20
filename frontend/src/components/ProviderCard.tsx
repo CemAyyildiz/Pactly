@@ -68,7 +68,10 @@ export function ProviderCard({ provider }: ProviderCardProps) {
         </p>
 
         <div className="provider-card__badges">
-          <span className="badge badge--verified">{provider.verifiedSessionCount} verified sessions</span>
+          {/* Discover v2's own `.stats` row keeps this as plain inline
+           * text next to the rest of the meta, not a pill -- the pill
+           * shape stays reserved for the "Approved" overlay badge. */}
+          <span className="provider-card__verified">{provider.verifiedSessionCount} verified sessions</span>
           {/* Stated plainly, never styled as an alarm (DESIGN.md Components:
            * "it never takes the louder colour or the larger type"). */}
           <span className="provider-card__cancellations">{provider.providerCancellationCount} cancellations</span>
@@ -94,6 +97,7 @@ export function ProviderCard({ provider }: ProviderCardProps) {
               <SlotChip
                 key={startsAt}
                 startsAt={startsAt}
+                showDay
                 onSelect={() => navigate(`/providers/${provider.id}?slot=${startsAt}`)}
               />
             ))}
