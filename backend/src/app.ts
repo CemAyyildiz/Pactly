@@ -42,6 +42,18 @@ import {
   type DiscoverFilters,
 } from "./services/profile.js";
 import {
+  AlreadyAProviderError,
+  InvalidProviderApplicationError,
+  NoProviderApplicationError,
+  ProviderApplicationDecidedError,
+  ProviderApplicationNotFoundError,
+  ProviderApplicationPendingError,
+  applyAsProvider,
+  decideApplication,
+  getOwnProviderApplication,
+  listPendingApplications,
+} from "./services/providerApplications.js";
+import {
   BookingActionPendingError,
   BalanceAlreadySettledError,
   BookingEscrowStateError,
@@ -446,6 +458,55 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
       }
       if (error instanceof InvalidAvailabilitySlotsError) {
         return c.json({ code: "INVALID_SLOTS", message: error.message, details: error.details }, 400);
+      }
+      throw error;
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // Story 4.1: "List your shop" -- a wallet applies, then reads its own
+  // application back. The unapproved profile the application creates is
+  // what `/me/provider` above then returns (with `isApproved: false`).
+  // ---------------------------------------------------------------------
+
+  app.get("/me/provider/application", requirePactlyAuth, async (c) => {
+    try {
+      return c.json({ application: await getOwnProviderApplication(db, c.get("walletAddress")) });
+    } catch (error) {
+      if (error instanceof NoProviderApplicationError) {
+        return c.json({ code: "NO_APPLICATION", message: error.message }, 404);
+      }
+      throw error;
+    }
+  });
+
+  app.post("/me/provider/application", requirePactlyAuth, async (c) => {
+    const body = await c.req.json().catch(() => undefined);
+    const text = (value: unknown) => (typeof value === "string" ? value : "");
+    const int = (value: unknown) => (typeof value === "number" ? value : Number.NaN);
+    try {
+      const application = await applyAsProvider(db, c.get("walletAddress"), {
+        name: text(body?.name),
+        title: text(body?.title),
+        categoryId: text(body?.categoryId),
+        location: text(body?.location),
+        serviceDescription: text(body?.serviceDescription),
+        sessionFormat: text(body?.sessionFormat),
+        sessionLengthMinutes: int(body?.sessionLengthMinutes),
+        priceAmount: text(body?.priceAmount),
+        depositRateBps: int(body?.depositRateBps),
+        cancellationWindowHours: int(body?.cancellationWindowHours),
+      });
+      return c.json({ application }, 201);
+    } catch (error) {
+      if (error instanceof InvalidProviderApplicationError) {
+        return c.json({ code: "INVALID_APPLICATION", message: error.message, details: error.details }, 400);
+      }
+      if (error instanceof ProviderApplicationPendingError) {
+        return c.json({ code: "APPLICATION_PENDING", message: error.message }, 409);
+      }
+      if (error instanceof AlreadyAProviderError) {
+        return c.json({ code: "ALREADY_A_PROVIDER", message: error.message }, 409);
       }
       throw error;
     }
@@ -1008,6 +1069,48 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
   app.get("/admin/disputes", requirePactlyAuth, requireAdmin, async (c) => {
     const disputes = await listOpenDisputes(db);
     return c.json({ disputes });
+  });
+
+  // ---------------------------------------------------------------------
+  // Story 4.2: the admin approval queue. Same gate as the dispute list --
+  // any admin wallet may decide an application.
+  // ---------------------------------------------------------------------
+
+  app.get("/admin/applications", requirePactlyAuth, requireAdmin, async (c) => {
+    return c.json({ applications: await listPendingApplications(db) });
+  });
+
+  app.post("/admin/applications/:id/decide", requirePactlyAuth, requireAdmin, async (c) => {
+    const id = c.req.param("id");
+    if (!id) {
+      return c.json({ code: "invalid_request", message: "application id is required." }, 400);
+    }
+    const body = await c.req.json().catch(() => undefined);
+    const outcome = typeof body?.outcome === "string" ? body.outcome : undefined;
+    if (outcome !== "approve" && outcome !== "reject") {
+      return c.json({ code: "invalid_request", message: "outcome must be approve or reject." }, 400);
+    }
+    try {
+      const application = await decideApplication(
+        db,
+        id,
+        outcome,
+        c.get("walletAddress"),
+        typeof body?.reason === "string" ? body.reason : undefined,
+      );
+      return c.json({ application });
+    } catch (error) {
+      if (error instanceof ProviderApplicationNotFoundError) {
+        return c.json({ code: "APPLICATION_NOT_FOUND", message: error.message }, 404);
+      }
+      if (error instanceof ProviderApplicationDecidedError) {
+        return c.json({ code: "APPLICATION_DECIDED", message: error.message }, 409);
+      }
+      if (error instanceof InvalidProviderApplicationError) {
+        return c.json({ code: "INVALID_APPLICATION", message: error.message, details: error.details }, 400);
+      }
+      throw error;
+    }
   });
 
   // ---------------------------------------------------------------------

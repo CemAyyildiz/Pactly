@@ -190,6 +190,45 @@ export interface ProviderRulesValues {
  * than through this function; a real provider's rules only ever change
  * through this path. Throws if `id` matches no row, rather than silently
  * writing nothing (same discipline as `db/bookings.ts`'s state writers). */
+export interface ProviderApplicationProfileValues {
+  categoryId: string;
+  displayName: string;
+  title: string;
+  location: string;
+  bio: string;
+  sessionFormat: string;
+  sessionLengthMinutes: number;
+  priceAmount: string;
+  depositRateBps: number;
+  cancellationWindowHours: number;
+}
+
+/** Story 4.1: a wallet re-applying after a rejection already owns an
+ * (unapproved) profile row -- the new application overwrites what it
+ * describes and keeps the row unapproved until an admin decides again. */
+export async function updateProviderProfileFromApplication(
+  db: Db,
+  id: string,
+  values: ProviderApplicationProfileValues,
+): Promise<void> {
+  const result = await db
+    .update(providerProfiles)
+    .set({ ...values, isApproved: false })
+    .where(eq(providerProfiles.id, id));
+  if (result.changes === 0) {
+    throw new TypeError(`No provider profile exists with id "${id}"`);
+  }
+}
+
+/** Story 4.2: the one write that puts a profile on (or off) the
+ * marketplace. */
+export async function setProviderProfileApproved(db: Db, id: string, isApproved: boolean): Promise<void> {
+  const result = await db.update(providerProfiles).set({ isApproved }).where(eq(providerProfiles.id, id));
+  if (result.changes === 0) {
+    throw new TypeError(`No provider profile exists with id "${id}"`);
+  }
+}
+
 export async function updateProviderProfileRules(db: Db, id: string, values: ProviderRulesValues): Promise<void> {
   const result = await db
     .update(providerProfiles)
