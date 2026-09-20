@@ -2,7 +2,7 @@
 title: 'Story 2.3 — SEP-6 withdraw (professional cashing out in local currency)'
 type: 'feature'
 created: '2026-09-20'
-status: 'in-progress'
+status: 'ready-for-dev'
 review_loop_iteration: 0
 baseline_revision: 'f2bb11f9c044c6af8afa1a3e82c94382207cf697'
 followup_review_recommended: false
