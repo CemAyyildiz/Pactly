@@ -24,6 +24,16 @@ function backendPort(): number {
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    // passkey-kit (sdk 16 peer) and its generated contract clients must
+    // share ONE @stellar/stellar-sdk copy -- two copies make every
+    // `instanceof`-based XDR check inside the kit fail ("did not match the
+    // provided type"). Dedupe onto this workspace's own 16.x install.
+    dedupe: ["@stellar/stellar-sdk"],
+  },
+  optimizeDeps: {
+    include: ["passkey-kit", "passkey-kit/storage"],
+  },
   server: {
     port: 5173,
     strictPort: true,

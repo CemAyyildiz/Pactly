@@ -130,6 +130,9 @@ export async function ensureAccountReady(
   if (!user) {
     throw new NoCustodialAccountError();
   }
+  if (user.encryptedSecret === "passkey-kit") {
+    return { funded: true, usdcTrustline: true };
+  }
   if (user.funded && user.usdcTrustline) {
     return { funded: true, usdcTrustline: true };
   }

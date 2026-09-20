@@ -24,6 +24,7 @@
     "drizzle-orm": "0.45.2",
     "hono": "4.13.8",
     "jose": "6.2.12",
+    "passkey-kit": "^0.19.1",
     "smol-toml": "1.8.0"
   },
   "devDependencies": {

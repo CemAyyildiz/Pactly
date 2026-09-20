@@ -158,6 +158,9 @@ export interface Config {
   /** Every origin a passkey ceremony may be completed from (scheme + host
    * + port) -- `http://localhost:5173` in dev; a comma list is allowed. */
   passkeyRpOrigins: string[];
+  /** OpenZeppelin Channels relayer (Passkey Kit). Empty = fee-bump locally. */
+  passkeyRelayerBaseUrl: string;
+  passkeyRelayerApiKey: string;
 }
 
 function loadConfig(): Config {
@@ -179,6 +182,8 @@ function loadConfig(): Config {
     friendbotUrl: optional("FRIENDBOT_URL", "https://friendbot.stellar.org"),
     passkeyRpId: optional("PACTLY_RP_ID", "localhost"),
     passkeyRpOrigins: optionalList("PACTLY_RP_ORIGIN", "http://localhost:5173"),
+    passkeyRelayerBaseUrl: optional("PASSKEY_RELAYER_BASE_URL", ""),
+    passkeyRelayerApiKey: optional("PASSKEY_RELAYER_API_KEY", ""),
   };
 }
 

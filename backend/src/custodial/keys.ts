@@ -97,6 +97,9 @@ export async function signXdrForWallet(db: Db, walletAddress: string, unsignedXd
     throw new NoCustodialAccountError();
   }
   const envelope = parseEnvelope(unsignedXdr);
+  if (user.encryptedSecret === "passkey-kit") {
+    throw new NoCustodialAccountError("This account signs with a passkey in the browser, not a server-held key.");
+  }
   const keypair = Keypair.fromSecret(decryptSecret(user.encryptedSecret));
   envelope.sign(keypair);
   return envelope.toXDR();

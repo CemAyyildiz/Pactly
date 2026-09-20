@@ -1,44 +1,31 @@
 /**
- * Sign-in and signing for Pactly -- passkeys, not wallets.
+ * Sign-in and signing for Pactly — Stellar Passkey Kit, not a wallet app.
  *
- * Wallets are gone. Pactly's users are barbers, therapists and their
- * clients, and the pivot decision is that none of them should ever see a
- * crypto wallet, a seed phrase or a browser extension. Sign-in is a passkey
- * (WebAuthn: face, fingerprint or device PIN), and every Stellar signature
- * the product needs is made server-side by a custodial key the backend
- * holds for that account. The Stellar address is still returned as
- * `walletAddress` -- to the user it is nothing more than an opaque customer
- * id (shown shortened in the provider panel and admin rows), and every
- * importer keeps compiling against the same `Session` shape.
- *
- * The module keeps its old name and public surface (`getSession`,
- * `signOut`, `signIn`, `signXdr`, `Session`) so the twelve files importing
- * it did not have to change; only the internals moved from the Stellar
- * Wallets Kit to `@simplewebauthn/browser` plus `POST /me/sign`.
- *
- * The session lives in `sessionStorage` (cleared on tab close -- never
- * `localStorage`, so a shared machine never carries a session forward).
+ * Jury ask: https://github.com/stellar/passkey-kit
+ * A passkey (Face ID / fingerprint) is the on-chain signer of a Soroban
+ * smart wallet (`C…`). There is no Freighter, no seed phrase, no custodial
+ * `G…` secret. The module keeps `getSession` / `signIn` / `signOut` /
+ * `signXdr` / `Session` so every screen that already calls those keeps
+ * compiling.
  */
-import { startAuthentication, startRegistration, WebAuthnError } from "@simplewebauthn/browser";
-import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
+import { PasskeyKit, MercuryIndexer, SignerKey } from "passkey-kit";
+import { IndexedDBStorage } from "passkey-kit/storage";
+import { Transaction } from "@stellar/stellar-sdk";
 
 import { ApiError, apiPost } from "../api/client";
 
 const SESSION_STORAGE_KEY = "pactly.session";
+const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
+const RPC_URL = "https://soroban-testnet.stellar.org";
+/** Canonical smart-wallet WASM (passkey-kit docs/deployments-2026-09-01.md). */
+const WALLET_WASM_HASH = "97ce047884106b1c6c3bb40b8973cc48db1c4dad95c9e20462bf2c701daa764e";
 
 export interface Session {
   token: string;
-  /** The account's Stellar address, held custodially by the backend. An
-   * opaque customer id as far as the user is concerned. */
+  /** Smart-wallet contract id (`C…`). Opaque customer id on screen. */
   walletAddress: string;
 }
 
-/**
- * Thrown when the user (or the browser on their behalf) closed or timed
- * out the passkey prompt without finishing it -- callers show it as neutral
- * information ("You didn't finish signing in."), never as a warning, and
- * distinguish it from a network drop or a backend rejection ({@link ApiError}).
- */
 export class SignInCancelledError extends Error {
   constructor() {
     super("The passkey prompt was closed before it finished.");
@@ -46,8 +33,49 @@ export class SignInCancelledError extends Error {
   }
 }
 
-/** Reads the session already stored in this tab, if any -- never makes a
- * network call. */
+let kitSingleton: PasskeyKit | undefined;
+const storage = new IndexedDBStorage();
+
+function getKit(): PasskeyKit {
+  if (!kitSingleton) {
+    kitSingleton = new PasskeyKit({
+      rpcUrl: RPC_URL,
+      networkPassphrase: NETWORK_PASSPHRASE,
+      walletWasmHash: WALLET_WASM_HASH,
+      rpId: "localhost",
+      allowedOrigins: ["http://localhost:5173"],
+      requireUserVerification: true,
+      storage,
+    });
+    normaliseSignerExpiration(kitSingleton);
+  }
+  return kitSingleton;
+}
+
+/**
+ * passkey-kit 0.19.1 with @stellar/stellar-sdk 16.3.0: a signer created
+ * without an expiration decodes its `Option<u64>` as `null`, but
+ * `connectWallet` only skips the expiry check for `undefined` -- it then
+ * compares `BigInt > null` (true) and crashes on `null.toString()`, so no
+ * wallet can ever connect. Normalise the decoded value on the kit's own
+ * signer reader until the kit handles `null` itself.
+ */
+function normaliseSignerExpiration(kit: PasskeyKit): void {
+  const manager = (kit as unknown as { signerManager?: { getSigner: (key: unknown) => Promise<unknown> } }).signerManager;
+  if (!manager || typeof manager.getSigner !== "function") {
+    return;
+  }
+  const original = manager.getSigner.bind(manager);
+  manager.getSigner = async (key: unknown) => {
+    const value = (await original(key)) as { values?: unknown[] } | null;
+    const inner = value?.values?.[1];
+    if (Array.isArray(inner) && inner[0] === null) {
+      inner[0] = undefined;
+    }
+    return value;
+  };
+}
+
 export function getSession(): Session | undefined {
   try {
     const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
@@ -60,9 +88,6 @@ export function getSession(): Session | undefined {
     }
     return undefined;
   } catch {
-    // A private window or blocked site data can make sessionStorage throw
-    // or return malformed JSON -- treated the same as "no session" rather
-    // than crashing the page.
     return undefined;
   }
 }
@@ -71,8 +96,7 @@ function saveSession(session: Session): void {
   try {
     sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
   } catch {
-    // Best-effort only; a page that cannot persist the session still works
-    // for the current render, it just asks for the passkey again on reload.
+    // Best-effort.
   }
 }
 
@@ -80,82 +104,76 @@ export function signOut(): void {
   try {
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
   } catch {
-    // Nothing to clean up if storage was never reachable in the first place.
+    // ignore
   }
+  getKit().disconnect();
 }
 
-interface LoginOptionsResponse {
-  loginId: string;
-  options: PublicKeyCredentialRequestOptionsJSON;
-}
-
-interface RegisterOptionsResponse {
-  registrationId: string;
-  options: PublicKeyCredentialCreationOptionsJSON;
-}
-
-interface VerifyResponse {
-  token: string;
-  walletAddress: string;
-}
-
-/** The browser reports a dismissed, timed-out or aborted WebAuthn prompt
- * as `NotAllowedError`/`AbortError` (SimpleWebAuthn wraps both as
- * `ERROR_CEREMONY_ABORTED`, or passes a bare `NotAllowedError` through). */
 function isCancelled(error: unknown): boolean {
-  if (error instanceof WebAuthnError) {
-    if (error.code === "ERROR_CEREMONY_ABORTED") {
-      return true;
-    }
-    const cause = error.cause;
-    return cause instanceof Error && (cause.name === "NotAllowedError" || cause.name === "AbortError");
+  if (error instanceof SignInCancelledError) {
+    return true;
   }
   return error instanceof Error && (error.name === "NotAllowedError" || error.name === "AbortError");
 }
 
-async function register(): Promise<Session> {
-  const { registrationId, options } = await apiPost<RegisterOptionsResponse>("/auth/passkey/register/options", {});
-  let response;
-  try {
-    response = await startRegistration({ optionsJSON: options });
-  } catch (error) {
-    throw isCancelled(error) ? new SignInCancelledError() : error;
-  }
-  const verified = await apiPost<VerifyResponse>("/auth/passkey/register/verify", { registrationId, response });
+interface KitSessionResponse {
+  token: string;
+  walletAddress: string;
+}
+
+interface KitSubmitResponse {
+  hash: string;
+}
+
+async function issueSession(contractId: string): Promise<Session> {
+  const verified = await apiPost<KitSessionResponse>("/auth/passkey-kit/session", { contractId });
   return { token: verified.token, walletAddress: verified.walletAddress };
 }
 
-async function login(): Promise<Session> {
-  const { loginId, options } = await apiPost<LoginOptionsResponse>("/auth/passkey/login/options", {});
-  let response;
-  try {
-    response = await startAuthentication({ optionsJSON: options });
-  } catch (error) {
-    throw isCancelled(error) ? new SignInCancelledError() : error;
-  }
-  const verified = await apiPost<VerifyResponse>("/auth/passkey/login/verify", { loginId, response });
-  return { token: verified.token, walletAddress: verified.walletAddress };
+async function connectExisting(): Promise<Session> {
+  const kit = getKit();
+  const indexer = MercuryIndexer.forNetwork({ rpc: kit.rpc }, NETWORK_PASSPHRASE);
+  const connected = await kit.connectWallet({
+    getWalletCandidates: indexer
+      ? (keyId) => indexer.findWallets(SignerKey.Secp256r1(keyId))
+      : undefined,
+  });
+  return issueSession(connected.contractId);
+}
+
+async function createAndDeploy(): Promise<Session> {
+  const kit = getKit();
+  const created = await kit.createWallet("Pactly", "pactly-user");
+  const submitted = await apiPost<KitSubmitResponse>("/auth/passkey-kit/submit", { xdr: created.signedTx });
+  await kit.confirmWalletCreation(created, submitted.hash);
+  await kit.connectWallet({ keyId: created.keyIdBase64 });
+  return issueSession(created.contractId);
 }
 
 /**
- * Signs the user in with a passkey. Tries a discoverable-credential login
- * first; if the backend has never seen this passkey (`404 PASSKEY_UNKNOWN`)
- * it falls straight through to registration, so a first-time user gets an
- * account from the same single tap -- there is no separate "create
- * account" screen to explain.
- *
- * Throws {@link SignInCancelledError} when the prompt was closed unfinished,
- * {@link ApiError} for a backend rejection (`401 PASSKEY_INVALID`, expired
- * challenge), and re-throws anything else (no WebAuthn support, network
- * drop) untouched.
+ * Passkey prompt. Returning users reconnect the smart wallet; a first-time
+ * user deploys one. Same tap either way — IndexedDB is checked first so a
+ * new visitor is not asked to "log in" to a wallet they do not have.
  */
 export async function signIn(): Promise<Session> {
   let session: Session;
+  const stored = await storage.getAll();
   try {
-    session = await login();
+    if (stored.length > 0) {
+      session = await connectExisting();
+    } else {
+      session = await createAndDeploy();
+    }
   } catch (error) {
-    if (error instanceof ApiError && error.status === 404 && error.code === "PASSKEY_UNKNOWN") {
-      session = await register();
+    if (isCancelled(error)) {
+      throw new SignInCancelledError();
+    }
+    if (stored.length > 0) {
+      try {
+        session = await createAndDeploy();
+      } catch (createError) {
+        throw isCancelled(createError) ? new SignInCancelledError() : createError;
+      }
     } else {
       throw error;
     }
@@ -164,29 +182,60 @@ export async function signIn(): Promise<Session> {
   return session;
 }
 
-interface SignResponse {
-  signedXdr: string;
+async function signInvokeAuth(unsignedXdr: string): Promise<string> {
+  const kit = getKit();
+  if (!kit.contractId) {
+    const session = getSession();
+    if (session?.walletAddress) {
+      await kit.connectWallet({ keyId: undefined });
+    }
+  }
+  const tx = new Transaction(unsignedXdr, NETWORK_PASSPHRASE);
+  let signedAny = false;
+  for (const op of tx.operations) {
+    if (op.type !== "invokeHostFunction") {
+      continue;
+    }
+    const auth = op.auth;
+    if (!auth || auth.length === 0) {
+      continue;
+    }
+    const signed = [];
+    for (const entry of auth) {
+      signed.push(await kit.signAuthEntry(entry as never));
+    }
+    op.auth = signed as unknown as typeof auth;
+    signedAny = true;
+  }
+  if (!signedAny) {
+    throw new ApiError(
+      {
+        code: "PASSKEY_KIT_SIGN",
+        message: "This booking step is a classic Stellar signature. Your passkey signs the smart wallet instead — the lock still needs a Soroban auth entry from Trustless Work.",
+      },
+      400,
+    );
+  }
+  return tx.toXDR();
 }
 
 /**
- * Signs a Stellar transaction the backend already built (an escrow deploy
- * or fund XDR, a balance payment, a dispute resolution) with the account's
- * custodial key, server-side. There is no user prompt any more -- the
- * passkey sign-in is the user's consent, the JWT proves it, and the backend
- * signs on the account's behalf.
- *
- * `walletAddress` is accepted for surface compatibility with the twelve
- * existing callers but is not needed: the backend signs with whichever key
- * belongs to the session's own account, never one the caller names.
- *
- * Throws {@link ApiError} on a `401` (dead session -- callers already sign
- * out on that) or any other backend refusal.
+ * Sign a backend-built envelope with the connected passkey (Soroban auth
+ * entries). Classic `G…` custodial sessions still fall through to
+ * `POST /me/sign`.
  */
-export async function signXdr(unsignedXdr: string, _walletAddress: string): Promise<string> {
+export async function signXdr(unsignedXdr: string, walletAddress: string): Promise<string> {
   const session = getSession();
   if (!session) {
     throw new ApiError({ code: "UNAUTHORIZED", message: "Your session ended. Sign in again to continue." }, 401);
   }
-  const { signedXdr } = await apiPost<SignResponse>("/me/sign", { unsignedXdr }, session.token);
+  if (walletAddress.startsWith("C")) {
+    try {
+      return await signInvokeAuth(unsignedXdr);
+    } catch (error) {
+      throw isCancelled(error) ? new SignInCancelledError() : error;
+    }
+  }
+  const { signedXdr } = await apiPost<{ signedXdr: string }>("/me/sign", { unsignedXdr }, session.token);
   return signedXdr;
 }

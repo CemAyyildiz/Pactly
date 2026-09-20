@@ -36,6 +36,12 @@ import {
   finishPasskeyRegistration,
   type PasskeyDeps,
 } from "./auth/passkey.js";
+import {
+  PasskeyKitAccountError,
+  PasskeyKitSubmitError,
+  sessionForPasskeyKitWallet,
+  submitPasskeyKitXdr,
+} from "./auth/passkeyKit.js";
 import { InvalidXdrError, NoCustodialAccountError } from "./custodial/errors.js";
 import { ensureAccountReadyInBackground, type EnsureAccountReadyDeps } from "./custodial/funding.js";
 import { signXdrForWallet } from "./custodial/keys.js";
@@ -411,6 +417,42 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
       }
       if (error instanceof PasskeyInvalidError) {
         return c.json({ code: "PASSKEY_INVALID", message: error.message }, 401);
+      }
+      throw error;
+    }
+  });
+
+  // Stellar Passkey Kit: browser creates/connects a C… smart wallet; this
+  // backend fee-sponsors the deploy and issues the Pactly JWT.
+  app.post("/auth/passkey-kit/submit", async (c) => {
+    const body = await c.req.json().catch(() => undefined);
+    const xdr = typeof body?.xdr === "string" ? body.xdr : undefined;
+    if (!xdr) {
+      return c.json({ code: "invalid_request", message: "xdr is required." }, 400);
+    }
+    try {
+      const result = await submitPasskeyKitXdr(xdr);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof PasskeyKitSubmitError) {
+        return c.json({ code: "PASSKEY_KIT_SUBMIT", message: error.message }, 502);
+      }
+      throw error;
+    }
+  });
+
+  app.post("/auth/passkey-kit/session", async (c) => {
+    const body = await c.req.json().catch(() => undefined);
+    const contractId = typeof body?.contractId === "string" ? body.contractId : undefined;
+    if (!contractId) {
+      return c.json({ code: "invalid_request", message: "contractId is required." }, 400);
+    }
+    try {
+      const session = await sessionForPasskeyKitWallet(db, contractId);
+      return c.json(session, 201);
+    } catch (error) {
+      if (error instanceof PasskeyKitAccountError) {
+        return c.json({ code: "PASSKEY_KIT_ACCOUNT", message: error.message }, 400);
       }
       throw error;
     }

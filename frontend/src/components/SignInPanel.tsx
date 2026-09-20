@@ -34,6 +34,7 @@ export function SignInPanel({ onSignedIn, intro }: SignInPanelProps) {
     try {
       onSignedIn(await signIn());
     } catch (caught) {
+      console.error("[sign-in]", caught);
       setError(signInErrorMessage(caught));
     } finally {
       setPending(false);
@@ -43,7 +44,7 @@ export function SignInPanel({ onSignedIn, intro }: SignInPanelProps) {
   return (
     <div className="card sign-in-panel">
       <p className="sign-in-panel__intro">
-        {intro ?? "Sign in with your passkey — your face, fingerprint or device PIN. No password, no app to install."}
+        {intro ?? "Sign in with a passkey — Face ID, fingerprint or device PIN. No wallet app."}
       </p>
       <button type="button" className="button-primary" onClick={() => void handleSignIn()} disabled={pending} aria-live="polite">
         <FingerprintSimpleIcon size={18} weight="bold" aria-hidden="true" />
@@ -69,6 +70,11 @@ export function signInErrorMessage(error: unknown): string {
   }
   if (error instanceof Error && error.name === "NotSupportedError") {
     return "This browser can't use passkeys. Try a current version of Safari, Chrome or Edge.";
+  }
+  // Passkey Kit errors carry a numeric `code` and a specific message --
+  // show it rather than blaming the connection.
+  if (error instanceof Error && typeof (error as { code?: unknown }).code === "number" && error.message) {
+    return `Passkey sign-in failed: ${error.message}`;
   }
   return "Connection dropped. Nothing changed.";
 }
