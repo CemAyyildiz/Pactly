@@ -106,7 +106,7 @@ type DisputeStep =
  * the escrow actions' own submit (a quick relay the reconciler confirms
  * later), `submitBalancePayment` itself polls to a final on-chain result,
  * which can take up to the built transaction's own 5-minute timeout --
- * "Approve it in your wallet…" would sit there, wrong, for all of it. */
+ * "Confirm with your passkey…" would sit there, wrong, for all of it. */
 type BalanceActionKind = "pay-balance" | "confirming-balance" | "mark-cash";
 
 /**
@@ -286,7 +286,7 @@ export function BookingActions({
       return;
     }
 
-    // The signature is spent from here on -- "Approve it in your wallet…"
+    // The signature is spent from here on -- "Confirm with your passkey…"
     // no longer applies; the wait is now for the ledger, not the wallet.
     setBusyAction("confirming-balance");
     try {
@@ -389,9 +389,9 @@ export function BookingActions({
               type="button"
               className="button-primary"
               disabled={isBusy}
-              onClick={() => void runAction("complete", () => completeAppointment(id, session!), "Marked complete. Waiting for it to confirm on chain.")}
+              onClick={() => void runAction("complete", () => completeAppointment(id, session!), "Marked complete. Waiting for it to confirm.")}
             >
-              {busyAction === "complete" ? "Approve it in your wallet…" : "Mark appointment complete"}
+              {busyAction === "complete" ? "Confirm with your passkey…" : "Mark appointment complete"}
             </button>
           )}
           {canApprove && (
@@ -399,9 +399,9 @@ export function BookingActions({
               type="button"
               className="button-primary"
               disabled={isBusy}
-              onClick={() => void runAction("approve", () => approveAppointment(id, session!), "Approved. Waiting for it to confirm on chain.")}
+              onClick={() => void runAction("approve", () => approveAppointment(id, session!), "Approved. Waiting for it to confirm.")}
             >
-              {busyAction === "approve" ? "Approve it in your wallet…" : "Approve"}
+              {busyAction === "approve" ? "Confirm with your passkey…" : "Approve"}
             </button>
           )}
           {canRelease && (
@@ -409,9 +409,9 @@ export function BookingActions({
               type="button"
               className="button-primary"
               disabled={isBusy}
-              onClick={() => void runAction("release", () => releaseDeposit(id, session!), "Released. Waiting for it to confirm on chain.")}
+              onClick={() => void runAction("release", () => releaseDeposit(id, session!), "Released. Waiting for it to confirm.")}
             >
-              {busyAction === "release" ? "Approve it in your wallet…" : "Release deposit"}
+              {busyAction === "release" ? "Confirm with your passkey…" : "Release deposit"}
             </button>
           )}
           {canDispute && (
@@ -428,9 +428,9 @@ export function BookingActions({
           <div className="booking-card__actions">
             <button type="button" className="button-primary" disabled={isBusy} onClick={() => void handlePayBalance()}>
               {busyAction === "pay-balance"
-                ? "Approve it in your wallet…"
+                ? "Confirm with your passkey…"
                 : busyAction === "confirming-balance"
-                  ? "Confirming on chain…"
+                  ? "Confirming…"
                   : `Pay balance (${formatTryAmount(balance.amount)})`}
             </button>
           </div>
@@ -481,7 +481,7 @@ export function BookingActions({
           <p>This needs resolution. Pactly will resolve it as the named dispute resolver -- nothing moves until then.</p>
           <div className="booking-card__actions">
             <button type="button" className="button-primary" disabled={isBusy} onClick={() => void confirmDispute()}>
-              {busyAction === "dispute" ? "Approve it in your wallet…" : "Sign and open dispute"}
+              {busyAction === "dispute" ? "Confirm with your passkey…" : "Confirm and open dispute"}
             </button>
             <button type="button" className="button-ghost" disabled={isBusy} onClick={() => setDisputeStep({ kind: "idle" })}>
               Never mind
