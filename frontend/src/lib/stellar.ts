@@ -25,3 +25,14 @@ export function stellarExplorerContractUrl(contractId: string): string {
 export function stellarExplorerTransactionUrl(txHash: string): string {
   return `https://stellar.expert/explorer/testnet/tx/${txHash}`;
 }
+
+/** Trustless Work's own Escrow Viewer (`github.com/Trustless-Work/escrow-viewer`)
+ * -- a dynamic `/[id]` route that looks up an escrow by contract id and
+ * renders its roles, milestones and balances without the visitor needing to
+ * read raw ledger data. A second, escrow-shaped proof alongside the plain
+ * Stellar Expert contract link above: that one proves the contract exists on
+ * chain, this one proves what Trustless Work's own read model says its
+ * roles/milestones/state actually are. */
+export function trustlessWorkViewerUrl(contractId: string): string {
+  return `https://viewer.trustlesswork.com/${contractId}`;
+}

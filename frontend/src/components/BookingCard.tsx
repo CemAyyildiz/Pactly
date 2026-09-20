@@ -4,7 +4,7 @@ import { BookingActions } from "./BookingActions";
 import { Countdown } from "./Countdown";
 import { StateLabel } from "./StateLabel";
 import { formatMoney } from "../lib/money";
-import { stellarExplorerContractUrl, stellarExplorerTransactionUrl } from "../lib/stellar";
+import { stellarExplorerContractUrl, stellarExplorerTransactionUrl, trustlessWorkViewerUrl } from "../lib/stellar";
 import { formatSlotDay, formatSlotTime } from "../lib/time";
 import type { Session } from "../wallet";
 import type { BalanceState, BookingLifecycle, Money, PendingActionKind } from "../api/types";
@@ -141,6 +141,12 @@ export function BookingCard({
       {contractId && (
         <a className="booking-card__explorer-link" href={stellarExplorerContractUrl(contractId)} target="_blank" rel="noreferrer">
           View on Stellar Expert
+        </a>
+      )}
+
+      {contractId && (
+        <a className="booking-card__explorer-link" href={trustlessWorkViewerUrl(contractId)} target="_blank" rel="noreferrer">
+          View in Escrow Viewer
         </a>
       )}
 

@@ -8,7 +8,7 @@ import { BookingCard, BALANCE_STATE_LABEL } from "../../components/BookingCard";
 import { Countdown } from "../../components/Countdown";
 import { StateLabel } from "../../components/StateLabel";
 import { formatMoney } from "../../lib/money";
-import { shortenStellarId, stellarExplorerContractUrl, stellarExplorerTransactionUrl } from "../../lib/stellar";
+import { shortenStellarId, stellarExplorerContractUrl, stellarExplorerTransactionUrl, trustlessWorkViewerUrl } from "../../lib/stellar";
 import { formatSlotDay, formatSlotTime } from "../../lib/time";
 import { getSession, signIn, signOut, type Session } from "../../wallet";
 
@@ -164,9 +164,15 @@ export function BookingsPage() {
                     </td>
                     <td>
                       {booking.contractId && (
-                        <a href={stellarExplorerContractUrl(booking.contractId)} target="_blank" rel="noreferrer">
-                          View on Stellar Expert
-                        </a>
+                        <>
+                          <a href={stellarExplorerContractUrl(booking.contractId)} target="_blank" rel="noreferrer">
+                            View on Stellar Expert
+                          </a>
+                          {" · "}
+                          <a href={trustlessWorkViewerUrl(booking.contractId)} target="_blank" rel="noreferrer">
+                            Escrow Viewer
+                          </a>
+                        </>
                       )}
                     </td>
                     <td>
