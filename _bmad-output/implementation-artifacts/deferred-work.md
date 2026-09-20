@@ -1,3 +1,6 @@
+- source_spec: Demo Day conversation with Mihai (XOXNO), 20 Sep 2026
+  summary: Optional yield on a locked deposit — client opt-in, off by default; shop still receives the exact deposit; client keeps any yield. Needs a yield-aware wrapper or Trustless Work strategy hook (current single-release escrow cannot supply internally). Park after Story 2.3 cash-out. Not in this hackathon window.
+  evidence: Trustless Work Core v2 single-release has no supply/invest path; XOXNO Controller.supply is callable from another Soroban contract that holds the tokens. See README "After the hackathon" and PRD same heading.
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-1-monorepo-skeleton.md`
   summary: Add an automated check that `GET /health` returns 200 with `{"status":"ok"}`.
   evidence: Verification-gap review found no test touching `/health`; renaming the route would pass `npm run build` and `npm test`. Cheap once the backend test script from Story 1.1 exists (export `app` and use `app.request("/health")`).

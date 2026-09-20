@@ -494,3 +494,11 @@ As a client, I want to review the provider I met with.
 2. At most one review per booking.
 3. The rating and comment are shown on the provider profile.
 4. The booking a review belongs to is verifiable.
+
+---
+
+## After the hackathon (not in this MVP)
+
+**Soon — earn on your escrow money.** While a deposit waits for the appointment, that USDC could supply on XOXNO instead of sitting idle. Client opt-in at lock, off by default: the shop still receives the exact deposit on release; the client keeps any yield. Trustless Work's current single-release contract cannot do this internally (yield-aware wrapper or TW strategy hook). Not in this build.
+
+**Sequence:** Story 2.3 provider cash-out first, then this item. Do not auto-yield every lock. A 6-hour barber hold is not worth the risk; a 72-hour clinic deposit is the case that earns it. Skills: [XOXNO Lending](https://github.com/XOXNO/rs-lending-xlm/tree/main/skills).

@@ -423,7 +423,7 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
   });
 
   // Stellar Passkey Kit: browser creates/connects a C… smart wallet; this
-  // backend fee-sponsors the deploy and issues the Pactly JWT.
+  // backend fee-sponsors the deploy and issues a JWT for the G… rail.
   app.post("/auth/passkey-kit/submit", async (c) => {
     const body = await c.req.json().catch(() => undefined);
     const xdr = typeof body?.xdr === "string" ? body.xdr : undefined;

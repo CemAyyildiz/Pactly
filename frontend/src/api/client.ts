@@ -31,13 +31,18 @@ function authHeaders(token?: string): HeadersInit | undefined {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`/api${path}`, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...init.headers,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`/api${path}`, {
+      ...init,
+      headers: {
+        "content-type": "application/json",
+        ...init.headers,
+      },
+    });
+  } catch {
+    throw new ApiError({ code: "NETWORK", message: "Connection dropped. Your deposit is untouched." }, 0);
+  }
 
   if (!response.ok) {
     const envelope = await response

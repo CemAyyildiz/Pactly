@@ -1,10 +1,11 @@
 /**
- * Stellar Passkey Kit (jury ask): the user's signer is a WebAuthn passkey
- * on a Soroban smart wallet (`C…`), not a custodial `G…` seed this backend
- * holds. The browser runs `PasskeyKit.createWallet` / `connectWallet` /
- * `sign`; this module only (1) fee-sponsors submission so the wallet needs
- * no XLM and (2) issues the same Pactly JWT every other login path issues,
- * with the contract id as `sub`.
+ * Stellar Passkey Kit (jury ask): Face ID / fingerprint creates a Soroban
+ * smart wallet (`C…`) in the browser. SEP-10, SEP-6 and Trustless Work still
+ * need a classic `G…` account, so this module also derives a rail keypair
+ * from the contract id, stores that seed, and issues the Pactly JWT with
+ * the rail as `sub`. The browser still runs `createWallet` / `connectWallet`;
+ * this backend (1) fee-sponsors the `C…` deploy and (2) signs classic
+ * envelopes with the rail via `/me/sign`.
  *
  * Relayer: if `PASSKEY_RELAYER_BASE_URL` + `PASSKEY_RELAYER_API_KEY` are
  * set, submission goes through `PasskeyServer`. Otherwise a deterministic
@@ -25,8 +26,10 @@ import {
 import { PasskeyServer } from "passkey-kit/server";
 
 import { config } from "../config.js";
+import { encryptSecret } from "../custodial/keys.js";
+import { ensureAccountReadyInBackground } from "../custodial/funding.js";
 import type { Db } from "../db/client.js";
-import { getUserByWalletAddress, insertUser, setUserAccountFlags } from "../db/users.js";
+import { getUserByWalletAddress, insertUser, updateUserWalletAndSecret } from "../db/users.js";
 import { issuePactlyJwt } from "./challenge.js";
 
 /** Stored on `users.encrypted_secret` so `/me/sign` knows there is no seed. */
@@ -57,6 +60,20 @@ export function isPasskeyKitUserSecret(encryptedSecret: string): boolean {
 /** Deterministic G… that pays fees on testnet. Not the user's wallet. */
 export function passkeyKitFeePayer(): Keypair {
   const seed = createHash("sha256").update(`pactly-passkey-kit-fee-payer:${config.pactlyAuthSigningSecret}`).digest();
+  return Keypair.fromRawEd25519Seed(seed);
+}
+
+/**
+ * Classic G… that holds USDC and signs SEP-10 / Trustless Work for a
+ * Passkey Kit `C…` identity. Smart wallets cannot friendbot, cannot open a
+ * classic trustline, and cannot sign a SEP-10 challenge — the TRY deposit
+ * and lock still need this rail. Derived from the contract id so reconnect
+ * always lands on the same account.
+ */
+export function passkeyKitRailKeypair(contractId: string): Keypair {
+  const seed = createHash("sha256")
+    .update(`pactly-passkey-kit-rail:${contractId}:${config.pactlyAuthSigningSecret}`)
+    .digest();
   return Keypair.fromRawEd25519Seed(seed);
 }
 
@@ -229,8 +246,9 @@ export interface PasskeyKitSession {
   walletAddress: string;
 }
 
-/** Issues a Pactly JWT for a `C…` smart wallet, creating the users row on
- * first sight. No seed is stored. */
+/** Issues a Pactly JWT for the `G…` rail behind a Passkey Kit `C…` wallet,
+ * creating (or migrating) the users row on first sight. The Face ID step
+ * still deploys the smart wallet; deposits and lock use the rail key. */
 export async function sessionForPasskeyKitWallet(
   db: Db,
   contractId: string,
@@ -238,23 +256,45 @@ export async function sessionForPasskeyKitWallet(
   if (!StrKey.isValidContract(contractId)) {
     throw new PasskeyKitAccountError();
   }
-  let user = await getUserByWalletAddress(db, contractId);
+  const rail = passkeyKitRailKeypair(contractId);
+  const railAddress = rail.publicKey();
+  const encryptedSecret = encryptSecret(rail.secret());
+
+  let user = await getUserByWalletAddress(db, railAddress);
   if (!user) {
-    const id = randomUUID();
-    const createdAt = Date.now();
-    await insertUser(db, {
-      id,
-      displayName: "",
-      walletAddress: contractId,
-      encryptedSecret: PASSKEY_KIT_SECRET_MARKER,
-      createdAt,
+    const legacy = await getUserByWalletAddress(db, contractId);
+    if (legacy && isPasskeyKitUserSecret(legacy.encryptedSecret)) {
+      await updateUserWalletAndSecret(db, legacy.id, {
+        walletAddress: railAddress,
+        encryptedSecret,
+        funded: false,
+        usdcTrustline: false,
+      });
+      user = await getUserByWalletAddress(db, railAddress);
+    } else {
+      const id = randomUUID();
+      await insertUser(db, {
+        id,
+        displayName: "",
+        walletAddress: railAddress,
+        encryptedSecret,
+        createdAt: Date.now(),
+      });
+      user = await getUserByWalletAddress(db, railAddress);
+    }
+  } else if (isPasskeyKitUserSecret(user.encryptedSecret)) {
+    await updateUserWalletAndSecret(db, user.id, {
+      walletAddress: railAddress,
+      encryptedSecret,
+      funded: false,
+      usdcTrustline: false,
     });
-    await setUserAccountFlags(db, id, { funded: true, usdcTrustline: true });
-    user = await getUserByWalletAddress(db, contractId);
+    user = await getUserByWalletAddress(db, railAddress);
   }
   if (!user) {
     throw new PasskeyKitAccountError();
   }
-  return { token: await issuePactlyJwt(contractId), walletAddress: contractId };
+  ensureAccountReadyInBackground(db, railAddress);
+  return { token: await issuePactlyJwt(railAddress), walletAddress: railAddress };
 }
 

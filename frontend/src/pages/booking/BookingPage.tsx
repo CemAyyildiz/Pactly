@@ -303,6 +303,8 @@ export function BookingPage() {
           });
           return;
         }
+        setHoldError({ message: error.message || "Connection dropped. Your deposit is untouched." });
+        return;
       }
       setHoldError({ message: "Connection dropped. Your deposit is untouched." });
     }
@@ -316,6 +318,7 @@ export function BookingPage() {
       if (error.code === "HOLD_EXPIRED") {
         return { fatal: true, message: "This hold has expired. The slot may already be taken again." };
       }
+      return { fatal: true, message: error.message || "Connection dropped. Your deposit is untouched." };
     }
     return { fatal: true, message: "Connection dropped. Your deposit is untouched." };
   }
@@ -381,7 +384,11 @@ export function BookingPage() {
             }
             setPendingSignature(undefined);
             setPhase("deploy-failed");
-            setFlowFatalError("Connection dropped. Your deposit is untouched.");
+            setFlowFatalError(
+              error instanceof ApiError && error.message
+                ? error.message
+                : "Connection dropped. Your deposit is untouched.",
+            );
             return;
           }
           engineRef.current.deploySubmittedAtMs = Date.now();
@@ -591,14 +598,22 @@ export function BookingPage() {
     );
   }
 
-  if (profileError || !profile) {
+  if (profileError) {
+    const notFound = profileError instanceof ApiError && profileError.code === "PROVIDER_NOT_FOUND";
     return (
       <div className="page">
         <div className="banner banner--alert">
-          <p>This provider isn't available.</p>
+          <p>{notFound ? "This provider isn't available." : "Connection dropped. Try again."}</p>
         </div>
+        <p>
+          <Link to="/discover">Back to Discover</Link>
+        </p>
       </div>
     );
+  }
+
+  if (!profile) {
+    return null;
   }
 
   const cancelDeadline = hold?.cancelDeadline ?? slotStartsAt - profile.cancellationWindowHours * 3600;

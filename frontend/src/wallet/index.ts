@@ -22,7 +22,11 @@ const WALLET_WASM_HASH = "97ce047884106b1c6c3bb40b8973cc48db1c4dad95c9e20462bf2c
 
 export interface Session {
   token: string;
-  /** Smart-wallet contract id (`C…`). Opaque customer id on screen. */
+  /**
+   * Classic `G…` rail behind the Passkey Kit smart wallet. Face ID still
+   * creates/connects a `C…` contract; deposits and lock need this account
+   * (SEP-10 and Trustless Work are classic envelopes).
+   */
   walletAddress: string;
 }
 
@@ -96,6 +100,12 @@ export function getSession(): Session | undefined {
     }
     const parsed = JSON.parse(raw) as Partial<Session>;
     if (typeof parsed.token === "string" && typeof parsed.walletAddress === "string") {
+      // Early kit sessions used the `C…` contract as `sub`. That cannot
+      // SEP-10 or lock — drop it so the next passkey prompt mints the rail.
+      if (parsed.walletAddress.startsWith("C")) {
+        sessionStorage.removeItem(SESSION_STORAGE_KEY);
+        return undefined;
+      }
       return { token: parsed.token, walletAddress: parsed.walletAddress };
     }
     return undefined;
@@ -232,9 +242,9 @@ async function signInvokeAuth(unsignedXdr: string): Promise<string> {
 }
 
 /**
- * Sign a backend-built envelope with the connected passkey (Soroban auth
- * entries). Classic `G…` custodial sessions still fall through to
- * `POST /me/sign`.
+ * Sign a backend-built envelope. Passkey Kit sessions use a `G…` rail, so
+ * lock and SEP-10 go through `POST /me/sign`. A leftover `C…` session still
+ * signs Soroban auth in the browser.
  */
 export async function signXdr(unsignedXdr: string, walletAddress: string): Promise<string> {
   const session = getSession();

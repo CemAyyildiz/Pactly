@@ -47,6 +47,7 @@ The product is built for a global audience: all copy is English, amounts carry t
 | Admin approval queue | Direct link | Approve or reject applications | MVP (plain) |
 | Write a review | Completed booking | Only after a released deposit | Post-MVP |
 | Edit provider profile | Provider panel | Bio, photo, languages | Post-MVP |
+| Earn on this deposit | Booking & payment | Soon: opt-in at lock, off by default. Locked USDC may earn until release. Shop still receives the exact deposit; the client keeps any yield. Not in this build. | Post-MVP |
 
 A client can hold bookings with several providers at once; "My bookings" shows them in one list, ordered by date.
 

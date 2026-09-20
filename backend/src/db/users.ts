@@ -68,6 +68,16 @@ export async function setUserAccountFlags(
   await db.update(users).set(flags).where(eq(users.id, userId));
 }
 
+/** Moves a passkey-kit identity from a `C…` contract id onto its `G…` rail
+ * account (SEP-6 / Trustless Work need a classic key, not a smart wallet). */
+export async function updateUserWalletAndSecret(
+  db: Db,
+  userId: string,
+  patch: { walletAddress: string; encryptedSecret: string; funded?: boolean; usdcTrustline?: boolean },
+): Promise<void> {
+  await db.update(users).set(patch).where(eq(users.id, userId));
+}
+
 export async function getPasskeyCredentialById(db: Db, id: string): Promise<PasskeyCredentialRow | undefined> {
   const [row] = await db.select().from(passkeyCredentials).where(eq(passkeyCredentials.id, id)).limit(1);
   return row;
