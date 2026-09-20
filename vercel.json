@@ -5,12 +5,13 @@
   "buildCommand": "npm run -w frontend build",
   "outputDirectory": "frontend/dist",
   "functions": {
-    "api/[[...route]].ts": {
+    "api/index.ts": {
       "maxDuration": 60,
       "includeFiles": "backend/src/**"
     }
   },
   "rewrites": [
+    { "source": "/api/:path*", "destination": "/api?path=:path*" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
