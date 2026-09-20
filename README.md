@@ -1,17 +1,53 @@
 # Pactly
 
-Pactly is a trust-backed booking marketplace for appointment-based services. A client finds a provider, picks a slot and locks a deposit in an escrow neither side controls; the deposit releases to the provider when the appointment happens, or back to the client on a timely cancellation — with a transparent, chain-backed resolution path when the two sides disagree.
+**A trust-backed booking marketplace for appointment-based services — the deposit sits in an escrow neither side controls.**
+
+![Stellar](https://img.shields.io/badge/Stellar-Testnet-1F4BFF) ![Escrow](https://img.shields.io/badge/Escrow-Trustless%20Work-111318) ![Asset](https://img.shields.io/badge/Asset-USDC-1F4BFF) ![Node](https://img.shields.io/badge/Node-22%20LTS-333) ![Hackathon](https://img.shields.io/badge/Rise%20In%20×%20Stellar-Pro%20Hackathon%202026-1F4BFF)
+
+![Pactly landing page](docs/screenshots/landing.png)
+
+A client finds a provider, picks a slot and locks a deposit in escrow; the deposit releases to the provider when the appointment happens, or back to the client on a timely cancellation — with a transparent, chain-backed resolution path when the two sides disagree.
 
 **Event:** Rise In × Stellar Pro Hackathon 2026 — Genesis Track
 **Network:** Stellar testnet · **Asset:** USDC · **Escrow:** [Trustless Work](https://www.trustlesswork.com/) · **Anchor:** `tr-mock-anchor.fly.dev`
 
-> Status: implementation in progress (Epic 3 of 4). See [What's built](#whats-built) for exactly which parts are real today.
+## Contents
+
+- [Live status](#live-status)
+- [Demo scenario](#demo-scenario)
+- [Quick start](#quick-start)
+- [Demo script](#demo-script)
+- [Architecture](#architecture)
+- [Repository layout](#repository-layout)
+- [What's built](#whats-built)
+- [Other commands](#other-commands)
+- [Stack](#stack)
+- [Hackathon requirements](#hackathon-requirements)
+- [Planning documents](#planning-documents)
+- [Skill files used](#skill-files-used)
+
+## Live status
+
+Everything below the escrow layer — discovery, provider profiles, the booking UI, the anchor deposit flow, the reconciler, the dispute/resolution screens — is built and exercised by tests. The one open item is the *first real signed lock against a live Trustless Work operator key*, tracked as Story 1.8:
+
+| Check | Result |
+|---|---|
+| Backend reaches the anchor (`tr-mock-anchor.fly.dev`), resolves the USDC trustline via its `stellar.toml` | ✅ Verified live |
+| Backend reaches Trustless Work's Core v2 API at the correct host | ✅ Fixed and verified 2026-09-20 — see below |
+| A real `deploy()` call is accepted with the current operator API key | ⏳ Not yet — see below |
+| Full lock → fund → complete → approve → release cycle against real testnet accounts | ⏳ Blocked on the item above |
+
+**What we found, live, on 2026-09-20:** the installed `@trustless-work/escrow-js@1.0.0-beta.1` package hardcodes both its `development` and `mainNet` base URLs to `https://beta.api.trustlesswork.com` — `https://dev.api.trustlesswork.com`, which Trustless Work's own docs separately describe as a testnet host, doesn't exist in this package at all. A direct `deploy()` call against `dev.api.trustlesswork.com` returned a bare `404`; the same call against `beta.api.trustlesswork.com` reached the real route and returned a structured `401 AUTH_INVALID_CREDENTIAL` — i.e. the right door, wrong key. `TRUSTLESS_WORK_API_URL` is now set to `beta.api.trustlesswork.com` (`.env` and `.env.example`). What's left is reissuing or re-verifying the operator API key from [dapp.trustlesswork.com](https://dapp.trustlesswork.com) against that host, then re-running this same check.
+
+Nothing about this affects the parts of the demo that don't need a real key: discovery, provider profiles, and holding a slot all work today with zero configuration (see [What's built](#whats-built)).
 
 ## Demo scenario
 
 The hero story: **Aisha**, a client abroad, locks a meaningful deposit for an in-person hair-transplant consultation at Marmara Hair Clinic in Istanbul. Therapy, barber, salon, consulting and language-tutoring listings around it demonstrate that Pactly is not built for one profession. See [Demo script](#demo-script) for the exact steps and wallets.
 
-## Prerequisites
+## Quick start
+
+### Prerequisites
 
 | Tool | Version | Needed for |
 |---|---|---|
@@ -27,9 +63,9 @@ The hero story: **Aisha**, a client abroad, locks a meaningful deposit for an in
 echo "ESCROW_CONTRACT_ID=CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" >> .env
 ```
 
-A real, funded Trustless Work operator key is needed for the deposit lock/fund/complete/approve/release/dispute/resolve steps to actually work — see [Trustless Work variables](#trustless-work-variables) below. Without one, discovery, provider profiles and holding a slot still work; every escrow action after that refuses up front with `503 ESCROW_UNAVAILABLE`.
+A real, funded Trustless Work operator key is needed for the deposit lock/fund/complete/approve/release/dispute/resolve steps to actually work — see [Trustless Work variables](#trustless-work-variables) below and [Live status](#live-status) above. Without one, discovery, provider profiles and holding a slot still work; every escrow action after that refuses up front with `503 ESCROW_UNAVAILABLE`.
 
-## Install and run
+### Install and run
 
 ```bash
 npm install                 # installs every workspace (backend, frontend, scripts)
@@ -43,7 +79,7 @@ npm run dev                 # backend + frontend together
 
 The backend reads every variable once in `backend/src/config.ts` and exits, naming the variable, if one is missing from `.env`.
 
-### `npm run demo:reset`
+#### `npm run demo:reset`
 
 A one-command rehearsal reset (Story 3.8): deletes the SQLite database file, reopens it (which migrates it, see `backend/src/db/client.ts`), reseeds the same demo dataset `seed:demo` uses, and prints every seeded provider's profile link plus which wallets the demo expects to be configured:
 
@@ -79,7 +115,7 @@ This is what it prints on a fresh clone, right after `cp .env.example .env` (eve
 
 Running it again is safe: the same categories, providers and slots come back, never duplicated. Set `SEED_PROVIDER_WALLET=G...` and `SEED_ADMIN_WALLET=G...` in `.env` first (see [Wallets and roles](#wallets-and-roles)) so the printed report tells you whether your own provider/admin wallets are actually wired up before you rehearse.
 
-### Trustless Work variables
+#### Trustless Work variables
 
 Four variables exist in `.env`; they do not all gate the same thing (`backend/src/escrow/trustless-work/client.ts`):
 
@@ -92,9 +128,9 @@ Four variables exist in `.env`; they do not all gate the same thing (`backend/sr
 
 All three required variables stay empty until a real Trustless Work operator key exists, the same discipline the old `ESCROW_CONTRACT_ID` variable already used.
 
-**`TRUSTLESS_WORK_API_URL` must be whichever host the operator's key was actually issued against.** Two hosts exist in the wild: the installed `@trustless-work/escrow-js@1.0.0-beta.1` package's own `development` constant points at `https://beta.api.trustlesswork.com`, while Trustless Work's own docs separately describe `https://dev.api.trustlesswork.com` as the testnet host. Check with whoever issued the key rather than guessing from either source alone (`.env.example` carries this same note next to the variable).
+**`TRUSTLESS_WORK_API_URL` should be `https://beta.api.trustlesswork.com`.** Two hosts exist in the wild — the installed `@trustless-work/escrow-js@1.0.0-beta.1` package's own `development`/`mainNet` constant points at `https://beta.api.trustlesswork.com`, while Trustless Work's own docs separately describe `https://dev.api.trustlesswork.com` as a testnet host — and we verified directly (2026-09-20): a real `deploy()` call against `dev.api.trustlesswork.com` returns a bare `404` (no such route on that host, for this SDK version), while the same call against `beta.api.trustlesswork.com` reaches the real route (a structured `401 AUTH_INVALID_CREDENTIAL` on a bad key, not a `404`). `.env.example` carries this same note next to the variable. See [Live status](#live-status).
 
-### Wallets and roles
+#### Wallets and roles
 
 Every booking assigns each Trustless Work role explicitly (`backend/src/escrow/trustless-work/client.ts`):
 
@@ -186,12 +222,13 @@ Built against [`sprint-status.yaml`](_bmad-output/implementation-artifacts/sprin
 |---|---|---|
 | Discovery, categories, search, filters (Stories 3.1–3.3) | **Built** | No sign-in; ≥6 approved seed providers across 4 categories |
 | Provider profile, availability panel (Story 3.1) | **Built** | Deposit pill, open slots, wallet sign-in only for the provider's own panel |
+| Marketing landing page at `/` | **Built** | Hero, how-it-works, demo scenario, category tiles, "built with"; `/discover` carries the marketplace itself |
 | Slot hold + Lock with Pactly (Story 3.4) | **Built** | Backend-issued 10-minute hold; deploy + fund XDR signed by the client; confirmation only after reconciled chain evidence |
-| Two-sided status panel, countdown, explorer link (Story 3.5) | **Built** | `escrow_state`/`balance_state` always shown separately |
+| Two-sided status panel, countdown, explorer link (Story 3.5) | **Built** | `escrow_state`/`balance_state` always shown separately; every proof point also links Trustless Work's own [Escrow Viewer](https://viewer.trustlesswork.com/) |
 | Complete → approve → release, dispute → resolve (Story 3.6) | **Built** | `backend/src/app.ts`'s `/bookings/:id/{complete,approve,release,dispute}` and `/admin/bookings/:id/resolve`, wired to `frontend/src/components/BookingActions.tsx` |
 | Paying the balance before the session (Story 3.7) | **Built** | The client pays the balance in USDC directly to the provider (`POST /bookings/:id/balance/pay`+`/submit`, a plain Stellar payment independent of the escrow — `backend/src/payments/stellar.ts`); the provider can mark it paid in person (`/bookings/:id/balance/mark-cash`); both panels show unpaid / paid through Pactly / paid in person |
 | Local-currency pay-in / cash-out via SEP-6 (Stories 2.2–2.4) | **Pay-in built; cash-out not built** | A client on the booking screen can pay the deposit in TRY via the hackathon sandbox (`tr-mock-anchor.fly.dev`): SEP-10 in their wallet, SEP-12 (auto-approved), SEP-6 deposit, then Lock with Pactly once the USDC lands. Provider cash-out (Story 2.3) is not built yet. |
-| Trustless Work live compatibility, real operator key (Story 1.8) | **In progress** | The adapter and reconciler are built and unit-tested against a fake Trustless Work server; no lock, release or resolve has yet run against a real operator key on testnet — the first live lock is unproven |
+| Trustless Work live compatibility, real operator key (Story 1.8) | **In progress** | The adapter and reconciler are built and unit-tested against a fake Trustless Work server; the API host is now verified reachable (see [Live status](#live-status)), but no lock, release or resolve has yet run against a real, accepted operator key on testnet |
 | Provider application + admin approval queue (Epic 4) | **Not built** | Demo providers are seeded pre-approved (`backend/src/seed/demoData.ts`); there is no application form or approval queue yet |
 | Reviews, verified-session counter (Epic 4) | **Not built** | Vision-scoped, not started |
 
@@ -217,13 +254,27 @@ npm run --silent setup:testnet # fund demo accounts/trustlines -- see scripts/RE
 | Stellar | `@stellar/stellar-sdk` 17 · Stellar Wallets Kit 2.6 |
 | Contract (pre-pivot, undeployed) | Rust · soroban-sdk 27.0.6 |
 
+## Hackathon requirements
+
+Pactly is submitted to the **Genesis Track**. Mapped against the organizers' own bar (full text: [`pro-hackathon-2026-handbook.md`](_bmad-output/planning-artifacts/pro-hackathon-2026-handbook.md)):
+
+| Requirement | Where it's satisfied |
+|---|---|
+| Eligible integration, load-bearing (not an add-on) | [Trustless Work](https://www.trustlesswork.com/) escrow is the core of every booking — see [Architecture](#architecture); pending the live-key fix in [Live status](#live-status) |
+| Real anchor / local-payments rail (highest-weighted criterion) | SEP-1/6/10/12/38 against `tr-mock-anchor.fly.dev` — a client pays a real TRY deposit and receives usable USDC balance (Story 2.4, [What's built](#whats-built)) |
+| Testnet-deployed, end-to-end flows, not hardcoded | Stellar testnet throughout; `contracts/escrow/`'s pre-pivot Soroban contract is explicitly marked unused (see [The pre-pivot Soroban contract](#the-pre-pivot-soroban-contract)) so nothing here is presented as deployed when it isn't |
+| Stellar Skills referenced with a path | [Skill files used](#skill-files-used) below |
+| Documented architecture, decisions and trade-offs | [Architecture](#architecture), [`ARCHITECTURE-SPINE.md`](_bmad-output/planning-artifacts/architecture/architecture-Pactly-2026-09-16/ARCHITECTURE-SPINE.md) |
+| Understandable UX for someone new to crypto | Implementation vocabulary (Soroban, XDR, trustline, milestone) never appears on screen — see the [Demo script](#demo-script)'s closing note |
+| Setup and test instructions | [Quick start](#quick-start), [Other commands](#other-commands) |
+
 ## Planning documents
 
 | Document | Contents |
 |---|---|
 | [`prd.md`](_bmad-output/planning-artifacts/prd.md) | Product requirements (v1.2), epics and stories |
 | [`ARCHITECTURE-SPINE.md`](_bmad-output/planning-artifacts/architecture/architecture-Pactly-2026-09-16/ARCHITECTURE-SPINE.md) | Architecture decisions (AD-1…AD-14), consistency conventions |
-| [`DESIGN.md`](_bmad-output/planning-artifacts/ux-designs/ux-Pactly-2026-09-15/DESIGN.md) | Visual system: the editorial direction -- warm paper, ink and Stellar's own yellow, Libre Bodoni + Public Sans |
+| [`DESIGN.md`](_bmad-output/planning-artifacts/ux-designs/ux-Pactly-2026-09-15/DESIGN.md) | Original visual system spec (warm paper, Libre Bodoni + Public Sans) — superseded in the running app by the Discover v2 pivot (cool grey canvas, blue accent, Instrument Sans + Newsreader; see the screenshot at the top of this README) |
 | [`EXPERIENCE.md`](_bmad-output/planning-artifacts/ux-designs/ux-Pactly-2026-09-15/EXPERIENCE.md) | Information architecture, states, copy rules, flows |
 | [`sprint-status.yaml`](_bmad-output/implementation-artifacts/sprint-status.yaml) | Per-story tracking status |
 
