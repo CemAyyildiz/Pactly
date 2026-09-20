@@ -2,7 +2,7 @@
 name: Pactly
 description: A trust-backed booking marketplace for appointment-based services — experience spine
 status: final
-updated: 2026-09-19
+updated: 2026-09-20
 sources:
   - "../../prd.md"
   - "./DESIGN.md"
@@ -16,7 +16,7 @@ sources:
 
 One surface: a **responsive web app** (React + TypeScript + Vite, PRD §3). A native mobile app is out of scope and stays a vision item.
 
-No component library is adopted; components are built from `DESIGN.md`. Motion uses Framer Motion. Escrow lifecycle and unsigned transactions come from a version-pinned Trustless Work integration.
+No component library is adopted; components are built from `DESIGN.md` (the "Editorial Warmth" direction, 2026-09-20) with Phosphor (`@phosphor-icons/react`) as the only icon set. Motion uses `motion` (`motion/react`, Framer Motion's successor). Escrow lifecycle and unsigned transactions come from a version-pinned Trustless Work integration.
 
 There are two user roles and one operator role:
 
@@ -50,7 +50,7 @@ The product is built for a global audience: all copy is English, amounts carry t
 
 A client can hold bookings with several providers at once; "My bookings" shows them in one list, ordered by date.
 
-→ Composition reference: `mockups/discover-v2-marketplace.html`, `mockups/booking-and-payment.html`. This spine wins on conflict.
+→ Composition reference: the running app (`frontend/src/pages/**`, `styles/editorial.css`); the HTML mockups in `mockups/` are historical. This spine wins on conflict.
 
 ## Voice and Tone
 
@@ -81,8 +81,9 @@ Visual specs live in `DESIGN.md.Components`.
 |---|---|---|
 | Search box | Discover, top nav | Autocomplete after a 250 ms debounce. Suggestions cover services, categories and provider names, each with its result count. Enter is never required. |
 | Category tabs | Discover | Single select. The selection is written to the URL; the back button works. |
-| Filter rail | Discover (≥1024px) | Every change updates results without a reload. On mobile the active filter count shows on the button. |
-| Provider card | Discover, search | The whole card is clickable. Tapping a slot chip opens the profile with that slot selected. |
+| Page masthead | Every page except Discover | Eyebrow + icon, serif title, optional lede, right-hand actions (sign out, sibling links). Signed-out states put the sign-in sentence in the lede. |
+| Filter rail | Discover (≥901px) | Every change updates results without a reload. Below 901px the rail hides and the "Filters" trigger opens the bottom sheet; the active filter count shows on the button. |
+| Provider card | Discover, search | The first result renders as a featured hero card, the rest as compact cards. The whole card is clickable (a stretched link); the CTA goes straight to the booking screen for the earliest open slot, or to the profile when there is none. |
 | Slot chip | Card, profile, booking | A taken slot is not clickable and takes no focus. Selection changes on a single tap, with no confirmation. |
 | Deposit pill | Card, profile, booking, my bookings | Informational, never clickable. Amount and free-cancellation window together. |
 | Balance row | Booking, booking detail | "Balance 1,400.00 TRY · due before the session" — payment state is one of three: unpaid, paid through Pactly, paid in person. The provider can mark a cash payment. |
@@ -114,13 +115,14 @@ Visual specs live in `DESIGN.md.Components`.
 
 ## Interaction Primitives
 
-**Motion.** Framer Motion carries three movements, each with a meaning:
+**Motion.** `motion` (`motion/react`) carries four movements, each with a meaning:
 
-1. **Meeting** — when the deposit locks, the two side colours slide toward the escrow lane and join (300 ms).
-2. **Seal** — the circular seal stamps down after the meeting (scale 1.6 → 1, spring curve, 400 ms). Only here.
-3. **Transition** — page changes fade and shift by 8px (150 ms).
+1. **Arrival** — a masthead rises 8px and fades in (300 ms); Discover's featured card 12px (350 ms); compact result cards 10px (300 ms) with a 40 ms stagger. On mount only, never on scroll, so results are readable the instant they render.
+2. **Meeting** — when the deposit locks, the two lanes slide toward the escrow lane and join (300 ms).
+3. **Seal** — the circular seal stamps down after the meeting (scale 1.6 → 1, spring curve, 400 ms). Only here.
+4. **Transition** — page changes fade and shift by 8px (150 ms).
 
-With `prefers-reduced-motion` all three are off; the seal appears in its final state.
+Every one of them is gated by `useReducedMotion`; with `prefers-reduced-motion` all four are off and the seal appears in its final state.
 
 **No hidden undo.** Funding places the deposit in Trustless Work escrow. The action is preceded by a summary: provider, appointment, amount, booking-policy deadline, Trustless Work roles and who may approve, release or resolve.
 
@@ -130,7 +132,8 @@ With `prefers-reduced-motion` all three are off; the seal appears in its final s
 
 ## Accessibility Floor
 
-- Full keyboard navigation; focus order matches visual order. The focus ring is `{colors.focus}` and always visible.
+- Full keyboard navigation; focus order matches visual order. The focus ring is a 2px `{colors.ink}` outline and always visible.
+- Icons are Phosphor SVGs: decorative ones beside text are `aria-hidden`; a standalone icon (the verified seal) carries an `aria-label`. Never a text glyph or emoji.
 - Touch targets are at least 44×44px. Slot chips grow to that size on mobile.
 - State is never conveyed by colour alone; every state label carries text.
 - Countdowns and state changes are announced through `aria-live="polite"`.
