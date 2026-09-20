@@ -5,7 +5,7 @@ import { ScalesIcon } from "@phosphor-icons/react";
 import { ApiError } from "../../api/client";
 import { resolveDispute, submitSignedTransaction, useAdminDisputes } from "../../api/hooks";
 import { PageMasthead } from "../../components/PageMasthead";
-import { formatMoney } from "../../lib/money";
+import { TryAmount } from "../../components/TryAmount";
 import { shortenStellarId } from "../../lib/stellar";
 import { formatSlotDay, formatSlotTime } from "../../lib/time";
 import { getSession, signIn, signOut, signXdr, type Session } from "../../wallet";
@@ -103,7 +103,9 @@ function DisputeRow({
       <dl className="booking-card__amounts">
         <div className="booking-card__amount-row">
           <dt>Deposit</dt>
-          <dd className="tabular-nums">{formatMoney(dispute.amount.amount, dispute.amount.asset)}</dd>
+          <dd className="tabular-nums">
+            <TryAmount amount={dispute.amount.amount} />
+          </dd>
         </div>
         <div className="booking-card__amount-row">
           <dt>{dispute.openedByRole ? OPENER_ROLE_LABEL[dispute.openedByRole] : "Opened by"}</dt>

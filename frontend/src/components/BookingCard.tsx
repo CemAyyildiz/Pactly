@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { BookingActions } from "./BookingActions";
 import { Countdown } from "./Countdown";
 import { StateLabel } from "./StateLabel";
-import { formatMoney } from "../lib/money";
+import { TryAmount } from "./TryAmount";
 import { stellarExplorerContractUrl, stellarExplorerTransactionUrl, trustlessWorkViewerUrl } from "../lib/stellar";
 import { formatSlotDay, formatSlotTime } from "../lib/time";
 import type { Session } from "../wallet";
@@ -36,7 +36,8 @@ export interface BookingCardProps {
   /** The explorer link (AC4) appears only when this exists. */
   contractId: string | null;
   /** Story 3.7: the on-chain transaction hash once the balance was paid
-   * through Pactly -- drives the balance row's own Stellar Expert link. */
+   * through Pactly -- drives the balance row's own "View payment record"
+   * link. */
   balancePaymentTxHash: string | null;
   /** Story 3.6: the signed-in wallet's own session, passed through to
    * {@link BookingActions} -- both pages that render this card already
@@ -110,12 +111,14 @@ export function BookingCard({
       <dl className="booking-card__amounts">
         <div className="booking-card__amount-row">
           <dt>Deposit</dt>
-          <dd className="tabular-nums">{formatMoney(deposit.amount, deposit.asset)}</dd>
+          <dd className="tabular-nums">
+            <TryAmount amount={deposit.amount} />
+          </dd>
         </div>
         <div className="booking-card__amount-row">
           <dt>Balance</dt>
           <dd className="tabular-nums">
-            {formatMoney(balance.amount, balance.asset)} · {BALANCE_STATE_LABEL[balanceState]}
+            <TryAmount amount={balance.amount} /> · {BALANCE_STATE_LABEL[balanceState]}
           </dd>
         </div>
       </dl>
@@ -126,7 +129,7 @@ export function BookingCard({
        * payment needs this link to keep showing in. */}
       {balanceState === "paid_platform" && balancePaymentTxHash && (
         <a className="booking-card__explorer-link" href={stellarExplorerTransactionUrl(balancePaymentTxHash)} target="_blank" rel="noreferrer">
-          View balance payment on Stellar Expert
+          View payment record
         </a>
       )}
 
@@ -140,7 +143,7 @@ export function BookingCard({
 
       {contractId && (
         <a className="booking-card__explorer-link" href={stellarExplorerContractUrl(contractId)} target="_blank" rel="noreferrer">
-          View on Stellar Expert
+          View escrow record
         </a>
       )}
 

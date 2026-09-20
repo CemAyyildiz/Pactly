@@ -19,12 +19,11 @@ import { ApiError } from "../../api/client";
 import type { HoldSlotResponse, LocalDepositView } from "../../api/types";
 import { DepositPill } from "../../components/DepositPill";
 import { EscrowLane } from "../../components/EscrowLane";
-import { IndicativeEquivalent } from "../../components/IndicativeEquivalent";
 import { LocalCurrencyPanel, localDepositErrorMessage } from "../../components/LocalCurrencyPanel";
 import { LockButton } from "../../components/LockButton";
 import { ProviderHeader } from "../../components/ProviderHeader";
 import { Seal } from "../../components/Seal";
-import { formatMoney } from "../../lib/money";
+import { TryAmount, useFormatTry } from "../../components/TryAmount";
 import { providerPhotoSrc } from "../../lib/providerPhotos";
 import { formatSlotDay, formatSlotTime } from "../../lib/time";
 import { getSession, signIn, signOut, signXdr, type Session } from "../../wallet";
@@ -106,7 +105,9 @@ export function BookingPage() {
   const [flowNotice, setFlowNotice] = useState<string | undefined>();
   const [flowFatalError, setFlowFatalError] = useState<string | undefined>();
   const [needsSignIn, setNeedsSignIn] = useState(false);
-  const [payMethod, setPayMethod] = useState<"wallet" | "local">("wallet");
+  // 2026-09 pivot: the TRY bank transfer is the only way to pay the
+  // deposit -- there is no payment-method choice any more, so the local
+  // transfer state below is always the live path once a hold exists.
   const [localDeposit, setLocalDeposit] = useState<LocalDepositView | undefined>();
   const [localBusy, setLocalBusy] = useState(false);
   const [localNotice, setLocalNotice] = useState<string | undefined>();
@@ -126,6 +127,7 @@ export function BookingPage() {
   const reconcileStartedAtRef = useRef<number | undefined>(undefined);
 
   const resumeAttemptedRef = useRef(false);
+  const formatTryAmount = useFormatTry();
 
   const isLocked = phase === "locked";
   const booking = useBooking(hold?.bookingId, session, {
@@ -175,7 +177,7 @@ export function BookingPage() {
   // a completed (or simulated) bank transfer surfaces as "Money received"
   // without a reload. 4s is coarse enough not to hammer the anchor.
   useEffect(() => {
-    if (!hold || !session || payMethod !== "local" || !localDeposit) return;
+    if (!hold || !session || !localDeposit) return;
     if (localDeposit.status !== "waiting" && localDeposit.status !== "paying" && localDeposit.status !== "needs_trustline") return;
     const interval = setInterval(() => {
       void getLocalDeposit(hold.bookingId, session)
@@ -190,7 +192,7 @@ export function BookingPage() {
         });
     }, 4000);
     return () => clearInterval(interval);
-  }, [hold, session, payMethod, localDeposit]);
+  }, [hold, session, localDeposit]);
 
   // Review follow-up: after 3 minutes without `locked`, stop implying an
   // endless spinner is normal -- the deposit is still safe (the reconciler
@@ -567,7 +569,8 @@ export function BookingPage() {
   }
 
   const localReceived = localDeposit?.status === "received";
-  const showLock = hold && (payMethod === "wallet" || localReceived);
+  // "Lock with Pactly" only ever appears once the bank transfer is in.
+  const showLock = Boolean(hold) && localReceived;
 
   if (!providerId || slotStartsAt === undefined) {
     return (
@@ -599,7 +602,6 @@ export function BookingPage() {
 
   const cancelDeadline = hold?.cancelDeadline ?? slotStartsAt - profile.cancellationWindowHours * 3600;
   const depositAmount = hold?.deposit.amount ?? profile.deposit.amount;
-  const depositAsset = hold?.deposit.asset ?? profile.deposit.asset;
   const balanceAmount = hold?.balance.amount;
   const waitingOn =
     phase === "awaiting-deploy-signature" ? "Create your escrow" : phase === "awaiting-fund-signature" ? "Lock your deposit" : undefined;
@@ -620,25 +622,22 @@ export function BookingPage() {
           <div className="booking-summary">
             <div className="booking-summary__row">
               <span>Price</span>
-              <div>
-                <strong className="tabular-nums">{formatMoney(hold?.price.amount ?? profile.price.amount, profile.price.asset)}</strong>
-                <IndicativeEquivalent amount={hold?.price.amount ?? profile.price.amount} />
-              </div>
+              <strong>
+                <TryAmount amount={hold?.price.amount ?? profile.price.amount} />
+              </strong>
             </div>
             <div className="booking-summary__row">
               <span>Deposit, locked now</span>
-              <div>
-                <strong className="tabular-nums">{formatMoney(depositAmount, depositAsset)}</strong>
-                <IndicativeEquivalent amount={depositAmount} />
-              </div>
+              <strong>
+                <TryAmount amount={depositAmount} />
+              </strong>
             </div>
             {balanceAmount && (
               <div className="booking-summary__row">
                 <span>Balance, due before the session</span>
-                <div>
-                  <strong className="tabular-nums">{formatMoney(balanceAmount, depositAsset)}</strong>
-                  <IndicativeEquivalent amount={balanceAmount} />
-                </div>
+                <strong>
+                  <TryAmount amount={balanceAmount} />
+                </strong>
               </div>
             )}
             <div className="booking-summary__row">
@@ -652,7 +651,7 @@ export function BookingPage() {
             <p>
               {hold?.freeCancellationEnded
                 ? "The free-cancellation window has already passed for this appointment. A cancellation from here goes through resolution under the booking policy."
-                : `Your booking policy says cancelling before ${formatDeadline(cancelDeadline)} returns all ${formatMoney(depositAmount, depositAsset)} through resolution.`}{" "}
+                : `Your booking policy says cancelling before ${formatDeadline(cancelDeadline)} returns all ${formatTryAmount(depositAmount)} through resolution.`}{" "}
               You (as approver) or the provider may sign the supported resolution; Pactly resolves a dispute only after one is opened on
               chain.
             </p>
@@ -701,106 +700,55 @@ export function BookingPage() {
           {hold && !isLocked && (
             <div className="booking-pay">
               <p className="booking-step">Step 1 · Slot held{holdSecondsLeft !== undefined ? ` · ${formatCountdown(holdSecondsLeft)} left` : ""}</p>
-              <p className="booking-step">Step 2 · How you'll pay</p>
-              <div className="payment-method" role="radiogroup" aria-label="How you'll pay">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={payMethod === "wallet"}
-                  className={`payment-method__option${payMethod === "wallet" ? " payment-method__option--selected" : ""}`}
-                  onClick={() => setPayMethod("wallet")}
-                  disabled={localDeposit?.status === "received"}
-                >
-                  <span className="payment-method__title">Wallet · USDC</span>
-                  <span className="payment-method__hint">Pay from your wallet and lock now.</span>
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={payMethod === "local"}
-                  className={`payment-method__option${payMethod === "local" ? " payment-method__option--selected" : ""}`}
-                  onClick={() => setPayMethod("local")}
-                >
-                  <span className="payment-method__title">Bank transfer · TRY</span>
-                  <span className="payment-method__hint">Sandbox local-currency rail, then lock.</span>
-                </button>
-              </div>
+              <p className="booking-step">Step 2 · Pay the deposit by bank transfer</p>
+              <p className="local-deposit__how">
+                Send the deposit in TRY to the bank details below. Trustless Work holds it in escrow — not Pactly, not the provider.
+              </p>
 
-              {payMethod === "wallet" && (
-                <div className="booking-pay__action">
-                  <p className="booking-step">Step 3 · Lock the deposit</p>
-                  <p className="local-deposit__how">Approve the wallet prompts. The deposit stays in escrow until the appointment is settled.</p>
-                  {phase === "deploy-failed" ? (
-                    <button type="button" className="button-primary" onClick={tryAgainAfterFailedDeploy}>
-                      Try again
-                    </button>
-                  ) : (
-                    <LockButton
-                      waitingOn={waitingOn}
-                      disabled={busy && !waitingOn}
-                      onClick={() => void runLockFlow()}
-                      onOpenWalletAgain={() => void retryPendingSignature()}
-                    />
-                  )}
-                  {phase === "reconciling-slow" && (
-                    <p className="escrow-lane__notice" aria-live="polite">
-                      This is taking longer than usual. Your deposit is safe; check My bookings shortly.
-                    </p>
-                  )}
-                  {flowNotice && (
-                    <p className="escrow-lane__notice" aria-live="polite">
-                      {flowNotice}
-                    </p>
-                  )}
-                  {flowFatalError && (
-                    <p className="escrow-lane__notice escrow-lane__notice--alert" role="alert">
-                      {flowFatalError}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {payMethod === "local" && (
-                <div className="booking-pay__action">
-                  <p className="booking-step">Step 3 · Send TRY</p>
-                  {!localDeposit && (
-                    <button type="button" className="button-primary" onClick={() => void startLocalCurrency()} disabled={localBusy}>
-                      {localBusy ? "Opening the transfer…" : "Get bank details"}
-                    </button>
-                  )}
-                  {localDeposit && (
-                    <LocalCurrencyPanel
-                      deposit={localDeposit}
-                      busy={localBusy}
-                      onSimulate={() => void handleSimulate()}
-                      onUseWallet={() => setPayMethod("wallet")}
-                    />
-                  )}
-                  {localReceived && (
-                    <>
-                      <p className="booking-step">Step 4 · Lock the deposit</p>
+              <div className="booking-pay__action">
+                {!localDeposit && (
+                  <button type="button" className="button-primary" onClick={() => void startLocalCurrency()} disabled={localBusy}>
+                    {localBusy ? "Opening the transfer…" : "Get bank details"}
+                  </button>
+                )}
+                {localDeposit && (
+                  <LocalCurrencyPanel
+                    deposit={localDeposit}
+                    amount={depositAmount}
+                    busy={localBusy}
+                    onSimulate={() => void handleSimulate()}
+                    onRetry={() => void startLocalCurrency()}
+                  />
+                )}
+                {localReceived && (
+                  <>
+                    <p className="booking-step">Step 3 · Lock the deposit</p>
+                    {phase === "deploy-failed" ? (
+                      <button type="button" className="button-primary" onClick={tryAgainAfterFailedDeploy}>
+                        Try again
+                      </button>
+                    ) : (
                       <LockButton
                         waitingOn={waitingOn}
                         disabled={busy && !waitingOn}
                         onClick={() => void runLockFlow()}
                         onOpenWalletAgain={() => void retryPendingSignature()}
                       />
-                    </>
-                  )}
-                  {localNotice && (
-                    <p className="escrow-lane__notice" aria-live="polite">
-                      {localNotice}
-                    </p>
-                  )}
-                </div>
-              )}
+                    )}
+                  </>
+                )}
+                {localNotice && (
+                  <p className="escrow-lane__notice" aria-live="polite">
+                    {localNotice}
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </section>
 
         <EscrowLane
           depositAmount={depositAmount}
-          depositAsset={depositAsset}
           holdCountdownLabel={hold && !isLocked ? formatCountdown(holdSecondsLeft) : undefined}
           contractId={engineRef.current.contractId}
           showProof={isLocked}
@@ -841,7 +789,7 @@ export function BookingPage() {
             <div className={`seal-wrap${prefersReducedMotion ? "" : " seal-wrap--animated"}`}>
               <Seal />
               <p className="seal-wrap__title">You're set.</p>
-              <p className="seal-wrap__subtitle">Your deposit is held in Trustless Work escrow on Stellar.</p>
+              <p className="seal-wrap__subtitle">Your deposit is held in escrow by Trustless Work.</p>
               <Link to="/discover" className="button-ghost" style={{ marginTop: "var(--space-4)", textDecoration: "none" }}>
                 Back to Discover
               </Link>
@@ -863,7 +811,6 @@ export function BookingPage() {
           <div style={{ marginTop: "var(--space-4)" }}>
             <DepositPill
               amount={depositAmount}
-              asset={depositAsset}
               cancellationWindowHours={profile.cancellationWindowHours}
               freeCancellationEnded={hold?.freeCancellationEnded}
             />

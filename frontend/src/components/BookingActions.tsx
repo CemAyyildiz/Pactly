@@ -11,8 +11,9 @@ import {
   submitBalancePayment,
   submitSignedTransaction,
 } from "../api/hooks";
-import { LOCAL_CURRENCY_UNAVAILABLE_NOTE, formatMoney } from "../lib/money";
+import { LOCAL_CURRENCY_UNAVAILABLE_NOTE } from "../lib/money";
 import { signXdr, type Session } from "../wallet";
+import { useFormatTry } from "./TryAmount";
 import type { ActionResponse, BalanceState, BookingLifecycle, DisputeReason, Money, PendingActionKind } from "../api/types";
 
 export interface BookingActionsProps {
@@ -30,7 +31,7 @@ export interface BookingActionsProps {
   deposit: Money;
   /** Story 3.7: the balance's own amount and state -- drives "Pay balance"
    * (client) and "Mark paid in person" (provider). The balance row's own
-   * "View on Stellar Expert" link lives in `BookingCard.tsx`/`BookingsPage
+   * "View payment record" link lives in `BookingCard.tsx`/`BookingsPage
    * .tsx` instead of here (review follow-up: this component renders nothing
    * once the booking leaves `locked`, which is exactly when a settled
    * booking's own link would need to keep showing). */
@@ -146,6 +147,7 @@ export function BookingActions({
    * of this booking confirms it is still `unpaid`, so the client can never
    * fire a second real payment while the first one's outcome is unknown. */
   const [verifyingBalance, setVerifyingBalance] = useState(false);
+  const formatTryAmount = useFormatTry();
 
   function describeFailure(error: unknown): string {
     if (error instanceof ApiError) {
@@ -162,7 +164,7 @@ export function BookingActions({
         return "The payment could not be completed. The balance is still unpaid.";
       }
       if (error.code === "PAYMENT_UNAVAILABLE") {
-        return "The Stellar network is unavailable right now. The balance is still unpaid -- try again shortly.";
+        return "The payment network is unavailable right now. The balance is still unpaid -- try again shortly.";
       }
       if (error.code === "XDR_MISMATCH") {
         return "That transaction no longer matches -- refresh and try again.";
@@ -429,7 +431,7 @@ export function BookingActions({
                 ? "Approve it in your wallet…"
                 : busyAction === "confirming-balance"
                   ? "Confirming on chain…"
-                  : `Pay balance (${formatMoney(balance.amount, balance.asset)})`}
+                  : `Pay balance (${formatTryAmount(balance.amount)})`}
             </button>
           </div>
         </div>
@@ -445,7 +447,7 @@ export function BookingActions({
 
       {confirmingCash && (
         <div className="booking-card__dispute-panel">
-          <p>Confirm this client already paid the {formatMoney(balance.amount, balance.asset)} balance in person.</p>
+          <p>Confirm this client already paid the {formatTryAmount(balance.amount)} balance in person.</p>
           <div className="booking-card__actions">
             <button type="button" className="button-primary" disabled={isBusy} onClick={() => void handleMarkCash()}>
               {busyAction === "mark-cash" ? "Saving…" : "Confirm, paid in person"}
@@ -475,7 +477,7 @@ export function BookingActions({
 
       {disputeStep.kind === "confirming" && (
         <div className="booking-card__dispute-panel">
-          <p>{policyStatement(disputeStep.suggestedOutcome, formatMoney(deposit.amount, deposit.asset), viewer)}</p>
+          <p>{policyStatement(disputeStep.suggestedOutcome, formatTryAmount(deposit.amount), viewer)}</p>
           <p>This needs resolution. Pactly will resolve it as the named dispute resolver -- nothing moves until then.</p>
           <div className="booking-card__actions">
             <button type="button" className="button-primary" disabled={isBusy} onClick={() => void confirmDispute()}>

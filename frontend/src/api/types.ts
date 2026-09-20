@@ -331,6 +331,16 @@ export interface QuoteResponse {
   spreadApplied: true;
 }
 
+/** `GET /rate`'s response -- TRY per 1 USDC as a decimal string (e.g.
+ * `"48.5410"`). Display-only, like `QuoteResponse`: never persisted on a
+ * booking, never used to compute a deposit server-side (AD-7). */
+export interface RateResponse {
+  rate: string;
+  currency: "TRY";
+  /** UTC epoch seconds. */
+  quotedAt: number;
+}
+
 // ---------------------------------------------------------------------------
 // Story 2.4: SEP-6 local-currency deposit. Mirrors
 // `backend/src/services/localDeposit.ts`'s `LocalDepositView`.

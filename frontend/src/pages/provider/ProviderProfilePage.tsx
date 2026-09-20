@@ -6,7 +6,7 @@ import { ApiError } from "../../api/client";
 import { DepositPill } from "../../components/DepositPill";
 import { ProviderHeader } from "../../components/ProviderHeader";
 import { SlotChip } from "../../components/SlotChip";
-import { formatMoney } from "../../lib/money";
+import { TryAmount } from "../../components/TryAmount";
 import { providerPhotoSrc } from "../../lib/providerPhotos";
 import { formatSessionFormat } from "../../lib/sessionFormat";
 import { groupSlotsByDay } from "../../lib/time";
@@ -80,18 +80,14 @@ export function ProviderProfilePage() {
 
       <div className="card" style={{ marginTop: "var(--space-6)" }}>
         <div className="price-row">
-          <span className="price-row__amount tabular-nums">{formatMoney(profile.price.amount, profile.price.asset)}</span>
+          <TryAmount amount={profile.price.amount} className="price-row__amount" />
           <span className="price-row__meta">
             {formatSessionFormat(profile.sessionFormat)} · {profile.sessionLengthMinutes} min
           </span>
         </div>
 
         <div style={{ marginTop: "var(--space-4)" }}>
-          <DepositPill
-            amount={profile.deposit.amount}
-            asset={profile.deposit.asset}
-            cancellationWindowHours={profile.cancellationWindowHours}
-          />
+          <DepositPill amount={profile.deposit.amount} cancellationWindowHours={profile.cancellationWindowHours} />
         </div>
 
         <div style={{ marginTop: "var(--space-6)" }}>

@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 
-import { formatMoney } from "../lib/money";
 import { EscrowProof } from "./EscrowProof";
+import { TryAmount } from "./TryAmount";
 
 export interface EscrowLaneProps {
+  /** Integer string, USDC smallest units (AD-7) -- shown in TRY. */
   depositAmount: string;
-  depositAsset: string;
   /** `undefined` before a hold exists. */
   holdCountdownLabel?: string;
   contractId?: string;
@@ -32,7 +32,7 @@ export interface EscrowLaneProps {
  * the "Lock with Pactly" button, which `BookingPage.tsx` passes in as
  * `children` so this component stays a pure display of state.
  */
-export function EscrowLane({ depositAmount, depositAsset, holdCountdownLabel, contractId, txHash, showProof, stateLabel, children }: EscrowLaneProps) {
+export function EscrowLane({ depositAmount, holdCountdownLabel, contractId, txHash, showProof, stateLabel, children }: EscrowLaneProps) {
   return (
     <div className="escrow-lane">
       <p className="escrow-lane__label">ESCROW LANE</p>
@@ -42,7 +42,9 @@ export function EscrowLane({ depositAmount, depositAsset, holdCountdownLabel, co
           <path d="M8 10V7a4 4 0 0 1 8 0v3" />
         </svg>
       </div>
-      <div className="escrow-lane__amount tabular-nums">{formatMoney(depositAmount, depositAsset)}</div>
+      <div className="escrow-lane__amount tabular-nums">
+        <TryAmount amount={depositAmount} />
+      </div>
       <p className="escrow-lane__state" aria-live="polite">
         {stateLabel}
       </p>

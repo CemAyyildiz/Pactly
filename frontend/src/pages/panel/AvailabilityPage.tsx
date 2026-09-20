@@ -4,8 +4,9 @@ import { CalendarBlankIcon } from "@phosphor-icons/react";
 
 import { ApiError } from "../../api/client";
 import { PageMasthead } from "../../components/PageMasthead";
-import { useOwnProviderProfile, useUpdateProviderAvailability, useUpdateProviderRules } from "../../api/hooks";
-import { formatMoney, parseDecimalToSmallestUnit, smallestUnitToDecimalInput } from "../../lib/money";
+import { useOwnProviderProfile, useTryRate, useUpdateProviderAvailability, useUpdateProviderRules } from "../../api/hooks";
+import { TryAmount } from "../../components/TryAmount";
+import { tryToUsdcSmallestUnit, usdcToTry } from "../../lib/money";
 import { getSession, signIn, signOut, type Session } from "../../wallet";
 
 const GRID_DAYS = 14;
@@ -103,9 +104,17 @@ export function AvailabilityPage() {
   const profileQuery = useOwnProviderProfile(session);
   const updateRules = useUpdateProviderRules(session);
   const updateAvailability = useUpdateProviderAvailability(session);
+  const { rate } = useTryRate();
 
+  // The price is stored in USDC smallest units (AD-7) but typed in TRY.
+  // Until the provider actually edits the field, what it shows is *derived*
+  // from the stored amount at the current rate (so a rate that arrives
+  // after the first paint still updates it), and saving resubmits the
+  // stored string untouched -- an unedited price must never drift by a
+  // rounding or a rate move between display and save.
   const [priceInput, setPriceInput] = useState("");
-  const [depositRateBpsInput, setDepositRateBpsInput] = useState("");
+  const [priceEdited, setPriceEdited] = useState(false);
+  const [depositRatePercentInput, setDepositRatePercentInput] = useState("");
   const [cancellationWindowInput, setCancellationWindowInput] = useState("");
   const [selectedSlots, setSelectedSlots] = useState<Set<number>>(new Set());
 
@@ -121,8 +130,8 @@ export function AvailabilityPage() {
   useEffect(() => {
     if (profileQuery.data && profileQuery.data.id !== loadedProfileId.current) {
       loadedProfileId.current = profileQuery.data.id;
-      setPriceInput(smallestUnitToDecimalInput(profileQuery.data.price.amount));
-      setDepositRateBpsInput(String(profileQuery.data.depositRateBps));
+      setPriceEdited(false);
+      setDepositRatePercentInput(String(profileQuery.data.depositRateBps / 100));
       setCancellationWindowInput(String(profileQuery.data.cancellationWindowHours));
       setSelectedSlots(new Set(profileQuery.data.slots));
     }
@@ -152,8 +161,12 @@ export function AvailabilityPage() {
     setSession(undefined);
   }
 
-  const priceSmallestUnit = parseDecimalToSmallestUnit(priceInput);
-  const depositRateBps = Number(depositRateBpsInput);
+  const storedPrice = profileQuery.data?.price.amount;
+  const priceText = priceEdited ? priceInput : storedPrice !== undefined ? usdcToTry(storedPrice, rate) : "";
+  const priceSmallestUnit = priceEdited ? tryToUsdcSmallestUnit(priceInput, rate) : storedPrice;
+  // Basis points on the wire (`depositRateBps`), a percentage on screen.
+  const depositRatePercent = Number(depositRatePercentInput);
+  const depositRateBps = Number.isFinite(depositRatePercent) ? Math.round(depositRatePercent * 100) : Number.NaN;
   const cancellationWindowHours = Number(cancellationWindowInput);
   const deposit = previewDeposit(priceSmallestUnit, depositRateBps);
 
@@ -174,9 +187,11 @@ export function AvailabilityPage() {
         cancellationWindowHours,
       });
       // Only the rules form's own fields -- an unsaved slot selection in
-      // the availability grid below must survive this save untouched.
-      setPriceInput(smallestUnitToDecimalInput(saved.price.amount));
-      setDepositRateBpsInput(String(saved.depositRateBps));
+      // the availability grid below must survive this save untouched. The
+      // price field goes back to deriving from the saved amount.
+      setPriceEdited(false);
+      setPriceInput("");
+      setDepositRatePercentInput(String(saved.depositRateBps / 100));
       setCancellationWindowInput(String(saved.cancellationWindowHours));
     } catch {
       // Surfaced through `updateRules.error`/`rulesErrorDetails`/
@@ -302,22 +317,28 @@ export function AvailabilityPage() {
         )}
         <form onSubmit={handleSaveRules}>
           <div className="field">
-            <label htmlFor="price">Session price (USDC)</label>
+            <label htmlFor="price">Session price (TRY)</label>
             <input
               id="price"
               inputMode="decimal"
-              value={priceInput}
-              onChange={(event) => setPriceInput(event.target.value)}
+              value={priceText}
+              onChange={(event) => {
+                setPriceEdited(true);
+                setPriceInput(event.target.value);
+              }}
             />
+            {priceEdited && priceInput.trim() !== "" && !priceSmallestUnit && (
+              <span className="field__error">Enter an amount in lira, up to two decimals.</span>
+            )}
             {rulesErrorDetails?.priceAmount && <span className="field__error">{rulesErrorDetails.priceAmount}</span>}
           </div>
           <div className="field">
-            <label htmlFor="depositRateBps">Deposit rate (basis points -- 2000 = 20%)</label>
+            <label htmlFor="depositRatePercent">Deposit rate (%)</label>
             <input
-              id="depositRateBps"
-              inputMode="numeric"
-              value={depositRateBpsInput}
-              onChange={(event) => setDepositRateBpsInput(event.target.value)}
+              id="depositRatePercent"
+              inputMode="decimal"
+              value={depositRatePercentInput}
+              onChange={(event) => setDepositRatePercentInput(event.target.value)}
             />
             {rulesErrorDetails?.depositRateBps && (
               <span className="field__error">{rulesErrorDetails.depositRateBps}</span>
@@ -337,9 +358,8 @@ export function AvailabilityPage() {
           </div>
 
           <p className="tabular-nums">
-            Deposit preview: {deposit ? formatMoney(deposit, profile.price.asset) : "--"}
-            {" "}
-            (the saved amount comes back from the server once you save)
+            Deposit preview: {deposit ? <TryAmount amount={deposit} /> : "--"} (the saved amount comes back from the server once you
+            save)
           </p>
 
           <button type="submit" className="button-primary" disabled={updateRules.isPending}>

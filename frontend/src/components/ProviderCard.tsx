@@ -3,10 +3,10 @@ import { ArrowRightIcon, ClockIcon, MapPinIcon, SealCheckIcon } from "@phosphor-
 import { Link } from "react-router";
 
 import type { ProviderCard as ProviderCardData } from "../api/types";
-import { formatMoney } from "../lib/money";
 import { providerPhotoSrc } from "../lib/providerPhotos";
 import { formatSessionFormat } from "../lib/sessionFormat";
 import { DepositPill } from "./DepositPill";
+import { TryAmount } from "./TryAmount";
 
 export interface ProviderCardProps {
   provider: ProviderCardData;
@@ -100,14 +100,9 @@ export function ProviderCard({ provider, variant = "compact", index = 0 }: Provi
         </div>
         <div className="editorial-featured__side">
           <span className="editorial-card__price" style={{ fontSize: "var(--text-18)" }}>
-            {formatMoney(provider.price.amount, provider.price.asset)}
+            <TryAmount amount={provider.price.amount} />
           </span>
-          <DepositPill
-            variant="row"
-            amount={provider.deposit.amount}
-            asset={provider.deposit.asset}
-            cancellationWindowHours={provider.cancellationWindowHours}
-          />
+          <DepositPill variant="row" amount={provider.deposit.amount} cancellationWindowHours={provider.cancellationWindowHours} />
           <Link to={lockHref} className="editorial-cta">
             {firstSlot ? "Lock with Pactly" : "View calendar"}
             <ArrowRightIcon size={16} weight="bold" aria-hidden="true" />
@@ -147,14 +142,9 @@ export function ProviderCard({ provider, variant = "compact", index = 0 }: Provi
           {provider.sessionLengthMinutes} min
         </span>
       </div>
-      <DepositPill
-        variant="row"
-        amount={provider.deposit.amount}
-        asset={provider.deposit.asset}
-        cancellationWindowHours={provider.cancellationWindowHours}
-      />
+      <DepositPill variant="row" amount={provider.deposit.amount} cancellationWindowHours={provider.cancellationWindowHours} />
       <div className="editorial-card__foot">
-        <span className="editorial-card__price tabular-nums">{formatMoney(provider.price.amount, provider.price.asset)}</span>
+        <TryAmount amount={provider.price.amount} className="editorial-card__price" />
         <Link to={lockHref} className="editorial-card__cta">
           {firstSlot ? "Lock" : "View"}
           <ArrowRightIcon size={14} weight="bold" aria-hidden="true" />

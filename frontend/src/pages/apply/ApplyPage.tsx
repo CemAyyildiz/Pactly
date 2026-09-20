@@ -3,10 +3,11 @@ import { Link } from "react-router";
 import { HourglassIcon, SealCheckIcon, StorefrontIcon, WarningCircleIcon } from "@phosphor-icons/react";
 
 import { ApiError } from "../../api/client";
-import { useCategories, useOwnProviderApplication, useOwnProviderProfile, useSubmitProviderApplication } from "../../api/hooks";
+import { useCategories, useOwnProviderApplication, useOwnProviderProfile, useSubmitProviderApplication, useTryRate } from "../../api/hooks";
 import type { ProviderApplication } from "../../api/types";
 import { PageMasthead } from "../../components/PageMasthead";
-import { formatMoney, parseDecimalToSmallestUnit, smallestUnitToDecimalInput } from "../../lib/money";
+import { useFormatTry } from "../../components/TryAmount";
+import { tryToUsdcSmallestUnit, usdcToTry } from "../../lib/money";
 import { formatSessionFormat } from "../../lib/sessionFormat";
 import { getSession, signIn, signOut, type Session } from "../../wallet";
 
@@ -40,8 +41,11 @@ const EMPTY_FORM: FormValues = {
 
 /** A rejected application pre-fills the form so the applicant only fixes
  * what the reason asked for. Location is not stored on the application
- * (the profile carries it), so it starts empty again. */
-function formFromApplication(application: ProviderApplication): FormValues {
+ * (the profile carries it), so it starts empty again. The price is shown
+ * in TRY at `rate` and converted back on submit -- a re-application may
+ * therefore land a smallest-unit or so away from the rejected one, which
+ * is fine: it is a fresh application, not an edit of a live price. */
+function formFromApplication(application: ProviderApplication, rate: string): FormValues {
   return {
     name: application.name,
     title: application.title,
@@ -50,7 +54,7 @@ function formFromApplication(application: ProviderApplication): FormValues {
     serviceDescription: application.serviceDescription,
     sessionFormat: application.sessionFormat,
     sessionLengthMinutes: String(application.sessionLengthMinutes),
-    price: smallestUnitToDecimalInput(application.price.amount),
+    price: usdcToTry(application.price.amount, rate),
     depositRatePercent: String(application.depositRateBps / 100),
     cancellationWindowHours: String(application.cancellationWindowHours),
   };
@@ -89,6 +93,7 @@ export function ApplyPage() {
   const applicationQuery = useOwnProviderApplication(session);
   const profileQuery = useOwnProviderProfile(session);
   const submit = useSubmitProviderApplication(session);
+  const { rate } = useTryRate();
 
   async function handleSignIn(): Promise<void> {
     setSigningIn(true);
@@ -253,7 +258,7 @@ export function ApplyPage() {
       )}
       <ApplicationForm
         key={application?.id ?? "new"}
-        initial={application ? formFromApplication(application) : EMPTY_FORM}
+        initial={application ? formFromApplication(application, rate) : EMPTY_FORM}
         categories={categoriesQuery.data?.categories ?? []}
         pending={submit.isPending}
         error={submit.error}
@@ -282,7 +287,10 @@ function ApplicationForm({ initial, categories, pending, error, onSubmit }: Appl
         ? "Connection dropped. Nothing was sent."
         : undefined;
 
-  const priceSmallestUnit = parseDecimalToSmallestUnit(values.price);
+  const { rate } = useTryRate();
+  const formatTryAmount = useFormatTry();
+  // Typed in TRY, sent in USDC smallest units (AD-7) at the rate on screen.
+  const priceSmallestUnit = tryToUsdcSmallestUnit(values.price, rate);
   const depositRateBps = Math.round(Number(values.depositRatePercent) * 100);
   const deposit = previewDeposit(priceSmallestUnit, depositRateBps);
 
@@ -377,15 +385,16 @@ function ApplicationForm({ initial, categories, pending, error, onSubmit }: Appl
       <h2 style={{ fontSize: "var(--text-18)", marginTop: "var(--space-4)" }}>Your rules</h2>
       <div className="apply-form__row">
         <div className="field">
-          <label htmlFor="apply-price">Price (USDC)</label>
-          <input id="apply-price" inputMode="decimal" value={values.price} onChange={(e) => set("price", e.target.value)} placeholder="60.00" required />
+          <label htmlFor="apply-price">Price (TRY)</label>
+          <input id="apply-price" inputMode="decimal" value={values.price} onChange={(e) => set("price", e.target.value)} placeholder="2,400.00" required />
+          {values.price.trim() !== "" && !priceSmallestUnit && <p className="field__error">Enter an amount in lira, up to two decimals.</p>}
           {details.priceAmount && <p className="field__error">{details.priceAmount}</p>}
         </div>
         <div className="field">
           <label htmlFor="apply-deposit">Deposit rate (%)</label>
           <input id="apply-deposit" type="number" inputMode="decimal" min={0.01} max={100} step={0.5} value={values.depositRatePercent} onChange={(e) => set("depositRatePercent", e.target.value)} required />
           <p className="field__hint">
-            {deposit ? `Clients lock ${formatMoney(deposit, "USDC")} in escrow when they book.` : "Typical rate 20-30%. Held in Trustless Work escrow on Stellar."}
+            {deposit ? `Clients lock ${formatTryAmount(deposit)} in escrow when they book.` : "Typical rate 20-30%. Held in escrow by Trustless Work."}
           </p>
           {details.depositRateBps && <p className="field__error">{details.depositRateBps}</p>}
         </div>

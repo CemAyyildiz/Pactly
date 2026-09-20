@@ -6,7 +6,7 @@ import { ApiError } from "../../api/client";
 import { decideProviderApplication, useAdminApplications } from "../../api/hooks";
 import type { AdminProviderApplication } from "../../api/types";
 import { PageMasthead } from "../../components/PageMasthead";
-import { formatMoney } from "../../lib/money";
+import { TryAmount } from "../../components/TryAmount";
 import { formatSessionFormat } from "../../lib/sessionFormat";
 import { shortenStellarId } from "../../lib/stellar";
 import { getSession, signIn, signOut, type Session } from "../../wallet";
@@ -73,12 +73,14 @@ function ApplicationRow({
         </div>
         <div className="booking-card__amount-row">
           <dt>Price</dt>
-          <dd className="tabular-nums">{formatMoney(application.price.amount, application.price.asset)}</dd>
+          <dd className="tabular-nums">
+            <TryAmount amount={application.price.amount} />
+          </dd>
         </div>
         <div className="booking-card__amount-row">
           <dt>Deposit</dt>
           <dd className="tabular-nums">
-            {formatMoney(application.deposit.amount, application.deposit.asset)} · full refund up to {application.cancellationWindowHours}h before
+            <TryAmount amount={application.deposit.amount} /> · full refund up to {application.cancellationWindowHours}h before
           </dd>
         </div>
       </dl>
