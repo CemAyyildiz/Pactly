@@ -54,7 +54,7 @@ export function ProviderProfilePage() {
           <p>{notFound ? "This provider isn't available." : "Connection dropped. Try again."}</p>
         </div>
         <p>
-          <Link to="/">Back to Discover</Link>
+          <Link to="/discover">Back to Discover</Link>
         </p>
       </div>
     );

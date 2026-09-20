@@ -39,7 +39,7 @@ npm run dev                 # backend + frontend together
 ```
 
 - Backend: <http://localhost:3001/health> returns `{"status":"ok"}`.
-- Frontend: <http://localhost:5173> shows the Discover page with the seeded providers.
+- Frontend: <http://localhost:5173> shows the landing page; <http://localhost:5173/discover> shows the Discover page with the seeded providers.
 
 The backend reads every variable once in `backend/src/config.ts` and exits, naming the variable, if one is missing from `.env`.
 
@@ -110,7 +110,7 @@ Every booking assigns each Trustless Work role explicitly (`backend/src/escrow/t
 
 Seven steps a presenter can run through in about five minutes. Reset first (`npm run demo:reset`) and have two or three testnet wallets ready (client, provider, and Pactly's own resolver wallet for the last step). **If the backend was already running from `npm run dev`, restart it after the reset** — it keeps the old database file open otherwise and the fresh seed never shows up.
 
-1. **Discover** (no wallet) — open <http://localhost:5173>. Browse categories (therapy, education, consulting, fitness and beauty); each provider card shows the deposit pill (amount + free-cancellation window) and its next open slots.
+1. **Discover** (no wallet) — open <http://localhost:5173> (the landing page) and tap **Explore providers**, or go straight to <http://localhost:5173/discover>. Browse categories (therapy, education, consulting, fitness and beauty); each provider card shows the deposit pill (amount + free-cancellation window) and its next open slots.
 2. **Provider profile** (no wallet) — open Marmara Hair Clinic's profile (`/providers/demo-marmara-hair-clinic`), the hero scenario. Pick a slot.
 3. **Hold → Lock with Pactly** (**client wallet**) — on the booking screen (`/book/:providerId?slot=...`), review the summary, then connect a wallet and hold the slot. **Wallet · USDC** shows **Lock with Pactly** immediately. **Bank transfer · TRY** opens a SEP-6 deposit against the hackathon sandbox (`tr-mock-anchor.fly.dev`), shows bank details, and **Confirm TRY sent** (sandbox only). If the sandbox is slow to pay USDC, switch back to **Wallet · USDC** and lock. Two prompts follow, "Create your escrow" then "Lock your deposit" — both signed by the client. The screen reads "Locking with Pactly…" until the reconciler confirms funding on chain, then the seal stamps and the escrow proof (contract id, explorer link) appears.
 4. **My bookings** (**client wallet**) — <http://localhost:5173/me/bookings> shows the booking's escrow state (Funded) and balance state (unpaid) as two separate lines, plus the free-cancellation countdown.

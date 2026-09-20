@@ -1,5 +1,6 @@
 import { Link, Route, Routes } from "react-router";
 
+import { LandingPage } from "./pages/landing/LandingPage";
 import { DiscoverPage } from "./pages/discover/DiscoverPage";
 import { ProviderProfilePage } from "./pages/provider/ProviderProfilePage";
 import { AvailabilityPage } from "./pages/panel/AvailabilityPage";
@@ -19,7 +20,7 @@ function TopBar() {
       </Link>
       <span className="top-bar__escrow-note">Escrow powered by Trustless Work · Stellar</span>
       <nav className="top-bar__nav">
-        <Link to="/">Discover</Link>
+        <Link to="/discover">Discover</Link>
         <Link to="/me/bookings">My bookings</Link>
         <Link to="/panel/availability" className="button-ghost">
           List your shop
@@ -34,7 +35,8 @@ export function App() {
     <>
       <TopBar />
       <Routes>
-        <Route path="/" element={<DiscoverPage />} />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/discover" element={<DiscoverPage />} />
         <Route path="/providers/:id" element={<ProviderProfilePage />} />
         <Route path="/book/:providerId" element={<BookingPage />} />
         <Route path="/me/bookings" element={<MyBookingsPage />} />

@@ -842,7 +842,7 @@ export function BookingPage() {
               <Seal />
               <p className="seal-wrap__title">You're set.</p>
               <p className="seal-wrap__subtitle">Your deposit is held in Trustless Work escrow on Stellar.</p>
-              <Link to="/" className="button-ghost" style={{ marginTop: "var(--space-4)", textDecoration: "none" }}>
+              <Link to="/discover" className="button-ghost" style={{ marginTop: "var(--space-4)", textDecoration: "none" }}>
                 Back to Discover
               </Link>
             </div>

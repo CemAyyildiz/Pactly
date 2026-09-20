@@ -104,7 +104,7 @@ export function MyBookingsPage() {
       {active.length === 0 && (
         <div className="banner" role="status">
           <p>No bookings yet.</p>
-          <Link to="/" className="button-primary" style={{ textDecoration: "none", display: "inline-flex", marginTop: "var(--space-3)" }}>
+          <Link to="/discover" className="button-primary" style={{ textDecoration: "none", display: "inline-flex", marginTop: "var(--space-3)" }}>
             Find a provider
           </Link>
         </div>
