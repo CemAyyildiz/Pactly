@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import { ArrowRightIcon, CalendarBlankIcon, LockKeyIcon, ShieldCheckIcon } from "@phosphor-icons/react";
 
 import { providerPhotoSrc } from "../../lib/providerPhotos";
 
@@ -13,33 +14,6 @@ const CATEGORIES: Array<{ slug: string; name: string; providerId: string }> = [
   { slug: "consulting", name: "Consulting", providerId: "demo-kaan-demir" },
   { slug: "education-and-lessons", name: "Education and lessons", providerId: "demo-zeynep-aksoy" },
 ];
-
-function CalendarIcon() {
-  return (
-    <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3.5" y="4.5" width="17" height="16" rx="2.5" />
-      <path d="M16 2.5v4M8 2.5v4M3.5 10h17" />
-    </svg>
-  );
-}
-
-function LockIcon() {
-  return (
-    <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="5" y="11" width="14" height="9.5" rx="2.5" />
-      <path d="M8 11V7.5a4 4 0 0 1 8 0V11" />
-    </svg>
-  );
-}
-
-function CheckShieldIcon() {
-  return (
-    <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3l7 3v5.5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" />
-      <path d="M9 12l2 2 4-4.5" />
-    </svg>
-  );
-}
 
 /**
  * `/` -- the marketing landing page. `/discover` carries the marketplace
@@ -100,7 +74,9 @@ export function LandingPage() {
               </div>
               <div className="landing__mock-status">
                 <span className="state-label state-label--positive">Funded</span>
-                <span className="landing__mock-status-arrow">→</span>
+                <span className="landing__mock-status-arrow" aria-hidden="true">
+                  <ArrowRightIcon size={14} weight="bold" />
+                </span>
                 <span className="state-label">Released on completion</span>
               </div>
             </div>
@@ -118,7 +94,7 @@ export function LandingPage() {
             <div className="landing__step">
               <span className="landing__step-num-ghost">01</span>
               <div className="landing__step-icon">
-                <CalendarIcon />
+                <CalendarBlankIcon size={22} aria-hidden="true" />
               </div>
               <h3>Discover and hold a slot</h3>
               <p>Browse categories, pick an open slot, and hold it — no wallet needed yet.</p>
@@ -126,7 +102,7 @@ export function LandingPage() {
             <div className="landing__step">
               <span className="landing__step-num-ghost">02</span>
               <div className="landing__step-icon">
-                <LockIcon />
+                <LockKeyIcon size={22} aria-hidden="true" />
               </div>
               <h3>Lock a deposit in escrow</h3>
               <p>
@@ -137,7 +113,7 @@ export function LandingPage() {
             <div className="landing__step">
               <span className="landing__step-num-ghost">03</span>
               <div className="landing__step-icon">
-                <CheckShieldIcon />
+                <ShieldCheckIcon size={22} aria-hidden="true" />
               </div>
               <h3>Appointment happens, deposit releases</h3>
               <p>
@@ -201,6 +177,19 @@ export function LandingPage() {
             <span className="landing__badge">USDC</span>
             <span className="landing__badge">SEP-6 anchor · TRY sandbox</span>
           </div>
+        </div>
+      </section>
+
+      <section className="landing__section landing__section--white">
+        <div className="landing__section-inner">
+          <div className="landing__section-head">
+            <div className="eyebrow-label">Soon</div>
+            <h2>Earn on your escrow money</h2>
+          </div>
+          <p className="landing__next-copy">
+            While the deposit waits for the appointment, it could work for you. Opt-in, off by default — the shop
+            still receives the exact amount; you keep any yield.
+          </p>
         </div>
       </section>
 

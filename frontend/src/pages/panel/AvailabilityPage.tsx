@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
+import { CalendarBlankIcon } from "@phosphor-icons/react";
 
 import { ApiError } from "../../api/client";
+import { PageMasthead } from "../../components/PageMasthead";
 import { useOwnProviderProfile, useUpdateProviderAvailability, useUpdateProviderRules } from "../../api/hooks";
 import { formatMoney, parseDecimalToSmallestUnit, smallestUnitToDecimalInput } from "../../lib/money";
 import { getSession, signIn, signOut, type Session } from "../../wallet";
@@ -217,8 +219,12 @@ export function AvailabilityPage() {
   if (!session) {
     return (
       <div className="page">
-        <h1>Availability &amp; rules</h1>
-        <p>Sign in with your wallet to manage your price, deposit rate, cancellation window and open slots.</p>
+        <PageMasthead
+          eyebrow="Provider panel"
+          icon={<CalendarBlankIcon size={14} weight="bold" aria-hidden="true" />}
+          title="Availability & rules"
+          lede="Sign in with your wallet to manage your price, deposit rate, cancellation window and open slots."
+        />
         <button type="button" className="button-primary" onClick={handleSignIn} disabled={signingIn}>
           {signingIn ? "Approve it in your wallet…" : "Sign in with wallet"}
         </button>
@@ -264,16 +270,20 @@ export function AvailabilityPage() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h1 style={{ margin: 0 }}>Availability &amp; rules</h1>
-        <div className="page-header__nav">
-          <Link to="/panel/bookings">Bookings</Link>
-          <Link to={`/providers/${profile.id}`}>View public profile</Link>
-          <button type="button" className="button-ghost" onClick={handleSignOut}>
-            Sign out
-          </button>
-        </div>
-      </div>
+      <PageMasthead
+        eyebrow="Provider panel"
+        icon={<CalendarBlankIcon size={14} weight="bold" aria-hidden="true" />}
+        title="Availability & rules"
+        actions={
+          <>
+            <Link to="/panel/bookings">Bookings</Link>
+            <Link to={`/providers/${profile.id}`}>View public profile</Link>
+            <button type="button" className="button-ghost" onClick={handleSignOut}>
+              Sign out
+            </button>
+          </>
+        }
+      />
 
       {!profile.isApproved && (
         <div className="banner" role="status" style={{ marginBottom: "var(--space-6)" }}>

@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router";
+import { StorefrontIcon } from "@phosphor-icons/react";
 
 import { ApiError } from "../../api/client";
 import { useProviderBookings } from "../../api/hooks";
 import { BookingActions } from "../../components/BookingActions";
 import { BookingCard, BALANCE_STATE_LABEL } from "../../components/BookingCard";
 import { Countdown } from "../../components/Countdown";
+import { PageMasthead } from "../../components/PageMasthead";
 import { StateLabel } from "../../components/StateLabel";
 import { formatMoney } from "../../lib/money";
 import { shortenStellarId, stellarExplorerContractUrl, stellarExplorerTransactionUrl, trustlessWorkViewerUrl } from "../../lib/stellar";
@@ -52,8 +54,12 @@ export function BookingsPage() {
   if (!session) {
     return (
       <div className="page">
-        <h1>Bookings</h1>
-        <p>Sign in with your wallet to see your incoming bookings.</p>
+        <PageMasthead
+          eyebrow="Provider panel"
+          icon={<StorefrontIcon size={14} weight="bold" aria-hidden="true" />}
+          title="Bookings"
+          lede="Sign in with your wallet to see your incoming bookings."
+        />
         <button type="button" className="button-primary" onClick={handleSignIn} disabled={signingIn}>
           {signingIn ? "Approve it in your wallet…" : "Sign in with wallet"}
         </button>
@@ -98,15 +104,19 @@ export function BookingsPage() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h1 style={{ margin: 0 }}>Bookings</h1>
-        <div className="page-header__nav">
-          <Link to="/panel/availability">Availability &amp; rules</Link>
-          <button type="button" className="button-ghost" onClick={handleSignOut}>
-            Sign out
-          </button>
-        </div>
-      </div>
+      <PageMasthead
+        eyebrow="Provider panel"
+        icon={<StorefrontIcon size={14} weight="bold" aria-hidden="true" />}
+        title="Bookings"
+        actions={
+          <>
+            <Link to="/panel/availability">Availability &amp; rules</Link>
+            <button type="button" className="button-ghost" onClick={handleSignOut}>
+              Sign out
+            </button>
+          </>
+        }
+      />
 
       {active.length === 0 && (
         <div className="banner" role="status">

@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Link } from "react-router";
+import { WalletIcon } from "@phosphor-icons/react";
 
 import { ApiError } from "../../api/client";
 import { useMyBookings } from "../../api/hooks";
 import { BookingCard } from "../../components/BookingCard";
+import { PageMasthead } from "../../components/PageMasthead";
 import { getSession, signIn, signOut, type Session } from "../../wallet";
 
 /** A sign-in failure that carries no field-level detail -- a declined
@@ -17,7 +19,7 @@ function signInErrorMessage(error: unknown): string {
 /**
  * `/me/bookings` -- "My bookings" (Task list): every booking the signed-in
  * wallet is the client on, across every provider, as mobile-first cards.
- * Wallet sign-in only happens here, when the client actually wants to see
+ * WalletIcon sign-in only happens here, when the client actually wants to see
  * their bookings -- never before (Epic 3 context: "the wallet is requested
  * only at payment", and now also at this read).
  */
@@ -49,8 +51,12 @@ export function MyBookingsPage() {
   if (!session) {
     return (
       <div className="page">
-        <h1>My bookings</h1>
-        <p>Sign in with your wallet to see the sessions you've locked a deposit for.</p>
+        <PageMasthead
+          eyebrow="Your side of the escrow"
+          icon={<WalletIcon size={14} weight="bold" aria-hidden="true" />}
+          title="My bookings"
+          lede="Sign in with your wallet to see the sessions you've locked a deposit for."
+        />
         <button type="button" className="button-primary" onClick={handleSignIn} disabled={signingIn}>
           {signingIn ? "Approve it in your wallet…" : "Sign in with wallet"}
         </button>
@@ -92,14 +98,16 @@ export function MyBookingsPage() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h1 style={{ margin: 0 }}>My bookings</h1>
-        <div className="page-header__nav">
+      <PageMasthead
+        eyebrow="Your side of the escrow"
+        icon={<WalletIcon size={14} weight="bold" aria-hidden="true" />}
+        title="My bookings"
+        actions={
           <button type="button" className="button-ghost" onClick={handleSignOut}>
             Sign out
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {active.length === 0 && (
         <div className="banner" role="status">

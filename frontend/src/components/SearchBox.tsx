@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { XIcon } from "@phosphor-icons/react";
 
 import type { DiscoverSuggestion } from "../api/types";
 
@@ -151,7 +152,7 @@ export function SearchBox({ value, onCommit, suggestions, suggestionsLoading, on
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => commitNow("")}
           >
-            <span aria-hidden="true">×</span>
+            <XIcon size={14} weight="bold" aria-hidden="true" />
           </button>
         )}
       </div>

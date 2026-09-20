@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { ScalesIcon } from "@phosphor-icons/react";
 
 import { ApiError } from "../../api/client";
 import { resolveDispute, submitSignedTransaction, useAdminDisputes } from "../../api/hooks";
+import { PageMasthead } from "../../components/PageMasthead";
 import { formatMoney } from "../../lib/money";
 import { shortenStellarId } from "../../lib/stellar";
 import { formatSlotDay, formatSlotTime } from "../../lib/time";
@@ -184,8 +186,12 @@ export function ResolutionsPage() {
   if (!session) {
     return (
       <div className="page">
-        <h1>Resolutions</h1>
-        <p>Sign in with Pactly's admin wallet to see and resolve open disputes.</p>
+        <PageMasthead
+          eyebrow="Pactly admin"
+          icon={<ScalesIcon size={14} weight="bold" aria-hidden="true" />}
+          title="Resolutions"
+          lede="Sign in with Pactly's admin wallet to see and resolve open disputes."
+        />
         {sessionExpired && (
           <div className="banner banner--alert" role="alert">
             <p>Your session ended. Sign in again to continue.</p>
@@ -242,14 +248,16 @@ export function ResolutionsPage() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h1 style={{ margin: 0 }}>Resolutions</h1>
-        <div className="page-header__nav">
+      <PageMasthead
+        eyebrow="Pactly admin"
+        icon={<ScalesIcon size={14} weight="bold" aria-hidden="true" />}
+        title="Resolutions"
+        actions={
           <button type="button" className="button-ghost" onClick={handleSignOut}>
             Sign out
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {disputes.length === 0 && (
         <div className="banner" role="status">

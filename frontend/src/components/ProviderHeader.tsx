@@ -1,3 +1,5 @@
+import { MapPinIcon } from "@phosphor-icons/react";
+
 export interface ProviderHeaderProps {
   displayName: string;
   title: string;
@@ -39,7 +41,10 @@ export function ProviderHeader({
         <p className="provider-header__title">
           {title} · {categoryName}
         </p>
-        <p className="provider-header__location">{location}</p>
+        <p className="provider-header__location">
+          <MapPinIcon size={14} weight="fill" aria-hidden="true" />
+          {location}
+        </p>
       </div>
     </header>
   );
