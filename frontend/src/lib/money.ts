@@ -162,16 +162,56 @@ export function formatTry(amountSmallestUnit: string, rate: string): string {
  * directions, and the rate itself may move between the two -- an untouched
  * field should resubmit the stored USDC string, not re-convert its text.
  */
+/**
+ * Turns what a Turkish or English keyboard actually types into
+ * `"<whole>.<fraction>"` with at most two decimals: "1200", "1200.50",
+ * "1.200,50", "1,200.50", "1200,5", "₺1 200", "1200 TL" all pass. When
+ * only one separator appears, it is a thousands separator if exactly
+ * three digits follow it ("1.200" / "1,200") and a decimal point otherwise
+ * ("1,5" / "12.50"). Returns `undefined` for anything that isn't a money
+ * amount.
+ */
+export function normaliseTryInput(input: string): string | undefined {
+  let text = input.replace(/[₺\s]|TRY|TL/gi, "");
+  if (!/^\d[\d.,]*$/.test(text)) {
+    return undefined;
+  }
+  const lastDot = text.lastIndexOf(".");
+  const lastComma = text.lastIndexOf(",");
+  let decimalSeparator: "." | "," | undefined;
+  if (lastDot !== -1 && lastComma !== -1) {
+    decimalSeparator = lastDot > lastComma ? "." : ",";
+  } else if (lastDot !== -1 || lastComma !== -1) {
+    const separator = lastDot !== -1 ? "." : ",";
+    const digitsAfter = text.length - Math.max(lastDot, lastComma) - 1;
+    const occurrences = text.split(separator).length - 1;
+    decimalSeparator = occurrences === 1 && digitsAfter !== 3 ? separator : undefined;
+  }
+  let whole = text;
+  let fraction = "";
+  if (decimalSeparator) {
+    const at = text.lastIndexOf(decimalSeparator);
+    whole = text.slice(0, at);
+    fraction = text.slice(at + 1);
+  }
+  whole = whole.replace(/[.,]/g, "");
+  if (!/^\d+$/.test(whole) || !/^\d{0,2}$/.test(fraction)) {
+    return undefined;
+  }
+  text = fraction ? `${whole}.${fraction}` : whole;
+  return text;
+}
+
 export function tryToUsdcSmallestUnit(tryInput: string, rate: string): string | undefined {
   const parsed = parseRate(rate);
   if (!parsed) {
     return undefined;
   }
-  const trimmed = tryInput.trim().replace(/,/g, "");
-  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
+  const normalised = normaliseTryInput(tryInput);
+  if (normalised === undefined) {
     return undefined;
   }
-  const [whole = "0", fraction = ""] = trimmed.split(".");
+  const [whole = "0", fraction = ""] = normalised.split(".");
   const kurus = BigInt(`${whole}${fraction.padEnd(TRY_DECIMALS, "0")}`);
   // smallest = kuruş * 10^7 * 10^decimals / (10^2 * numerator)
   const smallest = divideRounded(

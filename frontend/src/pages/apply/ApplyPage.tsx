@@ -268,6 +268,7 @@ function ApplicationForm({ initial, categories, pending, error, onSubmit }: Appl
 
   const { rate } = useTryRate();
   const formatTryAmount = useFormatTry();
+  const [priceTouched, setPriceTouched] = useState(false);
   // Typed in TRY, sent in USDC smallest units (AD-7) at the rate on screen.
   const priceSmallestUnit = tryToUsdcSmallestUnit(values.price, rate);
   const depositRateBps = Math.round(Number(values.depositRatePercent) * 100);
@@ -279,6 +280,11 @@ function ApplicationForm({ initial, categories, pending, error, onSubmit }: Appl
 
   function handleSubmit(event: FormEvent): void {
     event.preventDefault();
+    if (!priceSmallestUnit) {
+      setPriceTouched(true);
+      document.getElementById("apply-price")?.focus();
+      return;
+    }
     onSubmit({
       name: values.name,
       title: values.title,
@@ -365,8 +371,10 @@ function ApplicationForm({ initial, categories, pending, error, onSubmit }: Appl
       <div className="apply-form__row">
         <div className="field">
           <label htmlFor="apply-price">Price (TRY)</label>
-          <input id="apply-price" inputMode="decimal" value={values.price} onChange={(e) => set("price", e.target.value)} placeholder="2,400.00" required />
-          {values.price.trim() !== "" && !priceSmallestUnit && <p className="field__error">Enter an amount in lira, up to two decimals.</p>}
+          <input id="apply-price" inputMode="decimal" value={values.price} onChange={(e) => set("price", e.target.value)} onBlur={() => setPriceTouched(true)} placeholder="1200 or 1.200,50" required />
+          {(priceTouched || values.price.trim() !== "") && !priceSmallestUnit && (
+            <p className="field__error">Enter the price in lira, e.g. 1200 or 1.200,50.</p>
+          )}
           {details.priceAmount && <p className="field__error">{details.priceAmount}</p>}
         </div>
         <div className="field">
