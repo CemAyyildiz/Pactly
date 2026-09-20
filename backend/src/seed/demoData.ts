@@ -172,17 +172,19 @@ export const DEMO_PROVIDERS: DemoProvider[] = [
 ];
 
 const SLOT_DAYS_AHEAD = 7;
+/** Skip the next few days so the longest demo free-cancellation window
+ * (72h) is still open on the earliest bookable slot. Same-day slots make
+ * every My bookings card read "Window closed" the moment Demo Day starts. */
+const FIRST_BOOKABLE_DAY = 4;
 const SECONDS_PER_DAY = 24 * 60 * 60;
 
-/** Slots for the next `SLOT_DAYS_AHEAD` days at each of `hours` (UTC),
- * skipping any that have already passed today -- every hour lands on the
- * 15-minute boundary Story 3.1's own validation requires, and consecutive
- * hours are always at least three hours apart, comfortably clear of any
- * demo provider's `sessionLengthMinutes`. */
+/** Slots for `SLOT_DAYS_AHEAD` days starting `FIRST_BOOKABLE_DAY` days out,
+ * at each of `hours` (UTC). Every hour lands on the 15-minute boundary
+ * Story 3.1's own validation requires. */
 export function demoSlots(now: number, hours: number[]): number[] {
   const todayStart = Math.floor(now / SECONDS_PER_DAY) * SECONDS_PER_DAY;
   const slots: number[] = [];
-  for (let day = 0; day < SLOT_DAYS_AHEAD; day += 1) {
+  for (let day = FIRST_BOOKABLE_DAY; day < FIRST_BOOKABLE_DAY + SLOT_DAYS_AHEAD; day += 1) {
     for (const hour of hours) {
       const startsAt = todayStart + day * SECONDS_PER_DAY + hour * 60 * 60;
       if (startsAt > now) {

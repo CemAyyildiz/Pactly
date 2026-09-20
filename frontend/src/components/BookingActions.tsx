@@ -415,9 +415,21 @@ export function BookingActions({
             </button>
           )}
           {canDispute && (
-            <button type="button" className="button-ghost" disabled={isBusy} onClick={() => setDisputeStep({ kind: "picking-reason" })}>
-              Open a dispute
-            </button>
+            <>
+              <button
+                type="button"
+                className="button-ghost"
+                disabled={isBusy}
+                onClick={() =>
+                  void pickDisputeReason(viewer === "client" ? "client-cancel" : "provider-cancel")
+                }
+              >
+                {busyAction === "dispute" ? "Opening…" : "Cancel booking"}
+              </button>
+              <button type="button" className="button-ghost" disabled={isBusy} onClick={() => setDisputeStep({ kind: "picking-reason" })}>
+                Open a dispute
+              </button>
+            </>
           )}
         </div>
       )}

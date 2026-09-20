@@ -3,6 +3,9 @@ import { useEffect, useState } from "react";
 export interface CountdownProps {
   /** UTC epoch seconds -- `bookings.cancel_deadline`. */
   cancelDeadline: number;
+  /** Free-cancellation copy only applies once the deposit is actually in
+   * escrow. A hold with no lock has nothing to refund yet. */
+  depositLocked?: boolean;
 }
 
 /** Turns `alert` under six hours -- the spec's own "Always" rule. */
@@ -35,13 +38,21 @@ function formatDurationLabel(totalSeconds: number): string {
  * automatic policy enforcement is not something this backend does (Epic 3
  * context: "Nothing here is automatic").
  */
-export function Countdown({ cancelDeadline }: CountdownProps) {
+export function Countdown({ cancelDeadline, depositLocked = true }: CountdownProps) {
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Math.floor(Date.now() / 1000)), TICK_MS);
     return () => clearInterval(interval);
   }, []);
+
+  if (!depositLocked) {
+    return (
+      <p className="countdown" aria-live="polite">
+        Slot held · the deposit is not locked yet, so there is nothing to cancel. Continue to pay, or let this hold expire.
+      </p>
+    );
+  }
 
   const secondsLeft = cancelDeadline - now;
 

@@ -38,6 +38,7 @@ import {
   type BuildPaymentDeps,
   type SubmitPaymentDeps,
 } from "../payments/stellar.js";
+import { PaymentUnavailableError } from "../payments/errors.js";
 import {
   beginAnchorSep10,
   completeAnchorSep10,
@@ -150,8 +151,13 @@ async function defaultHasTrustline(account: string, assetCode: string, assetIssu
       (balance) =>
         "asset_code" in balance && balance.asset_code === assetCode && balance.asset_issuer === assetIssuer,
     );
-  } catch {
-    return false;
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    const message = error instanceof Error ? error.message : String(error);
+    if (name === "NotFoundError" || /not found|404/i.test(message)) {
+      return false;
+    }
+    throw new PaymentUnavailableError(`Could not reach Horizon to check the USDC trustline: ${message}`);
   }
 }
 

@@ -133,7 +133,7 @@ export function BookingCard({
         </a>
       )}
 
-      <Countdown cancelDeadline={cancelDeadline} />
+      <Countdown cancelDeadline={cancelDeadline} depositLocked={escrowState === "locked"} />
 
       {continueHref && (
         <Link to={continueHref} className="button-primary" style={{ textDecoration: "none", display: "inline-flex", marginTop: "var(--space-3)" }}>

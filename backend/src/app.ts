@@ -42,8 +42,8 @@ import {
   sessionForPasskeyKitWallet,
   submitPasskeyKitXdr,
 } from "./auth/passkeyKit.js";
-import { InvalidXdrError, NoCustodialAccountError } from "./custodial/errors.js";
-import { ensureAccountReadyInBackground, type EnsureAccountReadyDeps } from "./custodial/funding.js";
+import { AccountFundingError, InvalidXdrError, NoCustodialAccountError } from "./custodial/errors.js";
+import { ensureAccountReady, ensureAccountReadyInBackground, type EnsureAccountReadyDeps } from "./custodial/funding.js";
 import { signXdrForWallet } from "./custodial/keys.js";
 import { getUserByWalletAddress } from "./db/users.js";
 import { RateUnavailableError, getTryRate } from "./services/rate.js";
@@ -938,13 +938,32 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
     if (error instanceof SandboxOnlyError) {
       return c.json({ code: "NOT_FOUND", message: error.message }, 404);
     }
+    if (error instanceof AccountFundingError) {
+      return c.json(
+        { code: "ACCOUNT_FUNDING", message: "Your account is still being set up on testnet. Try again in a moment." },
+        503,
+      );
+    }
     if (error instanceof PaymentFailedError) {
       return c.json({ code: "PAYMENT_FAILED", message: "Getting your wallet ready did not go through." }, 502);
     }
     if (error instanceof PaymentUnavailableError) {
+      console.error("[app] Stellar payment unavailable", error.message);
       return c.json({ code: "PAYMENT_UNAVAILABLE", message: "We couldn't reach the network just now." }, 503);
     }
     return undefined;
+  }
+
+  /** Friendbot + USDC trustline for a custodial / passkey-rail G… — coalesces
+   * with the fire-and-forget job kicked off at sign-in. Wallet-login JWTs
+   * have no users row; skip those. */
+  async function ensureCustodialReady(walletAddress: string): Promise<void> {
+    try {
+      await ensureAccountReady(db, walletAddress, accountReadyDeps);
+    } catch (error) {
+      if (error instanceof NoCustodialAccountError) return;
+      throw error;
+    }
   }
 
   app.post("/bookings/:id/anchor/challenge", requirePactlyAuth, async (c) => {
@@ -953,6 +972,7 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
       return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
     }
     try {
+      await ensureCustodialReady(c.get("walletAddress"));
       const result = await beginBookingAnchorAuth(db, bookingId, c.get("walletAddress"), localDepositDeps);
       return c.json(result);
     } catch (error) {
@@ -988,6 +1008,7 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
       return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
     }
     try {
+      await ensureCustodialReady(c.get("walletAddress"));
       const result = await openLocalDeposit(db, bookingId, c.get("walletAddress"), localDepositDeps);
       return c.json(result);
     } catch (error) {

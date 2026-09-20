@@ -148,7 +148,7 @@ export function BookingsPage() {
                       <StateLabel lifecycle={booking.lifecycle} viewer="provider" />
                     </td>
                     <td>
-                      <Countdown cancelDeadline={booking.cancelDeadline} />
+                      <Countdown cancelDeadline={booking.cancelDeadline} depositLocked={booking.escrowState === "locked"} />
                     </td>
                     <td>
                       {booking.contractId && (
