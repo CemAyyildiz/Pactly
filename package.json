@@ -26,5 +26,8 @@
   },
   "devDependencies": {
     "concurrently": "10.0.5"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.8.0"
   }
 }

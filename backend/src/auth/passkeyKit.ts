@@ -27,7 +27,6 @@ import { PasskeyServer } from "passkey-kit/server";
 
 import { config } from "../config.js";
 import { encryptSecret, passkeyKitRailKeypair } from "../custodial/keys.js";
-import { ensureAccountReadyInBackground } from "../custodial/funding.js";
 import type { Db } from "../db/client.js";
 import { getUserByWalletAddress, insertUser, updateUserWalletAndSecret } from "../db/users.js";
 import { issuePactlyJwt } from "./challenge.js";
@@ -290,7 +289,6 @@ export async function sessionForPasskeyKitWallet(
   if (!user) {
     throw new PasskeyKitAccountError();
   }
-  ensureAccountReadyInBackground(db, railAddress);
   return { token: await issuePactlyJwt(railAddress), walletAddress: railAddress, contractId };
 }
 
