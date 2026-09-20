@@ -2,7 +2,7 @@
 title: 'Story 2.2 — SEP-38 quote (local-currency equivalent)'
 type: 'feature'
 created: '2026-09-20'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: 'd8f9e0a980e9307b4b5468e27b321c0b6fccaeca'
 followup_review_recommended: false
@@ -84,3 +84,15 @@ deferred: []
 
 **Manual checks:**
 - `curl "localhost:<port>/quote?amount=4500000000"` against the live anchor returns a TRY equivalent close to the anchor's own `/health` rate.
+
+## Auto Run Result
+
+Status: done
+
+**Özet:** `GET /quote` anchor'ın SEP-38 fiyatını (spread dahil, olduğu gibi) döndürüyor; rezervasyon özetinde her tutarın yanında "≈ … TRY · indicative" satırı var. Kur sunucusu ve para birimi toml/`sep38/info`'dan okunuyor, sabit değil.
+
+**Commit'ler:** `9e90e82` spec, feat(2.2).
+
+**Review:** Katmanlı review çalıştırılmadı (yalnızca gösterim; para hareketi yok). Canlı anchor doğrulaması yapıldı: 450 USDC → 21.843,51 TRY, anchor'ın kendi cevabıyla aynı. Testler 460/460.
+
+**Kalan riskler:** Discover kartlarında TRY karşılığı yok (bilinçli, anchor'ı kart başına sorgulamamak için). `DepositPill` üstünde de yok.
