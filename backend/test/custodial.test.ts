@@ -8,12 +8,12 @@ import "./testConfigEnv.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { Account, Asset, BASE_FEE, Keypair, Networks, Operation, Transaction, TransactionBuilder, rpc } from "@stellar/stellar-sdk";
+import { Account, Asset, BASE_FEE, Keypair, Networks, Operation, StrKey, Transaction, TransactionBuilder, rpc } from "@stellar/stellar-sdk";
 
 import { resetUsdcAssetCacheForTests } from "../src/anchor/usdc.js";
 import { AccountFundingError, InvalidXdrError, NoCustodialAccountError } from "../src/custodial/errors.js";
 import { ensureAccountReady, type EnsureAccountReadyDeps } from "../src/custodial/funding.js";
-import { decryptSecret, encryptSecret, signXdrForWallet } from "../src/custodial/keys.js";
+import { decryptSecret, encryptSecret, passkeyKitRailKeypair, signXdrForWallet } from "../src/custodial/keys.js";
 import { getUserByWalletAddress, insertUser } from "../src/db/users.js";
 import type { Db } from "../src/db/client.js";
 import { openTestDatabase, closeDatabase } from "./helpers.js";
@@ -110,6 +110,30 @@ test("signXdrForWallet refuses an unknown wallet and undecodable XDR with typed 
     );
     const keypair = await seedCustodialUser(result.db);
     await assert.rejects(signXdrForWallet(result.db, keypair.publicKey(), "not xdr at all"), InvalidXdrError);
+  } finally {
+    closeDatabase(result);
+  }
+});
+
+test("signXdrForWallet reconstructs a passkey rail when the serverless instance has no user row", async () => {
+  const result = openTestDatabase();
+  try {
+    const contractId = StrKey.encodeContract(Buffer.alloc(32, 12));
+    const rail = passkeyKitRailKeypair(contractId);
+    const unsigned = buildPayment(rail.publicKey());
+    const signedXdr = await signXdrForWallet(result.db, rail.publicKey(), unsigned.toXDR(), {
+      passkeyContractId: contractId,
+    });
+    const signed = TransactionBuilder.fromXDR(signedXdr, NETWORK) as Transaction;
+    assert.equal(signed.signatures.length, 1);
+    assert.ok(rail.verify(Buffer.from(signed.hash()), signed.signatures[0]!.signature));
+
+    await assert.rejects(
+      signXdrForWallet(result.db, Keypair.random().publicKey(), unsigned.toXDR(), {
+        passkeyContractId: contractId,
+      }),
+      NoCustodialAccountError,
+    );
   } finally {
     closeDatabase(result);
   }

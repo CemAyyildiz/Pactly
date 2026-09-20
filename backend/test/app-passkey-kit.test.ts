@@ -43,8 +43,9 @@ test("POST /auth/passkey-kit/session issues a JWT for the Gâ€¦ rail behind a Câ€
     const railAddress = passkeyKitRailKeypair(contractId).publicKey();
     const created = await postJson(app, "/auth/passkey-kit/session", { contractId });
     assert.equal(created.status, 201);
-    const session = (await created.json()) as { token: string; walletAddress: string };
+    const session = (await created.json()) as { token: string; walletAddress: string; contractId: string };
     assert.equal(session.walletAddress, railAddress);
+    assert.equal(session.contractId, contractId);
     assert.ok(StrKey.isValidEd25519PublicKey(session.walletAddress));
     const verified = await verifyPactlyJwt(session.token);
     assert.equal(verified.walletAddress, railAddress);

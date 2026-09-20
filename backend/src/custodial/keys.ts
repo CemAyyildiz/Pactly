@@ -44,6 +44,14 @@ export function createCustodialAccount(): Keypair {
   return Keypair.random();
 }
 
+/** Deterministic classic rail behind a Passkey Kit smart-wallet contract. */
+export function passkeyKitRailKeypair(contractId: string): Keypair {
+  const seed = createHash("sha256")
+    .update(`pactly-passkey-kit-rail:${contractId}:${config.pactlyAuthSigningSecret}`)
+    .digest();
+  return Keypair.fromRawEd25519Seed(seed);
+}
+
 /** `v1.<iv>.<tag>.<ciphertext>`, each part base64url. */
 export function encryptSecret(secret: string): string {
   const iv = randomBytes(IV_BYTES);
@@ -91,9 +99,22 @@ function parseEnvelope(unsignedXdr: string): Transaction | FeeBumpTransaction {
  * decode -- the XDR is checked *before* any secret is decrypted, so a bad
  * request never reaches the key at all.
  */
-export async function signXdrForWallet(db: Db, walletAddress: string, unsignedXdr: string): Promise<string> {
+export async function signXdrForWallet(
+  db: Db,
+  walletAddress: string,
+  unsignedXdr: string,
+  options: { passkeyContractId?: string } = {},
+): Promise<string> {
   const user = await getUserByWalletAddress(db, walletAddress);
   if (!user) {
+    if (options.passkeyContractId) {
+      const rail = passkeyKitRailKeypair(options.passkeyContractId);
+      if (rail.publicKey() === walletAddress) {
+        const envelope = parseEnvelope(unsignedXdr);
+        envelope.sign(rail);
+        return envelope.toXDR();
+      }
+    }
     throw new NoCustodialAccountError();
   }
   const envelope = parseEnvelope(unsignedXdr);

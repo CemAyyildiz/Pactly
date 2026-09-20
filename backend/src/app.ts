@@ -486,11 +486,12 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
   app.post("/me/sign", requirePactlyAuth, async (c) => {
     const body = await c.req.json().catch(() => undefined);
     const unsignedXdr = typeof body?.unsignedXdr === "string" ? body.unsignedXdr : undefined;
+    const passkeyContractId = typeof body?.passkeyContractId === "string" ? body.passkeyContractId : undefined;
     if (!unsignedXdr) {
       return c.json({ code: "invalid_request", message: "unsignedXdr is required." }, 400);
     }
     try {
-      const signedXdr = await signXdrForWallet(db, c.get("walletAddress"), unsignedXdr);
+      const signedXdr = await signXdrForWallet(db, c.get("walletAddress"), unsignedXdr, { passkeyContractId });
       return c.json({ signedXdr });
     } catch (error) {
       if (error instanceof NoCustodialAccountError) {

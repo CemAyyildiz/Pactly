@@ -26,7 +26,7 @@ import {
 import { PasskeyServer } from "passkey-kit/server";
 
 import { config } from "../config.js";
-import { encryptSecret } from "../custodial/keys.js";
+import { encryptSecret, passkeyKitRailKeypair } from "../custodial/keys.js";
 import { ensureAccountReadyInBackground } from "../custodial/funding.js";
 import type { Db } from "../db/client.js";
 import { getUserByWalletAddress, insertUser, updateUserWalletAndSecret } from "../db/users.js";
@@ -70,12 +70,7 @@ export function passkeyKitFeePayer(): Keypair {
  * and lock still need this rail. Derived from the contract id so reconnect
  * always lands on the same account.
  */
-export function passkeyKitRailKeypair(contractId: string): Keypair {
-  const seed = createHash("sha256")
-    .update(`pactly-passkey-kit-rail:${contractId}:${config.pactlyAuthSigningSecret}`)
-    .digest();
-  return Keypair.fromRawEd25519Seed(seed);
-}
+export { passkeyKitRailKeypair } from "../custodial/keys.js";
 
 function rpcServer(): StellarRpc.Server {
   return new StellarRpc.Server(config.sorobanRpcUrl, { allowHttp: true });
@@ -244,6 +239,7 @@ export async function submitPasskeyKitXdr(xdr: string): Promise<{ hash: string }
 export interface PasskeyKitSession {
   token: string;
   walletAddress: string;
+  contractId: string;
 }
 
 /** Issues a Pactly JWT for the `G…` rail behind a Passkey Kit `C…` wallet,
@@ -295,6 +291,6 @@ export async function sessionForPasskeyKitWallet(
     throw new PasskeyKitAccountError();
   }
   ensureAccountReadyInBackground(db, railAddress);
-  return { token: await issuePactlyJwt(railAddress), walletAddress: railAddress };
+  return { token: await issuePactlyJwt(railAddress), walletAddress: railAddress, contractId };
 }
 

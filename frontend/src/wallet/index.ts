@@ -28,6 +28,9 @@ export interface Session {
    * (SEP-10 and Trustless Work are classic envelopes).
    */
   walletAddress: string;
+  /** Smart-wallet identity used to reconstruct the deterministic G… rail
+   * when a Vercel instance does not share another instance's /tmp DB. */
+  passkeyContractId?: string;
 }
 
 export class SignInCancelledError extends Error {
@@ -106,7 +109,11 @@ export function getSession(): Session | undefined {
         sessionStorage.removeItem(SESSION_STORAGE_KEY);
         return undefined;
       }
-      return { token: parsed.token, walletAddress: parsed.walletAddress };
+      return {
+        token: parsed.token,
+        walletAddress: parsed.walletAddress,
+        passkeyContractId: typeof parsed.passkeyContractId === "string" ? parsed.passkeyContractId : undefined,
+      };
     }
     return undefined;
   } catch {
@@ -141,6 +148,7 @@ function isCancelled(error: unknown): boolean {
 interface KitSessionResponse {
   token: string;
   walletAddress: string;
+  contractId: string;
 }
 
 interface KitSubmitResponse {
@@ -149,7 +157,11 @@ interface KitSubmitResponse {
 
 async function issueSession(contractId: string): Promise<Session> {
   const verified = await apiPost<KitSessionResponse>("/auth/passkey-kit/session", { contractId });
-  return { token: verified.token, walletAddress: verified.walletAddress };
+  return {
+    token: verified.token,
+    walletAddress: verified.walletAddress,
+    passkeyContractId: verified.contractId,
+  };
 }
 
 async function connectExisting(): Promise<Session> {
@@ -247,7 +259,7 @@ async function signInvokeAuth(unsignedXdr: string): Promise<string> {
  * signs Soroban auth in the browser.
  */
 export async function signXdr(unsignedXdr: string, walletAddress: string): Promise<string> {
-  const session = getSession();
+  let session = getSession();
   if (!session) {
     throw new ApiError({ code: "UNAUTHORIZED", message: "Your session ended. Sign in again to continue." }, 401);
   }
@@ -258,6 +270,17 @@ export async function signXdr(unsignedXdr: string, walletAddress: string): Promi
       throw isCancelled(error) ? new SignInCancelledError() : error;
     }
   }
-  const { signedXdr } = await apiPost<{ signedXdr: string }>("/me/sign", { unsignedXdr }, session.token);
+  // Sessions issued before the serverless rail fix did not persist the
+  // C… contract id. Reconnect once to upgrade them instead of forcing the
+  // user to clear storage and create another booking.
+  if (!session.passkeyContractId) {
+    session = await connectExisting();
+    saveSession(session);
+  }
+  const { signedXdr } = await apiPost<{ signedXdr: string }>(
+    "/me/sign",
+    { unsignedXdr, passkeyContractId: session.passkeyContractId },
+    session.token,
+  );
   return signedXdr;
 }
