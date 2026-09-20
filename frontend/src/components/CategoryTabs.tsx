@@ -27,7 +27,7 @@ export function CategoryTabs({ categories, selectedSlug, onSelect }: CategoryTab
         aria-pressed={selectedSlug === undefined}
         onClick={() => onSelect(undefined)}
       >
-        <span>All providers</span>
+        <span>Near you</span>
         <span className="category-tab__count tabular-nums">{totalCount}</span>
       </button>
       {categories.map((category) => (

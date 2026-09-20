@@ -132,7 +132,7 @@ export function SearchBox({ value, onCommit, suggestions, suggestionsLoading, on
           aria-activedescendant={
             activeSuggestion ? `${listboxId}-${activeSuggestion.kind}-${activeSuggestion.value}` : undefined
           }
-          placeholder="Search by name, service or category"
+          placeholder="Neighbourhood, shop or service"
           value={draft}
           onChange={(event) => handleChange(event.target.value)}
           onFocus={() => setOpen(true)}

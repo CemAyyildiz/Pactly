@@ -227,6 +227,11 @@ export function DiscoverPage() {
     onAvailabilityChange: setAvailability,
   };
 
+  const resultsQualifier = q.trim() ? q.trim() : selectedCategoryName;
+  const resultsHeading = showProvidersSkeleton
+    ? "Places"
+    : `${providers.length} ${providers.length === 1 ? "place" : "places"}${resultsQualifier ? ` · ${resultsQualifier}` : ""}`;
+
   return (
     <div className="page discover">
       <h1 className="discover__heading">Discover</h1>
@@ -259,14 +264,38 @@ export function DiscoverPage() {
         <>
           <CategoryTabs categories={categories} selectedSlug={selectedSlug} onSelect={selectCategory} />
 
+          <div className="discover__trust">
+            <span>
+              <b>No blind prepay</b> — deposit waits in escrow until the appointment
+            </span>
+            <span>
+              <b>Clear booking policy</b> for cancellations and no-shows
+            </span>
+            <span className="discover__trust-live">Trustless Work escrow · operational</span>
+          </div>
+
           <div className="discover__layout">
+            <div className="discover__rail">
+              <FilterRail {...filterFieldsProps} />
+            </div>
+
             <div className="discover__results">
               {showProvidersSkeleton ? (
-                <div className="provider-grid">
-                  {Array.from({ length: SKELETON_COUNT }, (_, index) => (
-                    <ProviderCardSkeleton key={index} />
-                  ))}
-                </div>
+                <>
+                  <div className="discover__results-head">
+                    <div>
+                      <h2>{resultsHeading}</h2>
+                      <div className="discover__results-meta">
+                        Physical appointments — shops, salons and clinics with a real chair or room
+                      </div>
+                    </div>
+                  </div>
+                  <div className="provider-grid">
+                    {Array.from({ length: SKELETON_COUNT }, (_, index) => (
+                      <ProviderCardSkeleton key={index} />
+                    ))}
+                  </div>
+                </>
               ) : providersQuery.isError ? (
                 <div className="banner banner--alert">
                   <p>Connection dropped. Your deposit is untouched.</p>
@@ -285,16 +314,22 @@ export function DiscoverPage() {
                   onBrowseWider={handleBrowseWider}
                 />
               ) : (
-                <div className="provider-grid">
-                  {providers.map((provider) => (
-                    <ProviderCard key={provider.id} provider={provider} />
-                  ))}
-                </div>
+                <>
+                  <div className="discover__results-head">
+                    <div>
+                      <h2>{resultsHeading}</h2>
+                      <div className="discover__results-meta">
+                        Physical appointments — shops, salons and clinics with a real chair or room
+                      </div>
+                    </div>
+                  </div>
+                  <div className="provider-grid">
+                    {providers.map((provider) => (
+                      <ProviderCard key={provider.id} provider={provider} />
+                    ))}
+                  </div>
+                </>
               )}
-            </div>
-
-            <div className="discover__rail">
-              <FilterRail {...filterFieldsProps} />
             </div>
           </div>
         </>

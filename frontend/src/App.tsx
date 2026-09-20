@@ -19,8 +19,11 @@ function TopBar() {
       </Link>
       <span className="top-bar__escrow-note">Escrow powered by Trustless Work · Stellar</span>
       <nav className="top-bar__nav">
+        <Link to="/">Discover</Link>
         <Link to="/me/bookings">My bookings</Link>
-        <Link to="/panel/availability">Provider panel</Link>
+        <Link to="/panel/availability" className="button-ghost">
+          List your shop
+        </Link>
       </nav>
     </div>
   );

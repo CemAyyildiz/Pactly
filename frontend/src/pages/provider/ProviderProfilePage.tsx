@@ -7,6 +7,7 @@ import { DepositPill } from "../../components/DepositPill";
 import { ProviderHeader } from "../../components/ProviderHeader";
 import { SlotChip } from "../../components/SlotChip";
 import { formatMoney } from "../../lib/money";
+import { providerPhotoSrc } from "../../lib/providerPhotos";
 import { formatSessionFormat } from "../../lib/sessionFormat";
 import { groupSlotsByDay } from "../../lib/time";
 
@@ -74,6 +75,7 @@ export function ProviderProfilePage() {
         categoryName={profile.category.name}
         isApproved={profile.isApproved}
         verifiedSessionCount={profile.verifiedSessionCount}
+        photoSrc={providerPhotoSrc(profile.id)}
       />
 
       <div className="card" style={{ marginTop: "var(--space-6)" }}>

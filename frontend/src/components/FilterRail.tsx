@@ -205,6 +205,11 @@ export function FilterRail(props: FilterFieldsProps) {
   return (
     <aside className="filter-rail" aria-label="Filters">
       <FilterFields {...props} />
+      <div className="filter-rail__depbox">
+        <strong>Deposit holds the slot</strong>
+        Typical rate 20–30%. Held in Trustless Work escrow on Stellar. The booking policy
+        guides any cancellation or no-show resolution.
+      </div>
     </aside>
   );
 }

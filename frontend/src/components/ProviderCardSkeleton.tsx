@@ -9,15 +9,18 @@ export function ProviderCardSkeleton() {
       <div className="provider-card__body">
         <div className="skeleton-block skeleton-block--name" />
         <div className="skeleton-block skeleton-block--meta" />
-        <div className="provider-card__slots">
-          <div className="skeleton-block skeleton-block--chip" />
-          <div className="skeleton-block skeleton-block--chip" />
-          <div className="skeleton-block skeleton-block--chip" />
-        </div>
+        <div className="skeleton-block skeleton-block--meta" />
       </div>
       <div className="provider-card__price-rail">
         <div className="skeleton-block skeleton-block--price" />
+      </div>
+      <div className="provider-card__deposit">
         <div className="skeleton-block skeleton-block--pill" />
+      </div>
+      <div className="provider-card__slots">
+        <div className="skeleton-block skeleton-block--chip" />
+        <div className="skeleton-block skeleton-block--chip" />
+        <div className="skeleton-block skeleton-block--chip" />
       </div>
     </article>
   );

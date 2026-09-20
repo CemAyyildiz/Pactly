@@ -1,63 +1,43 @@
 /**
- * DESIGN.md's tokens (frontmatter), as CSS custom properties. This file
- * only ever defines values -- no selectors beyond `:root` -- so every
- * component reads the same source of truth DESIGN.md itself names.
+ * DESIGN.md tokens as CSS custom properties.
  *
- * Story 3.10: the editorial direction (`mockups/editorial-v1.html`) is now
- * the product's design system -- warm paper, near-black ink, Libre Bodoni
- * over Public Sans, hairline rules, and Stellar's own yellow (#FDDA24) as
- * the single accent. The Two Sides palette (Story 3.1-3.8) and its Discover
- * v2 repaint (Story 3.9) are both superseded; every side-specific colour
- * and both of that repaint's own type families are gone.
+ * Visual reference: `mockups/discover-v2-marketplace.html` — cool grey
+ * canvas, white cards, Instrument Sans with Newsreader display, blue
+ * `#1F4BFF` as the marketplace accent, escrow black for the deposit pill.
  */
 :root {
-  /* Colors -- DESIGN.md "Colors". Values ported verbatim from
-   * `editorial-v1.html`'s own `:root`. */
-  --color-paper: #fafaf9;
+  --color-paper: #f4f5f7;
+  --color-canvas: #e8eaee;
   --color-card: #ffffff;
-  --color-ink: #1c1917;
-  --color-body: #3b3733;
-  --color-muted: #6f6862;
-  --color-rule: #e3ded6;
-  --color-rule-strong: #cfc8be;
-  /* The booking lanes' own warm off-white -- both sides share it, so
-   * identity is carried by type and rule (a border), never a second
-   * brand colour (Boundaries & Constraints). */
-  --color-lane: #fcfbf8;
+  --color-ink: #111318;
+  --color-body: #111318;
+  --color-muted: #5c6370;
+  --color-rule: #e3e5ea;
+  --color-rule-strong: #c9cdd6;
+  --color-lane: #ffffff;
 
-  /* Stellar's own yellow ("Generous Gold"). Too light to read as text on
-   * paper or white -- it never carries words there: it marks, underlines
-   * and sits behind ink or on the escrow black. `--color-gold-ink` is the
-   * darkened tone used whenever a word itself must read gold. */
-  --color-stellar: #fdda24;
-  --color-stellar-soft: #fff6d1;
-  --color-gold-ink: #8a6410;
+  --color-accent: #1f4bff;
+  --color-accent-soft: #e8edff;
+  --color-accent-ink: #1636c9;
+  /* Alias used by existing selectors (was Stellar yellow in 3.10). */
+  --color-stellar: var(--color-accent);
+  --color-stellar-soft: var(--color-accent-soft);
+  --color-gold-ink: var(--color-accent-ink);
 
-  --color-escrow: #14110f;
-  --color-escrow-text: #f5f1ea;
-  /* Secondary text and hairlines *on* the escrow black -- the mockup's own
-   * one-off tones for that zone (never used anywhere else). */
-  --color-escrow-muted: #b9b2a8;
-  --color-escrow-line: #2a2a2a;
+  --color-escrow: #111318;
+  --color-escrow-text: #f4f5f7;
+  --color-escrow-muted: #8c919c;
+  --color-escrow-line: #2a2d36;
+  --color-ok: #1a7a4c;
   --color-alert: #9a3412;
   --color-alert-soft: #fbeae0;
-  /* One-off "taken/disabled" grey the mockup itself hardcodes for a slot
-   * that cannot be picked -- distinct from `--color-muted`. */
-  --color-disabled-text: #a9a29b;
+  --color-disabled-text: #9aa1ad;
 
-  /* Typography -- DESIGN.md "Typography". Two families cover every job:
-   * Libre Bodoni for display and names, Public Sans for everything else.
-   * No third family, no monospace label face. */
-  --font-display: "Libre Bodoni", Georgia, serif;
-  --font-heading: "Public Sans", system-ui, sans-serif;
-  --font-body: "Public Sans", system-ui, sans-serif;
-  --font-label: "Public Sans", system-ui, sans-serif;
+  --font-display: "Newsreader", Georgia, serif;
+  --font-heading: "Instrument Sans", system-ui, sans-serif;
+  --font-body: "Instrument Sans", system-ui, sans-serif;
+  --font-label: "Instrument Sans", system-ui, sans-serif;
 
-  /* Scale -- the editorial mockup's own sizes, named by pixel value since
-   * its rhythm is editorial (a name, a masthead headline, a price) rather
-   * than the fixed 12/14/16/18/24/32/48 steps of the palette it replaces.
-   * Every size the mockup actually uses has a token here; nothing is
-   * invented past what `editorial-v1.html` renders. */
   --text-11: 11px;
   --text-12: 12px;
   --text-12-5: 12.5px;
@@ -67,9 +47,11 @@
   --text-16: 16px;
   --text-17: 17px;
   --text-18: 18px;
+  --text-22: 22px;
   --text-23: 23px;
   --text-24: 24px;
   --text-27: 27px;
+  --text-28: 28px;
   --text-30: 30px;
   --text-32: 32px;
   --text-34: 34px;
@@ -78,19 +60,13 @@
   --text-48: 48px;
   --text-56: 56px;
 
-  /* Radii -- the editorial mockup keeps its shapes almost square (2-3px),
-   * a deliberate departure from the rounded-card language it replaces.
-   * `--radius-full` stays for the one pill-shaped element the mockup still
-   * uses (nothing, in fact -- kept only as an escape hatch; nothing here
-   * currently renders a pill). */
-  --radius-hairline: 2px;
-  --radius-sm: 2px;
-  --radius-md: 3px;
-  --radius-lg: 3px;
-  --radius-xl: 3px;
+  --radius-hairline: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 14px;
   --radius-full: 9999px;
 
-  /* Spacing -- DESIGN.md "spacing", unchanged by this restyle. */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -102,7 +78,7 @@
   --space-9: 36px;
   --space-10: 40px;
   --space-14: 56px;
-  --space-gutter: 32px;
+  --space-gutter: 22px;
   --space-gutter-mobile: 20px;
-  --space-card-pad: 14px;
+  --space-card-pad: 16px;
 }

@@ -25,6 +25,7 @@ import { LockButton } from "../../components/LockButton";
 import { ProviderHeader } from "../../components/ProviderHeader";
 import { Seal } from "../../components/Seal";
 import { formatMoney } from "../../lib/money";
+import { providerPhotoSrc } from "../../lib/providerPhotos";
 import { formatSlotDay, formatSlotTime } from "../../lib/time";
 import { getSession, signIn, signOut, signXdr, type Session } from "../../wallet";
 
@@ -856,6 +857,7 @@ export function BookingPage() {
             categoryName={profile.category.name}
             isApproved={profile.isApproved}
             verifiedSessionCount={profile.verifiedSessionCount}
+            photoSrc={providerPhotoSrc(profile.id)}
             compact
           />
           <div style={{ marginTop: "var(--space-4)" }}>

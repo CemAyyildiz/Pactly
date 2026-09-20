@@ -33,7 +33,7 @@ export function DepositPill({ amount, asset, cancellationWindowHours, freeCancel
     return (
       <p className="deposit-row tabular-nums">
         <b className="deposit-row__amount">{amountLabel}</b> deposit
-        <span className="deposit-row__caption">{windowLabel}</span>
+        <span className="deposit-row__caption"> · {windowLabel}</span>
       </p>
     );
   }
