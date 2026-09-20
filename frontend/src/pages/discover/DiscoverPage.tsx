@@ -256,45 +256,48 @@ export function DiscoverPage() {
           </button>
         </div>
       ) : (
-        <div className="discover__layout">
-          <div className="discover__rail">
-            <CategoryTabs categories={categories} selectedSlug={selectedSlug} onSelect={selectCategory} />
-            <FilterRail {...filterFieldsProps} />
-          </div>
+        <>
+          <CategoryTabs categories={categories} selectedSlug={selectedSlug} onSelect={selectCategory} />
 
-          <div className="discover__results">
-            {showProvidersSkeleton ? (
-              <div className="provider-grid">
-                {Array.from({ length: SKELETON_COUNT }, (_, index) => (
-                  <ProviderCardSkeleton key={index} />
-                ))}
-              </div>
-            ) : providersQuery.isError ? (
-              <div className="banner banner--alert">
-                <p>Connection dropped. Your deposit is untouched.</p>
-                <button type="button" className="button-ghost" onClick={() => providersQuery.refetch()}>
-                  Try again
-                </button>
-              </div>
-            ) : providers.length === 0 ? (
-              <EmptyResults
-                query={q}
-                filterChips={filterChips}
-                onClearFilter={clearFilter}
-                hasAvailabilityFilter={availability !== undefined}
-                onClearAvailability={() => setAvailability(undefined)}
-                browseLabel={browseLabel}
-                onBrowseWider={handleBrowseWider}
-              />
-            ) : (
-              <div className="provider-grid">
-                {providers.map((provider) => (
-                  <ProviderCard key={provider.id} provider={provider} />
-                ))}
-              </div>
-            )}
+          <div className="discover__layout">
+            <div className="discover__results">
+              {showProvidersSkeleton ? (
+                <div className="provider-grid">
+                  {Array.from({ length: SKELETON_COUNT }, (_, index) => (
+                    <ProviderCardSkeleton key={index} />
+                  ))}
+                </div>
+              ) : providersQuery.isError ? (
+                <div className="banner banner--alert">
+                  <p>Connection dropped. Your deposit is untouched.</p>
+                  <button type="button" className="button-ghost" onClick={() => providersQuery.refetch()}>
+                    Try again
+                  </button>
+                </div>
+              ) : providers.length === 0 ? (
+                <EmptyResults
+                  query={q}
+                  filterChips={filterChips}
+                  onClearFilter={clearFilter}
+                  hasAvailabilityFilter={availability !== undefined}
+                  onClearAvailability={() => setAvailability(undefined)}
+                  browseLabel={browseLabel}
+                  onBrowseWider={handleBrowseWider}
+                />
+              ) : (
+                <div className="provider-grid">
+                  {providers.map((provider) => (
+                    <ProviderCard key={provider.id} provider={provider} />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="discover__rail">
+              <FilterRail {...filterFieldsProps} />
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       <FilterSheet open={filterSheetOpen} onClose={() => setFilterSheetOpen(false)} {...filterFieldsProps} />

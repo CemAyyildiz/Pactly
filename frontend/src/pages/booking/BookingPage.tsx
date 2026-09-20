@@ -568,6 +568,7 @@ export function BookingPage() {
             categoryName={profile.category.name}
             isApproved={profile.isApproved}
             verifiedSessionCount={profile.verifiedSessionCount}
+            compact
           />
           <div style={{ marginTop: "var(--space-4)" }}>
             <DepositPill

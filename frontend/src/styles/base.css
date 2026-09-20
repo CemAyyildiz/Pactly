@@ -5,10 +5,14 @@
  * `src/components/*` and `src/pages/**` render against. DESIGN.md wins on
  * any conflict (see that file's own top note).
  *
- * Story 3.9: Instrument Sans + Newsreader replace the previous three type
- * families -- the Discover v2 mockup's own pair.
+ * Story 3.10: ported from `mockups/editorial-v1.html`'s own `<style>`
+ * block -- warm paper, near-black ink, Libre Bodoni over Public Sans,
+ * hairline rules, and Stellar's own yellow as the single accent. Class
+ * names mostly stay the ones Story 3.1-3.9 established (renaming every
+ * selector across every component would be churn for its own sake); what
+ * changes is what each one actually renders.
  */
-@import url("https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Libre+Bodoni:ital,wght@0,400;0,500;0,600;1,400&family=Public+Sans:wght@300;400;500;600&display=swap");
 
 * {
   box-sizing: border-box;
@@ -21,18 +25,21 @@ body {
 }
 
 body {
-  background: var(--color-bg);
-  color: var(--color-ink);
+  background: var(--color-paper);
+  color: var(--color-body);
   font-family: var(--font-body);
-  font-size: var(--text-16);
-  line-height: 1.5;
+  font-weight: 400;
+  font-size: var(--text-15);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* DESIGN.md Accessibility Floor: the focus ring is always visible, uses
- * `{colors.focus}`, and is never suppressed. */
+/* DESIGN.md Accessibility Floor: the focus ring is always visible and
+ * never suppressed. The mockup's own ink ring, ported. */
 :focus-visible {
-  outline: 3px solid var(--color-focus);
+  outline: 2px solid var(--color-ink);
   outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 a {
@@ -43,78 +50,180 @@ button {
   font-family: inherit;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
 /* Money and times always use tabular-nums (DESIGN.md Typography) so
  * stacked digits align. */
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
 
-.page {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: var(--space-6) var(--space-gutter);
+/* The mockup's own `.label`: an uppercase eyebrow used for section labels,
+ * lane headings and field labels throughout. */
+.eyebrow-label {
+  font-size: var(--text-11);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  font-weight: 500;
 }
 
-@media (max-width: 600px) {
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-gutter) var(--space-10);
+}
+
+.page h1 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--color-ink);
+  font-size: var(--text-38);
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--space-5);
+}
+
+.page h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--color-ink);
+  font-size: var(--text-24);
+  line-height: 1.15;
+  margin: 0 0 var(--space-3);
+}
+
+@media (max-width: 700px) {
   .page {
-    padding: var(--space-4) var(--space-gutter-mobile);
+    padding: var(--space-5) var(--space-gutter-mobile) var(--space-8);
   }
 }
 
 /* ---------------------------------------------------------------------
- * Top bar
+ * Top bar -- the mockup's own sticky masthead (`.top`).
  * --------------------------------------------------------------------- */
 
 .top-bar {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-6);
   padding: var(--space-3) var(--space-gutter);
-  background: var(--color-card);
-  border-bottom: 1px solid var(--color-line);
+  background: var(--color-paper);
+  border-bottom: 1px solid var(--color-rule);
   flex-wrap: wrap;
+  min-height: 64px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
 .top-bar__brand {
   font-family: var(--font-display);
-  font-weight: 600;
-  font-size: var(--text-32);
-  line-height: 1.05;
-  letter-spacing: -0.01em;
+  font-weight: 400;
+  font-size: var(--text-23);
+  letter-spacing: 0.01em;
+  color: var(--color-ink);
   text-decoration: none;
 }
 
-/* DESIGN.md's `pill-escrow`: a quiet provenance pill, not an uppercase
- * mono label -- Discover v2 keeps this visible everywhere without shouting
- * it. */
+/* The mockup's own `.proof`: a quiet provenance label with a Stellar-yellow
+ * dot and soft halo -- visible everywhere, never shouting. Hidden below
+ * 820px, exactly as the mockup hides it. */
 .top-bar__escrow-note {
   font-family: var(--font-label);
-  font-size: var(--text-12);
-  font-weight: 600;
+  font-size: var(--text-11);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--color-muted);
-  background: var(--color-bg);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-full);
-  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   white-space: nowrap;
+}
+
+.top-bar__escrow-note::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-stellar);
+  box-shadow: 0 0 0 3px var(--color-stellar-soft);
+}
+
+@media (max-width: 820px) {
+  .top-bar__escrow-note {
+    display: none;
+  }
 }
 
 .top-bar__nav {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: var(--space-4);
-  font-weight: 600;
+  gap: var(--space-6);
+  font-size: var(--text-14);
+}
+
+.top-bar__nav a,
+.top-bar__nav button.button-ghost {
+  text-decoration: none;
 }
 
 .top-bar__nav a {
+  padding-bottom: 2px;
+  border-bottom: 1px solid transparent;
+}
+
+.top-bar__nav a:hover {
+  border-bottom-color: var(--color-ink);
+}
+
+/* A page's own quiet header row (My bookings, the panel, Resolutions) --
+ * distinct from the global `.top-bar` above so it never inherits that
+ * one's sticky positioning or border. */
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-6);
+}
+
+.page-header h1 {
+  margin: 0;
+}
+
+.page-header__nav {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: var(--text-14);
+}
+
+.page-header__nav a {
   text-decoration: none;
+  padding-bottom: 2px;
+  border-bottom: 1px solid transparent;
+}
+
+.page-header__nav a:hover {
+  border-bottom-color: var(--color-ink);
 }
 
 /* ---------------------------------------------------------------------
  * Buttons -- DESIGN.md Components: button-primary / button-ghost /
- * button-escrow. `button-escrow` (Story 3.4) is the only black button in
- * the product -- used solely for "Lock with Pactly".
+ * button-escrow. Black is the money colour: `button-escrow` ("Lock with
+ * Pactly") is the only black button in the product. Neither
+ * `button-primary` nor `button-ghost` may ever use the escrow black --
+ * both stay on paper/ink, and the Stellar yellow marks the primary one as
+ * a 3px rule rather than a fill (the yellow's own rules: never a large
+ * fill, never text on paper).
  * --------------------------------------------------------------------- */
 
 .button-primary,
@@ -125,177 +234,243 @@ button {
   justify-content: center;
   gap: var(--space-2);
   min-height: 44px;
-  padding: 12px 20px;
-  border-radius: var(--radius-md);
-  font-size: var(--text-16);
+  padding: 12px 18px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-14);
   font-weight: 600;
+  letter-spacing: 0.01em;
   cursor: pointer;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
 .button-primary {
-  background: var(--color-client);
-  color: var(--color-escrow-text);
-  border: none;
+  background: transparent;
+  color: var(--color-ink);
+  border: 1.5px solid var(--color-ink);
+  box-shadow: inset 0 -3px 0 var(--color-stellar);
+}
+
+.button-primary:hover:not(:disabled) {
+  background: var(--color-stellar-soft);
 }
 
 .button-primary:disabled,
 .button-escrow:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .button-ghost {
   background: transparent;
-  color: var(--color-ink);
-  border: 1.5px solid var(--color-ink);
+  color: var(--color-body);
+  border: 1px solid var(--color-rule-strong);
 }
 
+.button-ghost:hover:not(:disabled) {
+  border-color: var(--color-ink);
+  color: var(--color-ink);
+}
+
+/* The only black button in the product -- used solely for the action that
+ * funds the Trustless Work escrow (and for retrying that same deploy). Its
+ * label is Stellar yellow: the one place the accent may carry words. */
 .button-escrow {
   width: 100%;
   background: var(--color-escrow);
-  color: var(--color-escrow-text);
-  border: 1.5px solid var(--color-escrow-text);
-  padding: 16px 24px;
-  font-size: var(--text-18);
-  font-weight: 700;
+  color: var(--color-stellar);
+  border: 0;
+  box-shadow: inset 0 -3px 0 var(--color-stellar);
+  padding: 15px 18px;
+  font-size: var(--text-14);
+}
+
+.button-escrow:hover:not(:disabled) {
+  background: #000;
 }
 
 /* ---------------------------------------------------------------------
- * Badges -- DESIGN.md Components: badge-verified (teal family).
+ * Approved mark -- a quiet, gold-ink line (dot + uppercase text), never a
+ * pill: the editorial mockup's own `.approved`. Shared by the provider
+ * card row and the provider header/profile.
  * --------------------------------------------------------------------- */
 
-.badge {
+.approved-mark {
   display: inline-flex;
   align-items: center;
-  border-radius: var(--radius-full);
-  font-size: var(--text-12);
-  padding: 4px 10px;
-  font-weight: 600;
+  gap: 7px;
+  font-family: var(--font-label);
+  font-size: var(--text-11);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-gold-ink);
+  margin: 0 0 var(--space-2);
 }
 
-.badge--approved {
-  background: var(--color-pro-soft);
-  color: #0f3d3a;
-  border: 1px solid #b8d5cf;
+.approved-mark__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-stellar);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  flex: none;
 }
 
-.badge--verified {
-  background: var(--color-pro-soft);
-  color: #0f3d3a;
-  border: 1px solid #b8d5cf;
+/* No approval yet on record -- plain muted text, no dot, no gold ink (a
+ * fact that hasn't happened cannot borrow the mark that says it has). */
+.approved-mark--muted {
+  color: var(--color-muted);
 }
 
 /* ---------------------------------------------------------------------
- * Provider header -- deep teal identity block, never interactive.
+ * Provider header -- the provider's identity block. No second brand
+ * colour: identity is carried by the serif name and the approved mark,
+ * never a teal ground (Boundaries & Constraints).
  * --------------------------------------------------------------------- */
 
 .provider-header {
-  background: var(--color-pro);
-  color: var(--color-pro-text);
-  border-radius: var(--radius-lg);
-  padding: var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-}
-
-.provider-header__badges {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
+  gap: var(--space-1);
 }
 
 .provider-header__name {
   font-family: var(--font-display);
-  font-weight: 600;
-  font-size: var(--text-48);
-  line-height: 1.05;
-  letter-spacing: -0.01em;
-  margin: 0;
+  font-weight: 400;
+  color: var(--color-ink);
+  font-size: var(--text-44);
+  line-height: 1.06;
+  letter-spacing: -0.005em;
+  margin: 6px 0 0;
 }
 
 .provider-header__title {
-  font-size: var(--text-18);
-  margin: 0;
+  font-size: var(--text-16);
+  color: var(--color-body);
+  margin: var(--space-1) 0 0;
 }
 
 .provider-header__location {
   font-size: var(--text-14);
-  color: var(--color-pro-text);
-  opacity: 0.85;
-  margin: 0;
+  color: var(--color-muted);
+  margin: 2px 0 0;
+}
+
+/* A smaller name where the header sits inside a booking lane, next to a
+ * lot of other content -- the profile's own full-size name would crowd
+ * the lane. */
+.provider-header--compact .provider-header__name {
+  font-size: var(--text-27);
+  line-height: 1.14;
 }
 
 /* ---------------------------------------------------------------------
- * Deposit pill -- DESIGN.md Components: pill-deposit. Black ground,
- * mustard dot, amount + free-cancellation window always together.
+ * Deposit pill / deposit row -- DESIGN.md Components: pill-deposit. The
+ * black `.pill` (profile aside, booking lane) and the plain in-row `.dep`
+ * (a list row's own price rail) are the same fact, in the mockup's own
+ * two presentations -- both always pair the amount with the
+ * free-cancellation window.
  * --------------------------------------------------------------------- */
 
 .deposit-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
   background: var(--color-escrow);
   color: var(--color-escrow-text);
-  border-radius: var(--radius-full);
-  padding: 8px 14px;
-  font-size: 12.5px;
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  font-size: var(--text-13);
+  line-height: 1.5;
 }
 
-.deposit-pill__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-client);
-  flex: none;
+.deposit-pill__amount {
+  font-weight: 600;
+  color: var(--color-stellar);
+}
+
+.deposit-pill__caption {
+  display: block;
+  color: var(--color-escrow-muted);
+  font-size: var(--text-12);
+  margin-top: 3px;
+}
+
+.deposit-row {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-rule);
+  font-size: var(--text-13);
+  color: var(--color-body);
+}
+
+.deposit-row__amount {
+  font-weight: 600;
+  color: var(--color-ink);
+  box-shadow: inset 0 -6px 0 var(--color-stellar-soft);
+}
+
+.deposit-row__caption {
+  display: block;
+  color: var(--color-muted);
+  font-size: var(--text-12-5);
+  margin-top: 2px;
 }
 
 /* ---------------------------------------------------------------------
- * Slot chip -- DESIGN.md Components: chip-slot / chip-slot-taken.
+ * Slot chip -- DESIGN.md Components: chip-slot. A quiet, neutral chip: an
+ * open slot is information to pick from, not a coloured action button.
  * --------------------------------------------------------------------- */
 
-/* Discover v2's own `.slot`: a quiet, neutral chip -- an open slot is not
- * a client-blue action button, it is information the client can pick from.
- * The selected/highlighted slot (`.slot.on`) is ink, matching the
- * mockup's own use of black rather than blue for that state. */
 .slot-chip {
   min-height: 44px;
   min-width: 44px;
-  padding: 7px 10px;
-  border-radius: 8px;
-  font-size: 12.5px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-13);
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  background: var(--color-bg);
+  font-weight: 400;
+  background: transparent;
   color: var(--color-ink);
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--color-rule-strong);
   cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.slot-chip:hover:not(:disabled) {
+  border-color: var(--color-ink);
+  box-shadow: inset 0 -3px 0 var(--color-stellar);
 }
 
 .slot-chip--selected {
   background: var(--color-ink);
-  color: var(--color-escrow-text);
+  color: var(--color-paper);
   border-color: var(--color-ink);
+}
+
+.slot-chip--selected:hover {
+  box-shadow: none;
 }
 
 .slot-chip--taken {
   background: transparent;
-  color: var(--color-muted);
-  border: 1.5px dashed var(--color-line);
+  color: var(--color-disabled-text);
+  border: 1px dashed var(--color-rule-strong);
   cursor: not-allowed;
 }
 
 .slot-day {
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-5);
 }
 
 .slot-day__label {
   font-family: var(--font-label);
-  font-size: var(--text-12);
+  font-size: var(--text-11);
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.14em;
   color: var(--color-muted);
-  margin-bottom: var(--space-2);
+  font-weight: 500;
+  margin-bottom: 9px;
 }
 
 .slot-day__chips {
@@ -305,14 +480,15 @@ button {
 }
 
 /* ---------------------------------------------------------------------
- * Card / panel surface -- DESIGN.md Components: card-provider.
+ * Card / panel surface -- a plain paper card, squared corners, a hairline
+ * border. No shadow on permanent content.
  * --------------------------------------------------------------------- */
 
 .card {
   background: var(--color-card);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-xl);
-  padding: var(--space-card-pad);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-md);
+  padding: var(--space-6) var(--space-5);
 }
 
 .price-row {
@@ -323,11 +499,11 @@ button {
 }
 
 .price-row__amount {
-  font-family: var(--font-body);
-  font-weight: 700;
-  font-size: var(--text-32);
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--color-ink);
+  font-size: var(--text-34);
   line-height: 1.1;
-  letter-spacing: -0.01em;
 }
 
 .price-row__meta {
@@ -336,28 +512,41 @@ button {
 }
 
 /* ---------------------------------------------------------------------
- * Forms -- the availability panel's rules form and status banners.
+ * Forms -- the availability panel's rules form and status banners. Small-
+ * caps labels over underlined fields, never boxes.
  * --------------------------------------------------------------------- */
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 6px;
   margin-bottom: var(--space-4);
 }
 
 .field label {
-  font-weight: 600;
-  font-size: var(--text-14);
+  font-family: var(--font-label);
+  font-size: var(--text-11);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  font-weight: 500;
 }
 
 .field input {
-  min-height: 44px;
-  padding: 8px 12px;
-  border: 1.5px solid var(--color-ink);
-  border-radius: var(--radius-md);
+  min-height: 40px;
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1.5px solid var(--color-rule-strong);
+  border-radius: 0;
+  background: transparent;
   font-size: var(--text-16);
   font-family: inherit;
+  color: var(--color-ink);
+}
+
+.field input:focus {
+  outline: none;
+  border-bottom-color: var(--color-ink);
 }
 
 .field__error {
@@ -367,7 +556,7 @@ button {
 
 .banner {
   background: var(--color-card);
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--color-rule);
   border-radius: var(--radius-md);
   padding: var(--space-4);
   color: var(--color-muted);
@@ -381,6 +570,9 @@ button {
 
 /* ---------------------------------------------------------------------
  * Availability grid -- 14 days x 15-minute columns from 08:00 to 20:00.
+ * Same quiet-chip language as the slot chip above: an open cell is plain,
+ * a selected one inverts to ink, nothing is ever coloured to look like a
+ * side.
  * --------------------------------------------------------------------- */
 
 .availability-grid {
@@ -401,6 +593,7 @@ button {
   flex: none;
   font-size: var(--text-14);
   font-weight: 600;
+  color: var(--color-ink);
 }
 
 .availability-grid__cells {
@@ -413,55 +606,65 @@ button {
   min-width: 44px;
   min-height: 44px;
   padding: 4px;
-  font-size: 11px;
+  font-size: var(--text-11);
   font-variant-numeric: tabular-nums;
   border-radius: var(--radius-sm);
-  border: 1.5px solid var(--color-line);
+  border: 1px solid var(--color-rule-strong);
   background: var(--color-card);
+  color: var(--color-ink);
   cursor: pointer;
 }
 
 .availability-cell--selected {
-  background: var(--color-client);
-  border-color: var(--color-client-deep);
-  color: var(--color-escrow-text);
+  background: var(--color-ink);
+  border-color: var(--color-ink);
+  color: var(--color-paper);
 }
 
 .availability-cell--disabled {
-  color: var(--color-muted);
+  color: var(--color-disabled-text);
   border-style: dashed;
   cursor: not-allowed;
 }
 
 /* ---------------------------------------------------------------------
- * Discover page -- Story 3.2. DESIGN.md Layout & Spacing: a 240px left
- * rail beside a single-column result list (Discover v2's own `.list`);
- * below 1024px, the category list becomes horizontally-scrolling tabs
- * above the same single column.
+ * Discover page -- Story 3.2/3.3, restyled in Story 3.10 on
+ * `editorial-v1.html`'s own layout: a full-width category nav, then a
+ * single-column result list beside a narrow right-hand filter rail
+ * (the mockup's own `.body{grid-template-columns:1fr 216px}`), collapsing
+ * to one column below 980px (the mockup's own breakpoint).
  * --------------------------------------------------------------------- */
 
 .discover {
-  max-width: 1120px;
+  max-width: 1180px;
 }
 
 .discover__heading {
   font-family: var(--font-display);
-  font-weight: 600;
+  font-weight: 400;
+  color: var(--color-ink);
   font-size: var(--text-48);
   line-height: 1.05;
   letter-spacing: -0.01em;
   margin: 0 0 var(--space-4);
 }
 
-.discover__layout {
-  display: block;
+@media (max-width: 700px) {
+  .discover__heading {
+    font-size: var(--text-38);
+  }
 }
 
-@media (min-width: 1024px) {
+.discover__layout {
+  display: block;
+  padding-top: var(--space-8);
+}
+
+@media (min-width: 981px) {
   .discover__layout {
     display: grid;
-    grid-template-columns: 240px 1fr;
-    gap: var(--space-6);
+    grid-template-columns: 1fr 216px;
+    gap: var(--space-14);
     align-items: start;
   }
 }
@@ -469,32 +672,28 @@ button {
 .discover__rail {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-6);
+  margin-top: var(--space-5);
 }
 
 /* The mockup's own `.filters` sits in a full-height grid column beside the
  * results; the live page scrolls (the static mockup doesn't), so getting
  * the same "stays beside the results" read here means pinning the rail
  * under the top bar once the page scrolls past it, with its own scroll if
- * it is taller than the viewport. Mobile (<1024px) is untouched. */
-@media (min-width: 1024px) {
+ * it is taller than the viewport. Below 981px it sits inline instead. */
+@media (min-width: 981px) {
   .discover__rail {
     position: sticky;
-    top: var(--space-6);
+    top: calc(64px + var(--space-6));
     align-self: start;
-    max-height: calc(100vh - var(--space-6) * 2);
+    max-height: calc(100vh - 64px - var(--space-6) * 2);
     overflow-y: auto;
+    margin-top: 0;
   }
 }
 
 .discover__results {
-  margin-top: var(--space-4);
-}
-
-@media (min-width: 1024px) {
-  .discover__results {
-    margin-top: 0;
-  }
+  margin-top: 0;
 }
 
 /* ---------------------------------------------------------------------
@@ -503,14 +702,15 @@ button {
 
 .discover__search-row {
   display: flex;
-  gap: var(--space-3);
-  align-items: flex-start;
-  margin-bottom: var(--space-4);
+  gap: var(--space-5);
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
 }
 
 .discover__search-row .search-box {
   flex: 1;
-  min-width: 0;
+  min-width: 260px;
 }
 
 .discover__filters-trigger {
@@ -518,17 +718,16 @@ button {
   white-space: nowrap;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 981px) {
   .discover__filters-trigger {
     display: none;
   }
 }
 
 /* ---------------------------------------------------------------------
- * Search box -- DESIGN.md Components: the field itself keeps a 1.5px ink
- * border (Discover v2's own `.search`); the suggestions dropdown is a
- * transient layer above the page, so it uses a soft shadow instead
- * (Discover v2's own `.ac`), never the old "offset solid block".
+ * Search box -- the mockup's own `.search`: an underlined field, no box.
+ * The suggestions dropdown is a transient layer above the page, so it
+ * alone may keep a soft shadow.
  * --------------------------------------------------------------------- */
 
 .search-box {
@@ -539,12 +738,15 @@ button {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 44px;
-  padding: 4px 4px 4px 14px;
-  border: 1.5px solid var(--color-ink);
-  border-radius: var(--radius-md);
-  background: var(--color-card);
+  padding: 8px 4px 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-rule-strong);
+  background: transparent;
   color: var(--color-muted);
+}
+
+.search-box__field:focus-within {
+  border-bottom-color: var(--color-ink);
 }
 
 .search-box__field svg {
@@ -558,8 +760,12 @@ button {
   outline: none;
   background: transparent;
   font-family: inherit;
-  font-size: var(--text-16);
+  font-size: var(--text-17);
   color: var(--color-ink);
+}
+
+.search-box__input::placeholder {
+  color: #9c958d;
 }
 
 .search-box__input::-webkit-search-cancel-button {
@@ -567,9 +773,7 @@ button {
 }
 
 /* At least 44x44 (the Accessibility Floor's touch-target minimum), even
- * though the glyph itself is small -- the field's own 4px padding plus
- * this button's own size keeps the row from looking oversized while still
- * giving the clear action a full touch target. */
+ * though the glyph itself is small. */
 .search-box__clear {
   flex: none;
   width: 44px;
@@ -592,9 +796,9 @@ button {
   left: 0;
   right: 0;
   background: var(--color-card);
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--color-rule);
   border-radius: var(--radius-md);
-  box-shadow: 0 12px 28px rgba(17, 19, 24, 0.1);
+  box-shadow: 0 12px 28px rgba(28, 25, 23, 0.12);
   z-index: 20;
   max-height: 360px;
   overflow-y: auto;
@@ -616,8 +820,8 @@ button {
   margin: 0;
   padding: 6px var(--space-4);
   font-family: var(--font-label);
-  font-size: var(--text-12);
-  letter-spacing: 0.02em;
+  font-size: var(--text-11);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--color-muted);
 }
@@ -641,7 +845,7 @@ button {
 
 .search-box__suggestion--active,
 .search-box__suggestion:hover {
-  background: var(--color-client-soft);
+  background: var(--color-stellar-soft);
 }
 
 .search-box__suggestion-count {
@@ -651,63 +855,74 @@ button {
 }
 
 /* ---------------------------------------------------------------------
- * Filter rail / sheet -- DESIGN.md's four Discover v2 filter sections
- * (When / Session type / Service price / Deposit).
+ * Filter rail / sheet -- small-caps labels over underlined fields and
+ * quiet checkbox rows, never boxes (the mockup's own `.fgroup`/`.fopt`/
+ * `.frange`).
  * --------------------------------------------------------------------- */
 
 .filter-rail {
   display: none;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 981px) {
   .filter-rail {
     display: block;
-    border-top: 1.5px solid var(--color-line);
-    padding-top: var(--space-4);
   }
 }
 
 .filter-fields {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-6);
 }
 
 .filter-field__heading {
   font-family: var(--font-label);
-  font-size: var(--text-12);
-  letter-spacing: 0.02em;
+  font-size: var(--text-11);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--color-muted);
-  margin: 0 0 var(--space-2);
+  font-weight: 500;
+  margin: 0 0 10px;
 }
 
 .filter-field__radio-group,
 .filter-field__checkbox-group {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 2px;
 }
 
 .filter-field__radio {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 9px;
   min-height: 44px;
-  padding: 8px 12px;
-  border: 1.5px solid var(--color-line);
-  border-radius: var(--radius-md);
-  background: var(--color-card);
-  color: var(--color-ink);
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-body);
   font-size: var(--text-14);
-  font-weight: 600;
+  font-weight: 400;
   text-align: left;
   cursor: pointer;
 }
 
+.filter-field__radio-box {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 2px;
+  display: inline-block;
+}
+
 .filter-field__radio--selected {
+  color: var(--color-ink);
+}
+
+.filter-field__radio--selected .filter-field__radio-box {
   background: var(--color-ink);
-  color: var(--color-escrow-text);
   border-color: var(--color-ink);
 }
 
@@ -718,13 +933,15 @@ button {
   min-height: 44px;
   padding: 4px 0;
   font-size: var(--text-14);
+  color: var(--color-body);
   cursor: pointer;
 }
 
 .filter-field__checkbox input {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   flex: none;
+  accent-color: var(--color-ink);
 }
 
 .filter-field__price-range {
@@ -736,7 +953,7 @@ button {
 .filter-field__deposit-input {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 6px;
   font-size: var(--text-12);
   color: var(--color-muted);
   flex: 1;
@@ -746,31 +963,39 @@ button {
 .filter-field__price-input input,
 .filter-field__deposit-input input {
   width: 100%;
-  min-height: 44px;
-  padding: 8px 10px;
-  border: 1.5px solid var(--color-ink);
-  border-radius: var(--radius-md);
+  min-height: 32px;
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-rule-strong);
+  border-radius: 0;
+  background: transparent;
   font-size: var(--text-14);
   font-family: inherit;
   color: var(--color-ink);
   font-variant-numeric: tabular-nums;
 }
 
+.filter-field__price-input input:focus,
+.filter-field__deposit-input input:focus {
+  outline: none;
+  border-bottom-color: var(--color-ink);
+}
+
 /* ---------------------------------------------------------------------
- * Filter sheet -- the mobile (<1024px) bottom sheet. DESIGN.md: a modal
- * backdrop is {colors.ink} at 55% opacity, nothing blurred.
+ * Filter sheet -- the mobile (<981px) bottom sheet. DESIGN.md: a modal
+ * backdrop is ink at 55% opacity, nothing blurred.
  * --------------------------------------------------------------------- */
 
 .filter-sheet__backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(17, 19, 24, 0.55);
+  background: rgba(28, 25, 23, 0.55);
   z-index: 40;
   display: flex;
   align-items: flex-end;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 981px) {
   .filter-sheet__backdrop {
     display: none;
   }
@@ -780,9 +1005,9 @@ button {
   width: 100%;
   max-height: 85vh;
   overflow-y: auto;
-  background: var(--color-bg);
-  border-top: 1px solid var(--color-line);
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: var(--color-paper);
+  border-top: 1px solid var(--color-rule);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   padding: var(--space-4) var(--space-gutter-mobile) calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
 }
 
@@ -792,14 +1017,16 @@ button {
   justify-content: space-between;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-rule);
 }
 
 .filter-sheet__heading {
   font-family: var(--font-display);
-  font-weight: 600;
-  font-size: var(--text-32);
-  line-height: 1.05;
+  font-weight: 400;
+  font-size: var(--text-27);
   margin: 0;
+  color: var(--color-ink);
 }
 
 /* ---------------------------------------------------------------------
@@ -825,107 +1052,99 @@ button {
 }
 
 /* ---------------------------------------------------------------------
- * Category tabs / rail -- one component, two layouts by breakpoint.
+ * Category nav -- the mockup's own `.cats`/`.cat`: a horizontal,
+ * underline-selected list, always (no left-rail variant -- the mockup
+ * keeps this above the body grid at every width).
  * --------------------------------------------------------------------- */
 
 .category-nav {
   display: flex;
-  flex-direction: row;
-  gap: var(--space-2);
-  overflow-x: auto;
-  padding-bottom: var(--space-2);
-}
-
-@media (min-width: 1024px) {
-  .category-nav {
-    flex-direction: column;
-    overflow-x: visible;
-    padding-bottom: 0;
-    position: sticky;
-    top: var(--space-6);
-  }
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  padding: var(--space-6) 0 0;
+  margin: 0;
 }
 
 .category-tab {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
   min-height: 44px;
-  padding: 10px 16px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--color-line);
-  background: var(--color-card);
-  color: var(--color-ink);
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-body);
   font-size: var(--text-14);
-  font-weight: 600;
+  font-weight: 400;
   white-space: nowrap;
   cursor: pointer;
-}
-
-@media (min-width: 1024px) {
-  .category-tab {
-    justify-content: space-between;
-    width: 100%;
-    border-radius: var(--radius-md);
-  }
+  box-shadow: inset 0 -1px 0 transparent;
 }
 
 .category-tab--selected {
-  background: var(--color-ink);
-  color: var(--color-escrow-text);
-  border-color: var(--color-ink);
+  color: var(--color-ink);
+  box-shadow: inset 0 -2px 0 var(--color-stellar);
 }
 
 .category-tab__count {
-  opacity: 0.65;
-  font-weight: 500;
+  margin-left: 7px;
+  font-size: var(--text-11);
+  color: var(--color-muted);
+  font-weight: 400;
 }
 
 /* ---------------------------------------------------------------------
- * Provider card grid and card -- DESIGN.md Components: card-provider.
+ * Provider row and price rail -- DESIGN.md Components: card-provider,
+ * ported as the mockup's own `.row`: an editorial list row separated by
+ * hairlines, not a stacked card. Three columns -- photo/monogram, body,
+ * a right-hand price rail -- collapsing to two below 820px, with the rail
+ * spanning the full row underneath.
  * --------------------------------------------------------------------- */
 
-/* Discover v2's own `.list`: a single column of full-width cards at every
- * width, so the card's own three columns get the room the mockup gives
- * them -- a two-column grid here was squeezing the body column until its
- * text wrapped after two or three words. */
 .provider-grid {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: 0;
 }
 
-/* Discover v2's own `.card`: a three-column grid -- photo/monogram, body,
- * a right-hand price rail -- with the deposit pill and slots as a footer
- * row spanning the body and price columns. Below 480px the price rail
- * drops beneath the body instead of squeezing into a third column. */
 .provider-card {
   position: relative;
-  background: var(--color-card);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-xl);
-  padding: var(--space-card-pad);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--color-rule);
+  border-radius: 0;
+  padding: var(--space-7) 0;
   display: grid;
-  grid-template-columns: 88px 1fr auto;
-  column-gap: var(--space-4);
+  grid-template-columns: 132px 1fr 190px;
+  column-gap: var(--space-6);
   row-gap: var(--space-2);
   align-items: start;
 }
 
-@media (max-width: 480px) {
+.provider-grid .provider-card:first-child {
+  padding-top: var(--space-4);
+}
+
+@media (max-width: 820px) {
   .provider-card {
-    grid-template-columns: 76px 1fr;
+    grid-template-columns: 96px 1fr;
+    column-gap: var(--space-5);
   }
 
   .provider-card__price-rail {
     grid-column: 1 / -1;
     text-align: left;
   }
+
+  .deposit-row {
+    border-top: 0;
+    padding-top: 0;
+    margin-top: var(--space-2);
+  }
 }
 
-/* The stretched link: painted first, covers the whole card, carries the
- * card's own navigation and its own visible focus ring. Interactive
+/* The stretched link: painted first, covers the whole row, carries the
+ * row's own navigation and its own visible focus ring. Interactive
  * children below (the slot chips) are lifted above it with
  * `position: relative` so they keep their own click target instead of
  * triggering this link too -- see `ProviderCard.tsx`'s own top comment. */
@@ -936,108 +1155,71 @@ button {
   border-radius: inherit;
 }
 
+/* No photo field exists (there is no photo, only a monogram) -- an ink
+ * tile with the initials in paper, at the mockup's own `.shot` aspect
+ * ratio and radius. */
 .provider-card__monogram {
   position: relative;
-  flex: none;
-  width: 76px;
-  height: 96px;
-  border-radius: var(--radius-md);
-  background: var(--color-pro);
-  color: var(--color-pro-text);
+  aspect-ratio: 4 / 5;
+  width: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--color-ink);
+  color: var(--color-paper);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .provider-card__initials {
-  font-family: var(--font-body);
-  font-weight: 700;
-  font-size: var(--text-32);
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: var(--text-30);
   line-height: 1;
-}
-
-.provider-card__approved-badge {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  font-size: 10px;
-  padding: 2px 6px;
 }
 
 .provider-card__body {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 6px;
 }
 
 .provider-card__name {
-  font-family: var(--font-body);
-  font-weight: 700;
-  font-size: var(--text-18);
-  line-height: 1.25;
-  letter-spacing: -0.01em;
-  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--color-ink);
+  font-size: var(--text-27);
+  line-height: 1.14;
+  letter-spacing: -0.005em;
+  margin: 0 0 6px;
 }
 
 .provider-card__meta {
-  font-size: var(--text-14);
+  font-size: var(--text-13);
   color: var(--color-muted);
-  margin: 0;
+  margin: 0 0 var(--space-2);
 }
 
-.provider-card__badges {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
+.provider-card__meta b {
+  font-weight: 500;
+  color: var(--color-body);
 }
 
-/* Discover v2's own `.stats` row: plain inline text, not a pill -- the
- * verified-session count reads as one quiet line next to the rest of the
- * meta, the same way the cancellation count beside it does. */
-.provider-card__verified {
-  font-size: var(--text-12);
-  color: var(--color-muted);
-}
-
-/* The provider's own cancellation count: one fact among the others, never
- * an alarm (DESIGN.md Components) -- plain faint text, no badge ground, no
- * alert colour. */
-.provider-card__cancellations {
-  font-size: var(--text-12);
-  color: var(--color-muted);
-}
-
-.provider-card__location {
-  font-size: var(--text-14);
-  color: var(--color-muted);
-  margin: 0;
-}
-
-/* The right-hand rail (Discover v2's own `.price` column) -- the third
- * grid track, holding just the price. */
+/* The right-hand rail (the mockup's own `.rail`) -- the third grid track,
+ * holding the price and, beneath it, the deposit row. */
 .provider-card__price-rail {
+  position: relative;
+  z-index: 1;
   text-align: right;
   min-width: 96px;
 }
 
 .provider-card__price {
-  font-family: var(--font-body);
-  font-weight: 700;
-  font-size: var(--text-24);
-  line-height: 1.2;
-  letter-spacing: -0.01em;
-}
-
-/* The footer row (Discover v2's own `.dep` + `.row`, both `grid-column: 2
- * / -1`) -- the deposit pill and the earliest slots, spanning the body and
- * price columns beneath them. */
-.provider-card__footer {
-  grid-column: 2 / -1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--color-ink);
+  font-size: var(--text-30);
+  line-height: 1.1;
 }
 
 .provider-card__slots {
@@ -1046,15 +1228,16 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  margin-top: var(--space-1);
 }
 
 /* ---------------------------------------------------------------------
- * Provider card skeleton -- matches the real card's layout (AC5), honours
+ * Provider card skeleton -- matches the real row's layout (AC5), honours
  * prefers-reduced-motion.
  * --------------------------------------------------------------------- */
 
 .skeleton-block {
-  background: var(--color-line);
+  background: var(--color-rule);
   border-radius: var(--radius-sm);
   animation: skeleton-pulse 1.4s ease-in-out infinite;
 }
@@ -1077,11 +1260,11 @@ button {
 }
 
 .provider-card__monogram--skeleton {
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
 }
 
 .skeleton-block--name {
-  height: 28px;
+  height: 27px;
   width: 60%;
 }
 
@@ -1090,26 +1273,15 @@ button {
   width: 80%;
 }
 
-.skeleton-block--badges {
-  height: 20px;
-  width: 50%;
-}
-
-.skeleton-block--location {
-  height: 14px;
-  width: 40%;
-}
-
 .skeleton-block--price {
   display: inline-block;
-  height: 24px;
+  height: 26px;
   width: 80px;
 }
 
 .skeleton-block--pill {
-  height: 28px;
-  width: 70%;
-  border-radius: var(--radius-full);
+  height: 40px;
+  width: 100%;
 }
 
 .skeleton-block--chip {
@@ -1119,26 +1291,28 @@ button {
 }
 
 /* ---------------------------------------------------------------------
- * Booking & payment (Story 3.4) -- DESIGN.md's three lanes: client (soft
- * client blue), escrow (black), provider (teal ground). >=1024px three
- * columns side by side; below that they stack, reorder (provider on top,
- * client's choices in the middle, escrow pinned to the bottom bar), and
- * the escrow lane is never hidden at any breakpoint.
+ * Booking & payment (Story 3.4) -- the mockup's own `.lanes`: client and
+ * provider share one warm off-white ground (`--color-lane`); identity is
+ * carried by a hairline (the provider side's own left border), never a
+ * second brand colour. Escrow stays black in the centre. >=1000px three
+ * columns side by side (the mockup's own breakpoint); below that they
+ * stack, reorder, and the escrow lane pins to the bottom bar.
  * --------------------------------------------------------------------- */
 
 .booking-page {
-  max-width: 1120px;
+  max-width: 1180px;
 }
 
 .booking-lanes {
   display: grid;
-  grid-template-columns: 1fr 260px 1fr;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-lg);
+  grid-template-columns: 1fr 240px 1fr;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-md);
   overflow: hidden;
+  background: var(--color-card);
 }
 
-@media (max-width: 1023px) {
+@media (max-width: 999px) {
   .booking-lanes {
     grid-template-columns: 1fr;
   }
@@ -1156,76 +1330,91 @@ button {
 }
 
 .booking-lane {
-  padding: var(--space-6);
-}
-
-/* The client's side: Discover v2's soft blue field, keeping the same
- * light-ground/dark-provider rhythm the escrow lane sits between. */
-.booking-lane--client {
-  background: var(--color-client-soft);
+  padding: var(--space-7) var(--space-6);
+  background: var(--color-lane);
   color: var(--color-ink);
 }
 
 .booking-lane--provider {
-  background: var(--color-pro);
-  color: var(--color-pro-text);
+  border-left: 1px solid var(--color-rule);
+}
+
+@media (max-width: 999px) {
+  .booking-lane--provider {
+    border-left: 0;
+    border-top: 1px solid var(--color-rule);
+  }
 }
 
 .booking-lane__heading {
   font-family: var(--font-label);
-  font-size: var(--text-12);
-  letter-spacing: 0.02em;
+  font-size: var(--text-11);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
+  color: var(--color-muted);
+  font-weight: 500;
   margin: 0 0 var(--space-4);
 }
 
 .booking-lane__appointment {
   font-family: var(--font-body);
-  font-weight: 700;
-  font-size: var(--text-24);
-  line-height: 1.2;
-  letter-spacing: -0.01em;
+  font-weight: 600;
+  color: var(--color-ink);
+  font-size: var(--text-18);
+  line-height: 1.25;
   margin: 0;
 }
 
 .booking-lane__meta {
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-14);
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-13);
+  color: var(--color-muted);
 }
 
 .booking-summary {
   margin-top: var(--space-5);
-  border-top: 1.5px solid rgba(22, 54, 201, 0.35);
-  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-rule);
+  padding-top: var(--space-2);
 }
 
 .booking-summary__row {
   display: flex;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(22, 54, 201, 0.2);
+  padding: 9px 0;
+  border-bottom: 1px solid var(--color-rule);
   font-size: var(--text-14);
+  color: var(--color-body);
+}
+
+.booking-summary__row:last-of-type {
+  border-bottom: 0;
+}
+
+.booking-summary__row strong {
+  font-weight: 500;
+  color: var(--color-ink);
 }
 
 .booking-summary-note {
   margin-top: var(--space-4);
-  background: rgba(255, 255, 255, 0.55);
-  border-radius: var(--radius-md);
+  background: var(--color-card);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
   padding: var(--space-4);
-  font-size: 13.5px;
-  line-height: 1.45;
-}
-
-.booking-summary-note--pro {
-  background: rgba(0, 0, 0, 0.18);
+  font-size: var(--text-13);
+  line-height: 1.5;
+  color: var(--color-body);
 }
 
 .booking-summary-note b {
   display: block;
   font-family: var(--font-label);
-  font-size: var(--text-12);
+  font-size: var(--text-11);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   font-weight: 500;
+  color: var(--color-muted);
   margin-bottom: 5px;
 }
 
@@ -1237,22 +1426,26 @@ button {
 }
 
 .payment-method__option {
-  border: 1.5px solid var(--color-client-deep);
-  border-radius: var(--radius-md);
+  background: var(--color-card);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
   padding: var(--space-3);
   font-size: var(--text-14);
-  font-weight: 600;
+  color: var(--color-body);
 }
 
 .payment-method__option--selected {
-  background: var(--color-client-deep);
-  color: var(--color-escrow-text);
+  border-color: var(--color-ink);
+  box-shadow: inset 3px 0 0 var(--color-stellar);
+  color: var(--color-ink);
+  font-weight: 600;
 }
 
 .payment-method__option--disabled {
-  opacity: 0.6;
+  color: var(--color-disabled-text);
   font-weight: 400;
-  border-style: dashed;
+  background: #fbfaf8;
+  cursor: not-allowed;
 }
 
 .escrow-lane {
@@ -1261,66 +1454,78 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-6) var(--space-4);
+  gap: 10px;
+  padding: var(--space-7) var(--space-4);
   text-align: center;
+  border-top: 3px solid var(--color-stellar);
+}
+
+@media (max-width: 999px) {
+  .escrow-lane {
+    border-top: 0;
+    border-bottom: 3px solid var(--color-stellar);
+  }
 }
 
 .escrow-lane__label {
   font-family: var(--font-label);
-  font-size: var(--text-12);
-  letter-spacing: 0.02em;
-  color: #8c8a82;
+  font-size: var(--text-11);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-escrow-muted);
   margin: 0;
 }
 
 .escrow-lane__lock {
-  width: 64px;
-  height: 64px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
-  border: 1.5px solid #3a3a3a;
+  border: 1.5px solid var(--color-escrow-line);
   display: grid;
   place-items: center;
+  color: var(--color-stellar);
 }
 
 .escrow-lane__amount {
-  font-family: var(--font-body);
-  font-weight: 700;
-  font-size: var(--text-48);
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--color-stellar);
+  font-size: var(--text-34);
   line-height: 1;
-  letter-spacing: -0.01em;
   margin: 0;
 }
 
 .escrow-lane__state {
   margin: 0;
   font-size: var(--text-14);
+  color: var(--color-escrow-text);
 }
 
 .escrow-lane__countdown {
   margin: 0;
-  font-size: var(--text-14);
-  color: #a9a7a0;
+  font-size: var(--text-13);
+  color: var(--color-escrow-muted);
 }
 
 .escrow-lane__notice {
   margin: 0;
-  font-size: var(--text-14);
-  color: #a9a7a0;
+  font-size: var(--text-13);
+  color: var(--color-escrow-muted);
+  line-height: 1.5;
   max-width: 220px;
 }
 
 .escrow-lane__notice--alert {
-  color: #f0b39d;
+  color: #e8a487;
 }
 
 .escrow-proof {
   margin: var(--space-3) 0 0;
   font-family: var(--font-label);
-  font-size: 10px;
-  letter-spacing: 0.02em;
-  color: #8c8a82;
-  border-top: 1px solid #2a2a2a;
+  font-size: var(--text-11);
+  letter-spacing: 0.06em;
+  color: var(--color-escrow-muted);
+  border-top: 1px solid var(--color-escrow-line);
   padding-top: var(--space-3);
   width: 100%;
   display: flex;
@@ -1329,7 +1534,7 @@ button {
 }
 
 .escrow-proof a {
-  color: var(--color-escrow-text);
+  color: var(--color-stellar);
   text-decoration: underline;
 }
 
@@ -1343,13 +1548,13 @@ button {
 
 .lock-button-group__hint {
   margin: 0;
-  font-size: var(--text-14);
-  color: #a9a7a0;
+  font-size: var(--text-13);
+  color: var(--color-escrow-muted);
 }
 
 .lock-button-group__retry {
   color: var(--color-escrow-text);
-  border-color: var(--color-escrow-text);
+  border-color: var(--color-escrow-line);
 }
 
 /* Seal -- DESIGN.md's seal-locked, stamped once (never repeated). The
@@ -1364,13 +1569,13 @@ button {
 }
 
 .seal {
-  width: 76px;
-  height: 76px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
-  border: 2px solid var(--color-escrow-text);
+  border: 2px solid var(--color-stellar);
   display: grid;
   place-items: center;
-  color: var(--color-escrow-text);
+  color: var(--color-stellar);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -1407,7 +1612,8 @@ button {
 
 .seal-wrap__title {
   font-family: var(--font-display);
-  font-weight: 600;
+  font-weight: 400;
+  color: var(--color-escrow-text);
   font-size: var(--text-32);
   line-height: 1.1;
   margin: 0;
@@ -1415,8 +1621,8 @@ button {
 
 .seal-wrap__subtitle {
   margin: 0;
-  font-size: 13.5px;
-  color: #a9a7a0;
+  font-size: var(--text-13);
+  color: var(--color-escrow-muted);
   max-width: 220px;
 }
 
@@ -1428,24 +1634,27 @@ button {
 .state-label {
   display: inline-flex;
   align-items: center;
-  border-radius: var(--radius-full);
-  font-size: var(--text-12);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-11);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   font-weight: 600;
-  padding: 4px 10px;
-  border: 1px solid var(--color-line);
-  background: var(--color-bg);
-  color: var(--color-ink);
+  padding: 4px 8px;
+  border: 1px solid var(--color-rule-strong);
+  background: var(--color-card);
+  color: var(--color-body);
   white-space: nowrap;
 }
 
-/* A generic success outcome (released/resolved) -- not owned by either
- * side, so it takes the new success green rather than the provider's own
- * teal (DESIGN.md's Colors: "no other new colours" -- success is one of
- * the few Discover v2 introduces). */
+/* A generic success outcome (released/resolved) -- read in gold ink with a
+ * Stellar-yellow rule beneath it, rather than inventing a colour the
+ * editorial palette does not have (DESIGN.md Colors: the yellow's rules
+ * again -- a mark and a rule, never a fill, never text on paper alone
+ * without an ink/gold-ink element carrying the same meaning). */
 .state-label--positive {
-  background: var(--color-card);
-  color: var(--color-success);
-  border-color: var(--color-success);
+  color: var(--color-gold-ink);
+  border-color: var(--color-gold-ink);
+  box-shadow: inset 0 -2px 0 var(--color-stellar);
 }
 
 .state-label--alert {
@@ -1473,9 +1682,9 @@ button {
 
 .booking-card {
   background: var(--color-card);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-xl);
-  padding: var(--space-card-pad);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -1490,11 +1699,11 @@ button {
 
 .booking-card__heading {
   margin: 0;
-  font-family: var(--font-body);
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--color-ink);
   font-size: var(--text-18);
   line-height: 1.25;
-  letter-spacing: -0.01em;
 }
 
 .booking-card__subheading {
@@ -1506,6 +1715,7 @@ button {
 .booking-card__appointment {
   margin: 0;
   font-weight: 600;
+  color: var(--color-ink);
 }
 
 .booking-card__amounts {
@@ -1519,6 +1729,7 @@ button {
   display: flex;
   justify-content: space-between;
   gap: var(--space-3);
+  font-size: var(--text-14);
 }
 
 .booking-card__amount-row dt {
@@ -1529,13 +1740,15 @@ button {
 .booking-card__amount-row dd {
   margin: 0;
   font-weight: 600;
+  color: var(--color-ink);
 }
 
 .booking-card__explorer-link {
   font-family: var(--font-label);
-  font-size: var(--text-12);
-  letter-spacing: 0.02em;
+  font-size: var(--text-11);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  color: var(--color-body);
   align-self: flex-start;
 }
 
@@ -1551,8 +1764,8 @@ button {
 }
 
 .booking-card__dispute-panel {
-  border: 1.5px dashed var(--color-line);
-  border-radius: var(--radius-md);
+  border: 1px dashed var(--color-rule-strong);
+  border-radius: var(--radius-sm);
   padding: var(--space-3);
   display: flex;
   flex-direction: column;
@@ -1566,6 +1779,7 @@ button {
 .booking-card__notice {
   margin: 0;
   font-size: var(--text-14);
+  color: var(--color-body);
 }
 
 .booking-card__notice--alert {
@@ -1573,9 +1787,7 @@ button {
 }
 
 /** Story 3.7: "Pay balance" plus the local-currency-unavailable sentence
- * that always sits next to it (mirrors `.payment-method__option--disabled`'s
- * own wording on the booking page, per PRD 3.4 AC4's own gap, carried
- * through to this story's own balance path). */
+ * that always sits next to it. */
 .booking-card__balance-actions {
   display: flex;
   flex-direction: column;
@@ -1585,13 +1797,13 @@ button {
 .booking-card__balance-note {
   margin: 0;
   font-size: var(--text-12);
-  opacity: 0.6;
+  color: var(--color-muted);
 }
 
 .expired-holds {
   margin-top: var(--space-6);
-  border: 1.5px dashed var(--color-line);
-  border-radius: var(--radius-lg);
+  border: 1px dashed var(--color-rule-strong);
+  border-radius: var(--radius-md);
   padding: var(--space-4);
 }
 
@@ -1632,8 +1844,8 @@ button {
   width: 100%;
   border-collapse: collapse;
   background: var(--color-card);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
@@ -1641,15 +1853,16 @@ button {
 .bookings-table td {
   text-align: left;
   padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-line);
+  border-bottom: 1px solid var(--color-rule);
   font-size: var(--text-14);
+  color: var(--color-body);
 }
 
 .bookings-table th {
   font-family: var(--font-label);
-  font-size: var(--text-12);
+  font-size: var(--text-11);
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.1em;
   color: var(--color-muted);
   font-weight: 500;
 }

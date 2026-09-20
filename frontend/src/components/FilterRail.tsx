@@ -165,6 +165,7 @@ export function FilterFields({
               className={`filter-field__radio${availability === option.value ? " filter-field__radio--selected" : ""}`}
               onClick={() => onAvailabilityChange(option.value)}
             >
+              <span className="filter-field__radio-box" aria-hidden="true" />
               {option.label}
             </button>
           ))}

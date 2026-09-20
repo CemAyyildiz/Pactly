@@ -31,23 +31,22 @@ function initialsFor(displayName: string): string {
   return initials || trimmed.slice(0, 1).toUpperCase();
 }
 
-/** DESIGN.md's `card-provider`, per Story 3.2's own card content order:
- * monogram + APPROVED badge, name, title/format/length, badge row
- * (verified sessions + the plainly-stated cancellation count), location,
- * price, deposit pill, up to three earliest slots.
+/** DESIGN.md's `card-provider`, ported in Story 3.10 as
+ * `editorial-v1.html`'s own `.row`: an editorial list row separated by a
+ * hairline, not a stacked card. Three columns -- photo/monogram, body, a
+ * right-hand price rail -- with the "Approved" mark, name, meta line
+ * (title, format, length, location, verified sessions and the plainly-
+ * stated cancellation count) and the earliest open slots all living in the
+ * body column, and the price plus the deposit row living in the rail
+ * (`styles/base.css`'s own `.provider-card` grid).
  *
- * Story 3.9: the card is Discover v2's own three-column grid -- the
- * monogram, the body, and a right-hand price rail -- with the deposit pill
- * and slots as a footer row spanning the body and price columns beneath
- * them (`styles/base.css`'s own `.provider-card` grid).
- *
- * The whole card links to `/providers/:id` through a "stretched link" --
+ * The whole row links to `/providers/:id` through a "stretched link" --
  * an absolutely-positioned, otherwise empty `<a>` painted first, so the
  * slot chips (real `<button>`s painted after it, lifted with
  * `position: relative`) sit visually and for hit-testing above it and
- * never also trigger the card's own navigation. This avoids ever nesting a
+ * never also trigger the row's own navigation. This avoids ever nesting a
  * `<button>` inside an `<a>` (invalid HTML) while still making the whole
- * card a single, keyboard-reachable link with one visible focus ring. */
+ * row a single, keyboard-reachable link with one visible focus ring. */
 export function ProviderCard({ provider }: ProviderCardProps) {
   const navigate = useNavigate();
   const initials = initialsFor(provider.displayName);
@@ -57,39 +56,26 @@ export function ProviderCard({ provider }: ProviderCardProps) {
       <Link to={`/providers/${provider.id}`} className="provider-card__link" aria-label={`View ${provider.displayName}`} />
 
       <div className="provider-card__monogram" aria-hidden="true">
-        <span className="badge badge--approved provider-card__approved-badge">Approved</span>
         <span className="provider-card__initials">{initials}</span>
       </div>
 
       <div className="provider-card__body">
+        {/* Discover only ever lists approved providers (EXPERIENCE.md: "An
+         * admin approves; the profile appears on the marketplace") -- this
+         * mark is unconditional here, matching every row of the mockup's
+         * own list. */}
+        <p className="approved-mark">
+          <span className="approved-mark__dot" aria-hidden="true" />
+          Approved provider
+        </p>
         <h3 className="provider-card__name">{provider.displayName}</h3>
         <p className="provider-card__meta">
-          {provider.title} · {formatSessionFormat(provider.sessionFormat)} · {provider.sessionLengthMinutes} min
-        </p>
-
-        <div className="provider-card__badges">
-          {/* Discover v2's own `.stats` row keeps this as plain inline
-           * text next to the rest of the meta, not a pill -- the pill
-           * shape stays reserved for the "Approved" overlay badge. */}
-          <span className="provider-card__verified">{provider.verifiedSessionCount} verified sessions</span>
+          {provider.title} · {formatSessionFormat(provider.sessionFormat)} · {provider.sessionLengthMinutes} min ·{" "}
+          {provider.location} · {provider.verifiedSessionCount} verified sessions ·{" "}
           {/* Stated plainly, never styled as an alarm (DESIGN.md Components:
            * "it never takes the louder colour or the larger type"). */}
-          <span className="provider-card__cancellations">{provider.providerCancellationCount} cancellations</span>
-        </div>
-
-        <p className="provider-card__location">{provider.location}</p>
-      </div>
-
-      <div className="provider-card__price-rail">
-        <div className="provider-card__price tabular-nums">{formatMoney(provider.price.amount, provider.price.asset)}</div>
-      </div>
-
-      <div className="provider-card__footer">
-        <DepositPill
-          amount={provider.deposit.amount}
-          asset={provider.deposit.asset}
-          cancellationWindowHours={provider.cancellationWindowHours}
-        />
+          {provider.providerCancellationCount} cancellations
+        </p>
 
         {provider.earliestSlots.length > 0 && (
           <div className="provider-card__slots">
@@ -103,6 +89,16 @@ export function ProviderCard({ provider }: ProviderCardProps) {
             ))}
           </div>
         )}
+      </div>
+
+      <div className="provider-card__price-rail">
+        <div className="provider-card__price tabular-nums">{formatMoney(provider.price.amount, provider.price.asset)}</div>
+        <DepositPill
+          variant="row"
+          amount={provider.deposit.amount}
+          asset={provider.deposit.asset}
+          cancellationWindowHours={provider.cancellationWindowHours}
+        />
       </div>
     </article>
   );

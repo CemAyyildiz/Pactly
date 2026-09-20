@@ -1,66 +1,51 @@
 ---
 name: Pactly
-description: A trust-backed booking marketplace for appointment-based services — the "Two Sides" visual system, realigned on Discover v2
+description: A trust-backed booking marketplace for appointment-based services — the editorial direction, with Stellar's own yellow as the single accent
 status: final
 updated: 2026-09-20
 sources:
   - "../../prd.md"
 colors:
-  bg: '#F4F5F7'
+  paper: '#FAFAF9'
   card: '#FFFFFF'
-  ink: '#111318'
-  muted: '#5C6370'
-  line: '#E3E5EA'
-  client: '#1F4BFF'
-  client-deep: '#1636C9'
-  client-soft: '#E8EDFF'
-  success: '#1A7A4C'
-  pro: '#164E4A'
-  pro-text: '#D8ECE8'
-  pro-soft: '#DCEAE7'
-  escrow: '#111318'
-  escrow-text: '#F4F5F7'
-  alert: '#B4462A'
-  alert-soft: '#F5E0D9'
-  focus: '#1F3BE0'
+  ink: '#1C1917'
+  body: '#3B3733'
+  muted: '#6F6862'
+  rule: '#E3DED6'
+  rule-strong: '#CFC8BE'
+  stellar: '#FDDA24'
+  stellar-soft: '#FFF6D1'
+  gold-ink: '#8A6410'
+  escrow: '#14110F'
+  escrow-text: '#F5F1EA'
+  alert: '#9A3412'
 typography:
   display:
-    fontFamily: "'Newsreader', Georgia, 'Times New Roman', serif"
-    fontWeight: 600
-    lineHeight: '1.05'
-    letterSpacing: '-0.01em'
-    note: 'Display numbers and page titles only -- a list item''s own inline heading (a provider card, a booking card) is body weight, not display.'
-  heading:
-    fontFamily: "'Instrument Sans', system-ui, sans-serif"
-    fontWeight: 700
-    lineHeight: '1.2'
-  body:
-    fontFamily: "'Instrument Sans', system-ui, sans-serif"
-    fontSize: '16px'
+    fontFamily: "'Libre Bodoni', Georgia, serif"
     fontWeight: 400
-    lineHeight: '1.5'
-  small:
-    fontFamily: "'Instrument Sans', system-ui, sans-serif"
-    fontSize: '14px'
-    lineHeight: '1.45'
+    note: 'Names, page-level headings, the wordmark, prices, the escrow amount, "You are set." -- nothing else. Weight stays 400/500; the mockup never bolds it.'
+  body:
+    fontFamily: "'Public Sans', system-ui, sans-serif"
+    fontSize: '15px'
+    fontWeight: 400
+    lineHeight: '1.6'
   label:
-    fontFamily: "'Instrument Sans', system-ui, sans-serif"
-    fontSize: '12px'
-    fontWeight: 600
-    letterSpacing: '0.02em'
-    note: 'Uppercase eyebrow labels, step numbers, badge text -- no longer a monospace family.'
+    fontFamily: "'Public Sans', system-ui, sans-serif"
+    fontSize: '11px'
+    fontWeight: 500
+    letterSpacing: '0.14em'
+    note: 'Uppercase eyebrow labels: section labels, lane headings, field labels, the approved mark. No monospace family.'
   numeric:
-    fontFamily: "'Instrument Sans', system-ui, sans-serif"
-    fontWeight: 700
-    note: 'font-variant-numeric: tabular-nums — every money and time value. Bold body weight, not the display family (money in a card or a lane is a number, not a title).'
+    note: 'font-variant-numeric: tabular-nums on every money and time value. Serif where the number itself is the headline (a price, the escrow amount); Public Sans everywhere else (a summary row, a table cell).'
   scale:
-    note: '12 · 14 · 16 · 18 · 24 · 32 · 48 — no values in between'
+    note: 'Editorial, not a fixed step scale: 11 · 12 · 13 · 14 · 15 · 16 · 17 · 18 · 23 · 24 · 27 · 30 · 32 · 34 · 38 · 44 · 48 · 56 -- every size `editorial-v1.html` actually renders, named in `tokens.css`, nothing invented past it.'
 rounded:
-  sm: '6px'
-  DEFAULT: '10px'
-  md: '10px'
-  lg: '12px'
-  xl: '14px'
+  hairline: '2px'
+  sm: '2px'
+  DEFAULT: '3px'
+  md: '3px'
+  lg: '3px'
+  xl: '3px'
   full: '9999px'
 spacing:
   '1': '4px'
@@ -69,194 +54,177 @@ spacing:
   '4': '16px'
   '5': '20px'
   '6': '24px'
+  '7': '28px'
   '8': '32px'
+  '9': '36px'
   '10': '40px'
-  gutter: '24px'
-  gutter-mobile: '16px'
+  '14': '56px'
+  gutter: '32px'
+  gutter-mobile: '20px'
   card-pad: '14px'
 components:
   button-primary:
-    background: '{colors.client}'
-    color: '{colors.escrow-text}'
-    border: 'none'
-    radius: '{rounded.md}'
-    padding: '14px 20px'
-    fontSize: '16px'
-    fontWeight: 600
-  button-escrow:
-    background: '{colors.escrow}'
-    color: '{colors.escrow-text}'
-    radius: '{rounded.md}'
-    padding: '16px 24px'
-    note: 'The Lock with Pactly button — the only button that commits money'
-  button-ghost:
     background: 'transparent'
     color: '{colors.ink}'
     border: '1.5px solid {colors.ink}'
-    radius: '{rounded.md}'
-  card-provider:
-    background: '{colors.card}'
-    border: '1px solid {colors.line}'
-    radius: '{rounded.xl}'
-    padding: '{spacing.card-pad}'
-    note: 'A three-column grid: photo/monogram, body, a right-hand price rail. The deposit pill and slots form a footer row spanning the body and price columns.'
-  badge-verified:
-    background: '{colors.pro-soft}'
-    color: '#0F3D3A'
-    border: '1px solid #B8D5CF'
-    radius: '{rounded.full}'
-    fontSize: '12px'
-  chip-slot:
-    background: '{colors.client}'
-    color: '{colors.escrow-text}'
-    border: '1.5px solid {colors.client-deep}'
     radius: '{rounded.sm}'
-    fontSize: '13px'
-  chip-slot-taken:
+    note: 'Carries a 3px Stellar-yellow rule along its own bottom edge (inset box-shadow), never a fill. This -- not black -- is every non-money call to action: sign in, hold a slot, continue, save, approve, release, pay the balance.'
+  button-ghost:
     background: 'transparent'
-    color: '{colors.muted}'
-    border: '1.5px dashed {colors.line}'
-  pill-deposit:
+    color: '{colors.body}'
+    border: '1px solid {colors.rule-strong}'
+    radius: '{rounded.sm}'
+    note: 'Secondary/dismissive actions: cancel, sign out, try again, open a dispute.'
+  button-escrow:
     background: '{colors.escrow}'
-    color: '{colors.escrow-text}'
-    radius: '{rounded.full}'
-    fontSize: '12.5px'
-    note: 'Deposit amount + free-cancellation window. Opens with a client-blue dot.'
+    color: '{colors.stellar}'
+    radius: '{rounded.sm}'
+    note: 'The Lock with Pactly button -- the only black button in the product, and the only place the yellow ever carries a word.'
+  provider-row:
+    note: 'An editorial list row (not a card): a 132x165px ink monogram tile, a body column, a right-hand price rail, separated from the next row by a single hairline. No card background, no border, no radius, no shadow.'
+  approved-mark:
+    color: '{colors.gold-ink}'
+    note: 'A dot (Stellar yellow) plus small-caps text -- "Approved provider · N verified sessions" -- never a pill. The one place gold ink carries the word "Approved" as text.'
+  chip-slot:
+    background: 'transparent'
+    color: '{colors.ink}'
+    border: '1px solid {colors.rule-strong}'
+    radius: '{rounded.sm}'
+    note: 'A quiet, neutral chip. Selected inverts to ink-on-paper; hover marks a 3px Stellar-yellow rule along the bottom edge.'
+  deposit-pill:
+    background: '{colors.escrow}'
+    color: '{colors.stellar}'
+    radius: '{rounded.sm}'
+    note: 'The provider profile aside and the booking lane: a black block, the amount itself in Stellar yellow (allowed -- it is on escrow black), the free-cancellation window beneath it in a muted on-black tone.'
+  deposit-row:
+    color: '{colors.ink}'
+    note: 'The list row''s own plain in-row presentation: no black block inside a hairline-separated row. The bold amount carries a soft Stellar-yellow highlight behind it instead (inset box-shadow), the caption beneath it in muted ink.'
   band-escrow:
     background: '{colors.escrow}'
     color: '{colors.escrow-text}'
-    note: 'The middle column of the booking screen — the escrow lane'
+    note: 'The black column between the two booking lanes (or, below 1000px, the bar pinned to the bottom), topped with a 3px Stellar-yellow rule. The amount itself renders in the display serif, in Stellar yellow.'
   seal-locked:
-    color: '{colors.escrow}'
-    note: 'The circular seal stamped on confirmation. Used nowhere else.'
+    color: '{colors.stellar}'
+    note: 'The circular ring stamped on confirmation, on the escrow black. Used at that moment only.'
 ---
 
-# Pactly — Visual System (Two Sides, realigned on Discover v2)
+# Pactly — Visual System (the editorial direction)
 
 > Source: `../../prd.md`. Behaviour and flows live in `EXPERIENCE.md`. Where a mockup disagrees with these two documents, the documents win.
 >
-> **Story 3.9 note:** the visual language below was repainted onto Discover v2's own palette and type (`mockups/discover-v2-marketplace.html`) after the product owner confirmed that mockup, not the "Two Sides" mockup, is the product's real reference. `mockups/booking-and-payment.html` shows the now-superseded stone/mustard/teal palette from before this change -- its layout and composition (the three-lane booking screen, the escrow lane in the middle) still stand; only its colours and type are out of date. The "Two Sides" *structure* -- three zones, three meanings -- is unchanged: only the client's colour and the two neutral families moved.
+> **Story 3.10 note:** the owner rejected the built interface twice -- first the "Two Sides" palette (Stories 3.1-3.8), then its Discover v2 repaint (Story 3.9). The direction they accepted is the editorial one in `mockups/editorial-v1.html`: warm paper, near-black ink, Libre Bodoni over Public Sans, hairline rules, generous whitespace, and Stellar's own yellow (`#FDDA24`) as the single accent. Both earlier mockups' *palettes* are superseded by this document; where their *compositions* still inform a layout this document doesn't re-derive from scratch (the three-lane booking screen, the escrow lane in the middle, a filter rail beside the results), that structure still stands -- only its colours and type changed, again.
 
 ## Brand & Style
 
-Pactly is a product about a **promise**. A booking is a promise two people make to each other, and the deposit is what that promise is worth. The whole visual system grows out of that idea, and it takes its name from it: **Two Sides**.
+Pactly is a product about a **promise**. A booking is a promise two people make to each other, and the deposit is what that promise is worth. The editorial direction reads like the record of that promise: warm paper, ink, a serif for names and numbers, hairline rules dividing one fact from the next -- closer to a considered publication than a dashboard.
 
-At the core of the system is a colour rule. Every screen has three zones, and the viewer knows which one they are in by its colour:
+There is no colour system dividing the client's side from the provider's any more. Identity is carried by **type and rule**, not a second brand colour: a serif name, a small-caps label, a hairline border. The one colour with meaning is **the escrow black** -- the deposit, the contract and the chain records live there, and it belongs to no one. Everywhere else, ink is the only colour text is set in.
 
-- **Client blue** is the client's side. Everything they choose, tap and decide.
-- **Deep teal** is the provider's side. Their identity, their approval, their commitment.
-- **Black** is the escrow. It belongs to no one. The deposit, the contract and the chain records live here.
+**Stellar's own yellow (`#FDDA24`) is the single accent**, and it is disciplined on purpose -- a colour used everywhere stops meaning anything:
 
-This is a legible rule, not decoration. The colour of an element tells you whose it is.
+- It never sits as a text colour on paper or white; it fails contrast there. A word that must read gold uses `{colors.gold-ink}` instead.
+- It may carry a word only on the escrow black (the deposit amount, "Lock with Pactly"'s own label).
+- Otherwise it only ever appears as a mark (a small dot beside "Approved provider"), an underline (a selected category tab, a selected payment method), a soft highlight behind a number (a deposit amount in a list row), or a 3px rule (a button's own bottom edge, the escrow lane's own top edge).
+- It is never a large fill. Wherever it appears, an ink or gold-ink element carries the same meaning beside it, so nothing depends on the yellow alone (the Accessibility Floor's own "never colour alone" rule, extended to the accent itself).
 
-The tone is plainspoken and quietly confident. Depth is now built with a cool grey ground, white cards, thin 1px lines, and a soft shadow reserved for layers that float above the page (a suggestions dropdown, a modal) -- never a hard block or a shadow on permanent content. The product handles serious money but does not sound like a bank: it says "You're set." rather than "Your transaction has been completed successfully."
+The tone stays plainspoken and quietly confident. Depth comes from a hairline rule and a warm paper/card contrast, never a shadow on anything permanent -- a shadow is reserved for a layer that floats above the page (the search suggestions dropdown), exactly as before.
 
 ## Colors
 
 | Token | Value | Role |
 |---|---|---|
-| `{colors.bg}` | #F4F5F7 | Page background |
+| `{colors.paper}` | #FAFAF9 | Page background |
 | `{colors.card}` | #FFFFFF | Card and panel surface |
-| `{colors.ink}` | #111318 | Text, headline borders, escrow zone |
-| `{colors.muted}` | #5C6370 | Secondary text |
-| `{colors.line}` | #E3E5EA | The default 1px border for cards, tables and dividers |
-| `{colors.client}` | #1F4BFF | The client's side: primary buttons, filled chips, the deposit-pill dot |
-| `{colors.client-deep}` | #1636C9 | Selected/inverted client-blue states, and text on `{colors.client-soft}` |
-| `{colors.client-soft}` | #E8EDFF | The client lane's own ground, and hover/active tints |
-| `{colors.success}` | #1A7A4C | A generic success outcome (released, resolved) that belongs to neither side |
-| `{colors.pro}` | #164E4A | The provider's side: identity, approval, provider panel -- unchanged by this realignment |
-| `{colors.pro-soft}` | #DCEAE7 | Verified-session badge ground -- unchanged |
-| `{colors.alert}` | #B4462A | Warning about an irreversible outcome -- unchanged |
-| `{colors.focus}` | #1F3BE0 | Keyboard focus ring — used nowhere else |
+| `{colors.ink}` | #1C1917 | Headlines, names, the one text colour, rule-based identity |
+| `{colors.body}` | #3B3733 | Body copy |
+| `{colors.muted}` | #6F6862 | Secondary text, captions, eyebrow labels |
+| `{colors.rule}` | #E3DED6 | The default 1px hairline: row dividers, card borders |
+| `{colors.rule-strong}` | #CFC8BE | A heavier hairline: underlined inputs, unselected chip borders |
+| `{colors.stellar}` | #FDDA24 | The single accent -- see "Brand & Style" for its own rules |
+| `{colors.stellar-soft}` | #FFF6D1 | A soft highlight behind a number, or a halo behind the escrow dot |
+| `{colors.gold-ink}` | #8A6410 | The darkened tone used whenever a word itself must read gold |
+| `{colors.escrow}` | #14110F | The escrow zone: the escrow lane, the deposit pill, the Lock with Pactly button |
+| `{colors.escrow-text}` | #F5F1EA | Text and icons on the escrow black |
+| `{colors.alert}` | #9A3412 | A warning about an irreversible outcome |
 
-**Client blue appears only where the client acts.** A taken slot cannot be blue; a success message cannot be blue. If the client can tap it, it is blue -- this is the same rule the old mustard obeyed, repainted.
+**Black is the money colour**, not a second identity colour. A surface painted the escrow black holds money or contract truth -- the escrow lane, the deposit pill, the Lock with Pactly button -- and nothing else may be black. `button-primary` and `button-ghost` never use it, on hover or otherwise; a primary action's own weight comes from the ink border and the Stellar-yellow rule beneath it, never from a fill that could be mistaken for the money colour.
 
-**Deep teal is never interactive.** It says who the provider is and what they commit to. When the provider is in their own panel, teal is the ground of their side -- the action colour there is still client blue. Teal's own values (`{colors.pro}` / `{colors.pro-text}` / `{colors.pro-soft}`) did not change in this realignment.
-
-**Black is both the text colour and the escrow colour.** A surface painted black holds money or contract truth: the escrow lane, the deposit pill, the lock button, transaction records. It remains the *only* black button in the product.
-
-**Success is new and rare.** It marks a generic released/resolved outcome that belongs to neither side -- it is not a substitute for the provider's teal (which stays an identity colour, never a status colour) and not a substitute for mustard's old "action" role (client actions are blue).
-
-**Terracotta is rare.** It marks an irreversible outcome only: the end of the free-cancellation window, the transfer of a deposit to the provider, a past appointment. It is not the error colour; errors are built on `{colors.ink}` with an `{colors.alert}` border.
-
-**Contrast:** `{colors.escrow-text}` on `{colors.client}` and on `{colors.client-deep}`, and `{colors.ink}` on `{colors.client-soft}`, all clear 4.5:1. A saturated client-blue fill never carries dark text -- only `{colors.escrow-text}` (near-white) does, the same way the provider's dark teal only ever carries `{colors.pro-text}`.
+**Contrast:** body and muted text on paper or card both clear 4.5:1; gold ink on paper clears it too. Escrow-text on the escrow black clears it by a wide margin. A failing pairing is corrected before it ships, never shipped as "close enough".
 
 ## Typography
 
-Two families now cover every job (down from three):
+Two families cover every job:
 
-- **Newsreader** (`{typography.display}`) — display numbers and page-level titles only: the wordmark, a page's own H1 ("Discover"), a modal's own heading, the "You're set." confirmation. Weight tops out at 600 (Newsreader has no 900) with a loosened line-height near 1.05 -- a serif needs more room than the old grotesque did.
-- **Instrument Sans** (`{typography.body}`) — everything else: reading text, buttons, card content, a list item's own inline heading (a provider card's name, a booking card's heading), and every money or time value. These are bold body weight (700), not the display family -- a number inside a card is data, not a title.
-- **Instrument Sans, uppercase** (`{typography.label}`) — labels, step numbers, badge text. This is no longer a monospace family; Martian Mono is dropped along with Darker Grotesque and Familjen Grotesk.
+- **Libre Bodoni** (`{typography.display}`) — display only: a page's own heading, a provider's name, a price, the escrow amount, the "You're set." confirmation. Weight stays 400-500; this face is never bolded past that.
+- **Public Sans** (`{typography.body}`) — everything else: reading text, buttons, meta lines, form fields, table cells, and every money or time value that is not itself the headline (a summary row's amount, a table cell) uses this at a bold weight with `tabular-nums`.
+- **Public Sans, uppercase** (`{typography.label}`) — eyebrow labels, lane headings, field labels, the approved mark's own text. 11px, `letter-spacing: 0.14em`. No monospace face anywhere.
 
-The scale is fixed: **12 · 14 · 16 · 18 · 24 · 32 · 48**. No values are invented in between.
+The scale is editorial, not a fixed step function: every size `editorial-v1.html` actually renders has a token in `tokens.css` (11 through 56), and nothing is invented past what the mockup shows.
 
-Money and times are always set with `tabular-nums`; digits stacked in a list must align. Amounts carry their currency code and use a period as the decimal separator with comma grouping (`2,000.00 TRY`, `14.35 USDC`), so the same format holds for any currency the anchor supports. Currency symbols are never hard-coded into components.
+Money and times are always set with `tabular-nums`; digits stacked in a list must align. Amounts carry their currency code and use a period as the decimal separator with comma grouping (`2,000.00 TRY`, `14.35 USDC`). Currency symbols are never hard-coded into components.
 
 ## Layout & Spacing
 
 The spacing scale is multiples of 4px. Page margin is `{spacing.gutter}` on desktop, `{spacing.gutter-mobile}` on mobile.
 
-Breakpoints: **375 · 768 · 1024 · 1440**.
+Breakpoints: **375 · 700 · 820 · 981 · 1024 · 1440** (the mockup's own breakpoints, kept exactly where a component ports its own shape from it).
 
-- **Discovery:** above 1024px, a left filter rail (240px, Discover v2's own width) plus a two-column result grid. Below 1024px the filters move into a bottom sheet and results become a single column.
-- **Booking:** above 1024px, three lanes (client · escrow · provider). Below 1024px the lanes stack vertically and **reorder**: provider identity on top, the client's choices in the middle, the escrow pinned to the bottom as a bar. The escrow lane is never hidden at any breakpoint.
+- **Discovery:** a full-width category nav (underline-selected tabs, always horizontal -- no left rail), then a single-column result list beside a narrow (216px) right-hand filter rail from 981px up. Below that the filter rail becomes a bottom sheet and the category nav still sits above the list.
+- **Booking:** three lanes (client · escrow · provider) from 1000px up. Below that the lanes stack and reorder: provider identity on top, the client's choices in the middle, the escrow pinned to the bottom as a bar. The escrow lane is never hidden at any breakpoint.
 - **Provider panel:** desktop-first, table layout. On mobile the table becomes a card list.
 
 ## Elevation & Depth
 
-Separation is built three ways:
+Separation is built two ways now, not three:
 
-1. **A 1px `{colors.line}` border** — the default for cards, tables and list rows. A typing surface (the search box, a text input) keeps a heavier 1.5px `{colors.ink}` border instead, and `button-ghost`'s outline stays 1.5px `{colors.ink}` too.
-2. **A colour field** — a region painted in a side's colour is its own layer (the client lane's soft blue, the provider lane's teal, the escrow lane's black).
-3. **A soft shadow, for transient layers only** — a floating layer above the page (the search suggestions dropdown, a modal) may use a real, softly blurred shadow (Discover v2's own `0 12px 28px rgba(17,19,24,.1)`). Permanent content -- cards, tables, list rows -- never carries a shadow; the old "offset solid block" elevation is retired along with the palette it was tuned for.
+1. **A hairline** — `{colors.rule}` for row dividers and card borders; `{colors.rule-strong}` for an underlined input or an unselected chip. This carries almost everything: the old "colour field marks a zone" rule is gone along with the zones themselves.
+2. **A soft shadow, for transient layers only** — a floating layer above the page (the search suggestions dropdown) may use a real, softly blurred shadow. Permanent content -- rows, cards, tables -- never carries one.
 
 A modal backdrop is `{colors.ink}` at 55% opacity; nothing else is blurred.
 
 ## Shapes
 
-Radii run 10–14px for cards and controls (`{rounded.md}`–`{rounded.xl}`), pill-shaped elements use `{rounded.full}`. Nothing in between.
+Radii run 2–3px almost everywhere -- a deliberate, near-square departure from the rounded-card language of both earlier mockups. `{rounded.full}` remains defined but nothing in the product currently uses it; the pill shape this system once reserved for badges and the deposit pill is retired along with them.
 
-The pill shape is reserved for three things: category tabs, badges and the deposit pill. These carry information rather than being tappable surfaces — category tabs excepted.
-
-The logo is set in Newsreader now, but the system's own miniature mark -- one client-blue half, one teal half, a black line between them that both separates and joins -- is unchanged.
+The logo is set in Libre Bodoni.
 
 ## Components
 
-**Provider card** (`{components.card-provider}`) — Discover v2's own three-column grid: photo/monogram, body, and a right-hand price rail, with the deposit pill and slots forming a footer row that spans the body and price columns beneath them. The 76×96px photo/monogram sits in the left column with a teal "APPROVED" badge at its top left. The body column carries, in order: name (Instrument Sans bold, 18px), title and session length, the badge row, and location. The price rail carries the session price (Instrument Sans bold, 24px). The footer carries the **deposit pill** and the three earliest open slots. The deposit pill is non-negotiable: competing products hide the cancellation policy until checkout; Pactly shows it in the list.
+**Provider row** (`{components.provider-row}`) — the editorial list's own row, not a card: a monogram tile (ink ground, paper initials -- there is no photo field), a body column (the approved mark, the serif name, one meta line combining title, session format, length, location, verified-session count and the plainly-stated cancellation count, and the earliest open slots), and a right-hand rail (the price, then the deposit row beneath it). Separated from the next row by a single hairline; no card background, border, radius or shadow.
 
-**Deposit pill** (`{components.pill-deposit}`) — Black ground, client-blue dot, one line: `600.00 TRY deposit · full refund up to 24h before`. It repeats in the same form on every surface where the deposit appears.
+**Approved mark** (`{components.approved-mark}`) — a small Stellar-yellow dot plus small-caps gold-ink text, never a pill: "Approved provider · N verified sessions". Discover only ever lists approved providers, so this mark is unconditional on every row; the provider header repeats the same mark wherever a provider's identity appears.
 
-**Slot chip** (`{components.chip-slot}`) — An open slot is client blue. A taken slot uses `{components.chip-slot-taken}`: dashed and faded, never struck through, never focusable.
+**Slot chip** (`{components.chip-slot}`) — an open slot is a quiet, bordered chip; picking it inverts it to ink-on-paper. Hovering marks a 3px Stellar-yellow rule along its own bottom edge -- the accent as an interaction cue, never a fill.
 
-**Escrow lane** (`{components.band-escrow}`) — The black column down the middle of the booking screen. It holds the lock icon, the deposit amount and the contract id.
+**Deposit pill / deposit row** (`{components.deposit-pill}` / `{components.deposit-row}`) — the same fact, two presentations. The black pill (provider profile aside, booking lane) carries the amount in Stellar yellow, since it sits on escrow black. The plain deposit row (a list row's own price rail) never puts a black block inside a hairline-separated row -- its bold amount carries a soft Stellar-yellow highlight behind it instead. Both always pair the amount with the free-cancellation window.
 
-**Lock with Pactly button** (`{components.button-escrow}`) — The only black button in the product and the centerpiece of the booking flow. It is used solely for the action that funds the Trustless Work escrow. No other button may be black; otherwise the signal "this button commits money" loses its worth.
+**Escrow lane** (`{components.band-escrow}`) — the black column between the two booking lanes, topped with a 3px Stellar-yellow rule. Holds the lock icon, the deposit amount (display serif, Stellar yellow), the hold countdown, and the escrow proof once locked.
 
-**Escrow proof** — A secondary label under the funded state reads `ESCROW POWERED BY TRUSTLESS WORK ON STELLAR`, followed by the shortened contract or transaction record. It is evidence, never a competing CTA.
+**Lock with Pactly button** (`{components.button-escrow}`) — the only black button in the product, and the only place the accent carries a word: black ground, Stellar-yellow label. No other button may be black, on hover or otherwise; otherwise the signal "this button commits money" loses its worth.
 
-**Seal** (`{components.seal-locked}`) — The circular mark stamped on confirmation, with its "You're set." headline set in the display family. Used at that moment only, never repeated elsewhere.
+**Escrow proof** — a secondary label under the funded state reads "ESCROW POWERED BY TRUSTLESS WORK ON STELLAR", followed by the shortened contract or transaction record, in a muted on-black tone with Stellar-yellow links. Evidence, never a competing CTA.
 
-**Badges** — "Approved provider" (curated acceptance) and "38 verified sessions" (sessions whose deposit was released) belong to the teal family, unchanged by this realignment. Neither can be invented: each exists because something recorded it, on chain or in the admin queue. A generic *released/resolved* status label, which belongs to neither side, uses the new success green instead of teal.
+**Seal** (`{components.seal-locked}`) — the circular ring stamped on confirmation, in Stellar yellow on the escrow black, with its "You're set." headline in the display serif. Used at that moment only.
 
-The provider's own cancellation count sits beside the verified-session badge and is recorded the same way — from the chain, never by hand. It is stated plainly and never styled as an alarm: it is one fact among the others a client weighs, not a verdict, so it never takes the louder colour or the larger type.
+**Booking lanes** — the client and provider lanes share one warm off-white ground (`--color-lane`, `#FCFBF8`); the provider side is marked only by a hairline border, never a second brand colour. Identity here is carried entirely by the serif name and the approved mark.
+
+**State label** — a small bordered tag, text always present regardless of tone. A generic released/resolved outcome reads in gold ink with a Stellar-yellow rule beneath it, rather than inventing a colour the palette does not have.
 
 ## Do's and Don'ts
 
 **Do**
-- Apply the side colours by their rule: client blue for the client's action, teal for the provider's identity, black for escrow.
-- Always show the deposit amount and the free-cancellation window together.
+- Keep the accent disciplined: a mark, an underline, a soft highlight, or a 3px rule -- never a large fill, never text on paper or white.
+- Keep black as the money colour only: the escrow lane, the deposit pill, and the Lock with Pactly button. Nothing else.
+- Carry identity with type and rule (a serif name, a hairline border), never a second brand colour.
 - Use `tabular-nums` for money and time; keep the currency code beside the amount.
-- Use line-based SVG icons (Lucide or equivalent) at 1.5–2px stroke.
-- Keep motion between 150–300 ms and honour `prefers-reduced-motion`.
-- Keep keyboard focus visible at all times with the `{colors.focus}` ring.
+- Keep motion between 150–400 ms and honour `prefers-reduced-motion`.
+- Keep keyboard focus visible at all times, with a visible ink ring.
+- Keep touch targets at least 44×44px even where the mockup's own control is drawn smaller.
 
 **Don't**
-- Use the black button for anything but locking a deposit.
-- Use client blue as an information or success colour; it is an action colour -- a generic success state uses `{colors.success}` instead.
-- Use terracotta decoratively.
-- Add a shadow to permanent content (cards, tables, list rows); shadows are reserved for transient layers.
+- Use the escrow black for any button but Lock with Pactly, ever -- not even on hover.
+- Use the Stellar yellow as a text colour on paper or white.
+- Add a shadow to permanent content (rows, cards, tables); shadows are reserved for transient layers.
 - Use emoji in place of icons.
-- Put more than five colours on one screen; the page background does not count.
-- Invent a font size outside the scale.
+- Invent a font size the mockup doesn't render.
 - Hard-code a currency symbol or assume a single locale.
