@@ -1,0 +1,16 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "npm install && npm rebuild better-sqlite3",
+  "buildCommand": "npm run -w frontend build",
+  "outputDirectory": "frontend/dist",
+  "functions": {
+    "api/[[...route]].ts": {
+      "maxDuration": 60,
+      "includeFiles": "backend/src/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
+}

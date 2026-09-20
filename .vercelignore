@@ -1,0 +1,15 @@
+node_modules
+.git
+.claude
+_bmad-output
+_bmad
+target
+contracts/escrow/target
+backend/data
+backend/dist
+frontend/dist
+docs/screenshots
+*.db
+*.wasm
+.DS_Store
+agent-transcripts

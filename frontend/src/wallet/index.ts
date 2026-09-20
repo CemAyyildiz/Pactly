@@ -36,14 +36,26 @@ export class SignInCancelledError extends Error {
 let kitSingleton: PasskeyKit | undefined;
 const storage = new IndexedDBStorage();
 
+function passkeyRp(): { rpId: string; allowedOrigins: string[] } {
+  if (typeof window === "undefined") {
+    return { rpId: "localhost", allowedOrigins: ["http://localhost:5173"] };
+  }
+  const host = window.location.hostname;
+  return {
+    rpId: host === "127.0.0.1" ? "localhost" : host,
+    allowedOrigins: [window.location.origin],
+  };
+}
+
 function getKit(): PasskeyKit {
   if (!kitSingleton) {
+    const rp = passkeyRp();
     kitSingleton = new PasskeyKit({
       rpcUrl: RPC_URL,
       networkPassphrase: NETWORK_PASSPHRASE,
       walletWasmHash: WALLET_WASM_HASH,
-      rpId: "localhost",
-      allowedOrigins: ["http://localhost:5173"],
+      rpId: rp.rpId,
+      allowedOrigins: rp.allowedOrigins,
       requireUserVerification: true,
       storage,
     });

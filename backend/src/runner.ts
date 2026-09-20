@@ -151,3 +151,37 @@ export function startRunner(db: Db, options: StartRunnerOptions = {}): RunnerHan
     },
   };
 }
+
+/**
+ * One hold-expiry pass and one reconciler pass. Used on Vercel where a
+ * background `setTimeout` does not survive between requests: the booking
+ * screens poll, and each poll advances chain evidence the same way the
+ * long-lived process would.
+ */
+export async function runRunnerTicksOnce(db: Db, options: StartRunnerOptions = {}): Promise<void> {
+  const log = options.log ?? defaultLog;
+  const trustlessWorkConfigComplete = options.reconcilerConfigComplete ?? defaultTrustlessWorkConfigComplete;
+  const listEscrows = options.listEscrows ?? realListEscrows();
+  await runTickIsolated(
+    "hold-expiry",
+    async () => {
+      expireHolds(db, Math.floor(Date.now() / 1000), log);
+    },
+    log,
+  );
+  if (!trustlessWorkConfigComplete()) {
+    return;
+  }
+  await runTickIsolated(
+    "reconciler",
+    async () => {
+      await runReconcilerOnce({
+        db,
+        listEscrows,
+        log,
+        ...(options.reconcilerPlatformAddress !== undefined ? { platformAddress: options.reconcilerPlatformAddress } : {}),
+      });
+    },
+    log,
+  );
+}

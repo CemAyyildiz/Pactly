@@ -17,6 +17,7 @@ coverage/
 
 # Local data
 backend/data/
+.vercel/
 *.db
 *.db-journal
 *.db-wal

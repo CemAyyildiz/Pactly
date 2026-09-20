@@ -202,7 +202,11 @@ export async function submitPasskeyKitXdr(xdr: string): Promise<{ hash: string }
   if (relayer) {
     const result = await relayer.send(xdr);
     if (!result.success) {
-      throw new PasskeyKitSubmitError(result.error.message);
+      const message =
+        "error" in result && result.error && typeof result.error === "object" && "message" in result.error
+          ? String(result.error.message)
+          : "The relayer rejected the passkey transaction.";
+      throw new PasskeyKitSubmitError(message);
     }
     return { hash: result.hash };
   }
