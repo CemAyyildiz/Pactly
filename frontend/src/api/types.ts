@@ -310,3 +310,23 @@ export interface BalancePaymentBuildResponse {
 export interface BalancePaymentSubmitResponse {
   txHash: string;
 }
+
+// ---------------------------------------------------------------------------
+// Story 2.2: the anchor's SEP-38 indicative price. Mirrors
+// `backend/src/anchor/sep38.ts`'s `IndicativePrice` exactly.
+// ---------------------------------------------------------------------------
+
+/** `GET /quote`'s response -- the USDC amount echoed back plus its
+ * indicative local-currency equivalent. Display-only: never persisted on a
+ * booking, never used to compute a deposit (AD-7). */
+export interface QuoteResponse {
+  amount: string;
+  asset: string;
+  fiat: {
+    amount: string;
+    currency: string;
+  };
+  /** UTC epoch seconds. */
+  quotedAt: number;
+  spreadApplied: true;
+}

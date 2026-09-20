@@ -1396,6 +1396,21 @@ button {
   color: var(--color-ink);
 }
 
+.booking-summary__row > div {
+  text-align: right;
+}
+
+/* Story 2.2: the indicative local-currency line beside a USDC amount. */
+.quote-equivalent {
+  margin: 2px 0 0;
+  font-size: var(--text-12);
+  color: var(--color-muted);
+}
+
+.quote-equivalent--unavailable {
+  font-style: italic;
+}
+
 .booking-summary-note {
   margin-top: var(--space-4);
   background: var(--color-card);

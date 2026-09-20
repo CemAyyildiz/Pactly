@@ -13,6 +13,7 @@ import { ApiError } from "../../api/client";
 import type { HoldSlotResponse } from "../../api/types";
 import { DepositPill } from "../../components/DepositPill";
 import { EscrowLane } from "../../components/EscrowLane";
+import { IndicativeEquivalent } from "../../components/IndicativeEquivalent";
 import { LockButton } from "../../components/LockButton";
 import { ProviderHeader } from "../../components/ProviderHeader";
 import { Seal } from "../../components/Seal";
@@ -437,16 +438,25 @@ export function BookingPage() {
           <div className="booking-summary">
             <div className="booking-summary__row">
               <span>Price</span>
-              <strong className="tabular-nums">{formatMoney(hold?.price.amount ?? profile.price.amount, profile.price.asset)}</strong>
+              <div>
+                <strong className="tabular-nums">{formatMoney(hold?.price.amount ?? profile.price.amount, profile.price.asset)}</strong>
+                <IndicativeEquivalent amount={hold?.price.amount ?? profile.price.amount} />
+              </div>
             </div>
             <div className="booking-summary__row">
               <span>Deposit, locked now</span>
-              <strong className="tabular-nums">{formatMoney(depositAmount, depositAsset)}</strong>
+              <div>
+                <strong className="tabular-nums">{formatMoney(depositAmount, depositAsset)}</strong>
+                <IndicativeEquivalent amount={depositAmount} />
+              </div>
             </div>
             {balanceAmount && (
               <div className="booking-summary__row">
                 <span>Balance, due before the session</span>
-                <strong className="tabular-nums">{formatMoney(balanceAmount, depositAsset)}</strong>
+                <div>
+                  <strong className="tabular-nums">{formatMoney(balanceAmount, depositAsset)}</strong>
+                  <IndicativeEquivalent amount={balanceAmount} />
+                </div>
               </div>
             )}
             <div className="booking-summary__row">

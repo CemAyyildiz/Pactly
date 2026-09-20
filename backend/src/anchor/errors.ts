@@ -38,3 +38,28 @@ export class AnchorSignerMismatchError extends Error {
     this.name = "AnchorSignerMismatchError";
   }
 }
+
+/** Story 2.2: the anchor's SEP-38 price endpoint could not be reached, or
+ * answered with something other than a usable price (unreachable,
+ * non-200, or a response missing the fields the quote depends on). Maps to
+ * `503 QUOTE_UNAVAILABLE` -- the USDC amount still shows, only the fiat
+ * equivalent line is replaced by a plain sentence (this story's own
+ * "Always" rule: a quote failure never blocks the flow). */
+export class AnchorQuoteUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AnchorQuoteUnavailableError";
+  }
+}
+
+/** Story 2.2: the anchor is reachable but does not offer this asset/fiat
+ * pair (its `sep38/info` never advertises the sell asset or a fiat
+ * currency alongside it). Distinct from unavailable -- this is a
+ * configuration/support fact, not a transient failure -- and maps to its
+ * own `409 QUOTE_UNSUPPORTED`. */
+export class AnchorQuoteUnsupportedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AnchorQuoteUnsupportedError";
+  }
+}

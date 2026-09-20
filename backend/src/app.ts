@@ -81,6 +81,8 @@ import type { SubmitPaymentDeps } from "./payments/stellar.js";
 import { config } from "./config.js";
 import { DISPUTE_OUTCOMES, type DisputeOutcome, type DisputeReason } from "./db/schema.js";
 import { getBookingById } from "./db/bookings.js";
+import { AnchorQuoteUnavailableError, AnchorQuoteUnsupportedError } from "./anchor/errors.js";
+import { fetchIndicativePrice, type Sep38FetchLike } from "./anchor/sep38.js";
 
 export interface Variables {
   /** Set by `requirePactlyAuth` once a request's Pactly JWT verifies --
@@ -140,6 +142,10 @@ async function requireAdmin(c: Context<{ Variables: Variables }>, next: Next) {
  * shape (AD-7's smallest-unit integer strings, with `"0"` also allowed
  * since a free session is a valid lower bound). */
 const NON_NEGATIVE_INTEGER_STRING = /^(0|[1-9]\d*)$/;
+/** Story 2.2: `GET /quote`'s own `amount` -- a positive (never zero)
+ * integer string, refused before any anchor call (the spec's own "Refused
+ * before any anchor call" row). */
+const POSITIVE_INTEGER_STRING = /^[1-9]\d*$/;
 const MIN_DEPOSIT_RATE_BPS_FILTER = 1;
 const MAX_DEPOSIT_RATE_BPS_FILTER = 10000;
 const AVAILABILITY_FILTER_VALUES = new Set(["24h", "week"]);
@@ -205,6 +211,11 @@ export interface CreateAppOptions {
    * send/poll seam -- lets a test exercise `502 PAYMENT_FAILED`/
    * `503 PAYMENT_UNAVAILABLE` without a real RPC endpoint. */
   submitBalancePaymentDeps?: SubmitPaymentDeps;
+  /** Story 2.2: overrides `GET /quote`'s own anchor `fetch` seam (toml
+   * discovery, USDC resolution, and the SEP-38 calls) -- lets a test
+   * exercise the quote route's success/unavailable/unsupported paths
+   * without a real anchor. */
+  quoteFetchImpl?: Sep38FetchLike;
 }
 
 export function createApp(db: Db, options: CreateAppOptions = {}): App {
@@ -212,6 +223,7 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
   const escrowAdapter = options.escrowAdapter ?? defaultEscrowAdapter;
   const buildBalancePaymentDeps = options.buildBalancePaymentDeps ?? {};
   const submitBalancePaymentDeps = options.submitBalancePaymentDeps ?? {};
+  const quoteFetchImpl = options.quoteFetchImpl;
 
   // Every route above handles its own typed failures and returns the
   // `{code, message}` envelope itself; this is only the backstop for a
@@ -319,6 +331,36 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
     } catch (error) {
       if (error instanceof ProviderNotFoundError) {
         return c.json({ code: "PROVIDER_NOT_FOUND", message: error.message }, 404);
+      }
+      throw error;
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // Story 2.2: the anchor's SEP-38 indicative price, so the client sees a
+  // local-currency equivalent beside every USDC amount before paying. No
+  // auth required (the same indicative price for anyone, like `/providers`)
+  // and no escrow/booking state touched. A quote failure never blocks the
+  // flow -- see `escrowErrorResponse`-style mapping below.
+  // ---------------------------------------------------------------------
+
+  app.get("/quote", async (c) => {
+    const amount = c.req.query("amount");
+    if (!amount || !POSITIVE_INTEGER_STRING.test(amount)) {
+      return c.json({ code: "INVALID_AMOUNT", message: "amount must be a positive integer string." }, 400);
+    }
+    try {
+      const quote = await fetchIndicativePrice({ amount }, { fetchImpl: quoteFetchImpl });
+      return c.json(quote);
+    } catch (error) {
+      if (error instanceof AnchorQuoteUnsupportedError) {
+        return c.json(
+          { code: "QUOTE_UNSUPPORTED", message: "The anchor doesn't offer a local-currency price for this right now." },
+          409,
+        );
+      }
+      if (error instanceof AnchorQuoteUnavailableError) {
+        return c.json({ code: "QUOTE_UNAVAILABLE", message: "We couldn't reach the currency exchange just now." }, 503);
       }
       throw error;
     }

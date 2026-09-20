@@ -21,6 +21,7 @@ import type {
   ProviderBookingsResponse,
   ProviderProfile,
   ProvidersResponse,
+  QuoteResponse,
   ResolveDisputeResponse,
   SubmitResponse,
   SuggestResponse,
@@ -98,6 +99,22 @@ export function usePublicProviderProfile(id: string | undefined) {
     queryFn: () => apiGet<ProviderProfile>(`/providers/${id}`),
     enabled: Boolean(id),
     retry: false,
+  });
+}
+
+/** Story 2.2: `GET /quote`'s indicative local-currency equivalent for a
+ * USDC smallest-unit `amount` -- one query per distinct amount, so the
+ * deposit, balance and total on the payment step each get their own quote.
+ * A quote failure never blocks the flow (this story's own "Always" rule),
+ * so this never retries past the backend's own 60s cache window and the
+ * caller renders its own plain-sentence fallback on `isError`. */
+export function useQuote(amount: string | undefined) {
+  return useQuery({
+    queryKey: ["quote", amount],
+    queryFn: () => apiGet<QuoteResponse>(`/quote?amount=${amount}`),
+    enabled: Boolean(amount),
+    retry: false,
+    staleTime: 60_000,
   });
 }
 
