@@ -307,6 +307,32 @@ export const bookings = sqliteTable("bookings", {
    * SUCCESS"). `null` for a booking whose balance is unpaid, or paid in
    * cash (which has no transaction to point at). */
   balancePaymentTxHash: text("balance_payment_tx_hash"),
+
+  /**
+   * Story 2.4: the SEP-6 local-currency deposit opened against this
+   * booking. `anchorDepositId` is the anchor's own transaction id;
+   * `anchorDepositStatus` is the last polled SEP-6 status (raw, mapped to
+   * plain words at the service layer). Bank details are a JSON snapshot of
+   * what the anchor returned when the deposit opened, so a later poll that
+   * omits instructions still has something to show. `null` until the
+   * client opens a local-currency deposit.
+   */
+  anchorDepositId: text("anchor_deposit_id"),
+  anchorDepositStatus: text("anchor_deposit_status"),
+  anchorDepositMoreInfoUrl: text("anchor_deposit_more_info_url"),
+  anchorDepositBankDetails: text("anchor_deposit_bank_details"),
+  /** UTC epoch seconds -- the anchor's own expiry, when it supplied one. */
+  anchorDepositExpiresAt: integer("anchor_deposit_expires_at"),
+  /** The amount the sandbox simulate endpoint should replay (the TRY the
+   * client is meant to send), captured from the open/poll response. */
+  anchorDepositAmountIn: text("anchor_deposit_amount_in"),
+  /** UTC epoch seconds -- last successful poll (or open). */
+  anchorDepositUpdatedAt: integer("anchor_deposit_updated_at"),
+  /** Hash of the unsigned change-trust XDR built when the wallet had no
+   * USDC trustline -- submit matches against this the same way 3.7's
+   * balance payment does. */
+  anchorTrustlineTxHash: text("anchor_trustline_tx_hash"),
+
   createdAt: integer("created_at").notNull(),
 });
 

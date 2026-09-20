@@ -32,23 +32,23 @@ function defaultFetch(
   return fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
 }
 
-export interface RunAnchorSep10Params {
+export interface AnchorSep10ChallengeParams {
   webAuthEndpoint: string;
   /** From `stellar.toml`'s `SIGNING_KEY` -- the anchor's own account, used
-   * to confirm the challenge this backend is about to sign really came from
-   * the anchor. */
+   * to confirm the challenge really came from the anchor. */
   signingKey: string;
   homeDomain: string;
   networkPassphrase: string;
   /** The wallet the JWT should be issued for. */
   account: string;
+}
+
+export interface RunAnchorSep10Params extends AnchorSep10ChallengeParams {
   /** Signs the anchor's challenge. Must be `account`'s own keypair -- the
-   * anchor's SEP-10 endpoint needs the wallet's real signature, not merely
-   * its address, and `services/auth.ts`'s caller enforces this today.
-   * Nothing in this story calls this function yet; whether a *real* (not
-   * managed) wallet's anchor session needs its own frontend round-trip,
-   * separate from Pactly's own login, to obtain that signature is a design
-   * question left to whichever of Story 2.3/2.4 first calls this. */
+   * managed-account path (`services/auth.ts`'s `getOrRefreshAnchorJwt`) is
+   * the only caller that holds a key. Story 2.4's wallet path uses
+   * {@link fetchAnchorSep10Challenge} + {@link submitAnchorSep10Challenge}
+   * so the client signs in their own wallet instead. */
   signer: Keypair;
 }
 
@@ -149,14 +149,20 @@ function decodeJwtExpiryMs(token: string, homeDomain: string): number {
   return expiresAt;
 }
 
-/** Runs the anchor's real SEP-10 exchange end to end and returns its JWT.
- * Nothing is stored here -- storing the result, keyed by wallet address, is
- * `../services/auth.ts`'s job, so this module stays a pure network client. */
-export async function runAnchorSep10(
-  params: RunAnchorSep10Params,
+export interface FetchAnchorSep10ChallengeResult {
+  /** Unsigned challenge XDR -- Story 2.4's wallet path sends this to the
+   * client to sign; Pactly never holds the key. */
+  unsignedXdr: string;
+}
+
+/** Story 2.4: fetches and validates the anchor's SEP-10 challenge without
+ * signing it, so the client's own wallet can. The managed-account path
+ * still signs server-side via {@link runAnchorSep10}. */
+export async function fetchAnchorSep10Challenge(
+  params: AnchorSep10ChallengeParams,
   fetchImpl: Sep10FetchLike = defaultFetch,
-): Promise<AnchorSep10Result> {
-  const { webAuthEndpoint, signingKey, homeDomain, networkPassphrase, account, signer } = params;
+): Promise<FetchAnchorSep10ChallengeResult> {
+  const { webAuthEndpoint, signingKey, homeDomain, networkPassphrase, account } = params;
 
   const challengeUrl = new URL(webAuthEndpoint);
   challengeUrl.searchParams.set("account", account);
@@ -192,8 +198,8 @@ export async function runAnchorSep10(
 
   // Confirm this really is a challenge from the anchor -- signed by its own
   // `SIGNING_KEY`, naming its own home domain -- and that it names the
-  // wallet this exchange is for, before this backend ever signs it. Uses
-  // the SDK's own reader, never a hand-rolled check.
+  // wallet this exchange is for. Uses the SDK's own reader, never a
+  // hand-rolled check.
   let clientAccountID: string;
   try {
     ({ clientAccountID } = WebAuth.readChallengeTx(challengeXdr, signingKey, networkPassphrase, homeDomain, challengeUrl.host));
@@ -207,9 +213,36 @@ export async function runAnchorSep10(
     );
   }
 
-  const transaction: Transaction = TransactionBuilder.fromXdr(challengeXdr, networkPassphrase) as Transaction;
-  transaction.sign(signer);
-  const signedXdr = transaction.toXdr();
+  return { unsignedXdr: challengeXdr };
+}
+
+export interface SubmitAnchorSep10ChallengeParams extends AnchorSep10ChallengeParams {
+  signedXdr: string;
+}
+
+/** Submits a client-signed SEP-10 challenge and returns the anchor's JWT.
+ * Re-validates that the signed envelope is still a challenge for `account`
+ * before posting it, so a signed challenge for a different wallet cannot
+ * mint a JWT stored under this one. */
+export async function submitAnchorSep10Challenge(
+  params: SubmitAnchorSep10ChallengeParams,
+  fetchImpl: Sep10FetchLike = defaultFetch,
+): Promise<AnchorSep10Result> {
+  const { webAuthEndpoint, signingKey, homeDomain, networkPassphrase, account, signedXdr } = params;
+  const challengeHost = new URL(webAuthEndpoint).host;
+
+  let clientAccountID: string;
+  try {
+    ({ clientAccountID } = WebAuth.readChallengeTx(signedXdr, signingKey, networkPassphrase, homeDomain, challengeHost));
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    throw new AnchorAuthError(`${homeDomain}'s signed SEP-10 challenge did not pass validation: ${reason}`);
+  }
+  if (clientAccountID !== account) {
+    throw new AnchorAuthError(
+      `${homeDomain}'s signed SEP-10 challenge names account "${clientAccountID}", but this exchange is for "${account}"`,
+    );
+  }
 
   let tokenResponse: Pick<Response, "ok" | "status" | "json" | "text">;
   try {
@@ -234,4 +267,20 @@ export async function runAnchorSep10(
   }
 
   return { token: tokenBody.token, expiresAt: decodeJwtExpiryMs(tokenBody.token, homeDomain) };
+}
+
+/** Runs the anchor's real SEP-10 exchange end to end and returns its JWT.
+ * Nothing is stored here -- storing the result, keyed by wallet address, is
+ * `../services/auth.ts`'s job, so this module stays a pure network client.
+ * Signs with the caller-supplied keypair (the managed-account path);
+ * Story 2.4's wallet path uses the split fetch/submit functions instead. */
+export async function runAnchorSep10(
+  params: RunAnchorSep10Params,
+  fetchImpl: Sep10FetchLike = defaultFetch,
+): Promise<AnchorSep10Result> {
+  const { signer, ...challengeParams } = params;
+  const { unsignedXdr } = await fetchAnchorSep10Challenge(challengeParams, fetchImpl);
+  const transaction: Transaction = TransactionBuilder.fromXdr(unsignedXdr, challengeParams.networkPassphrase) as Transaction;
+  transaction.sign(signer);
+  return submitAnchorSep10Challenge({ ...challengeParams, signedXdr: transaction.toXdr() }, fetchImpl);
 }

@@ -121,6 +121,32 @@ export async function buildBalancePaymentTransaction(
   return { unsignedXdr: tx.toXDR(), txHash: Buffer.from(tx.hash()).toString("hex").toLowerCase() };
 }
 
+export interface BuildChangeTrustInput {
+  sourceAddress: string;
+  assetCode: string;
+  assetIssuer: string;
+}
+
+/**
+ * Story 2.4: unsigned change-trust so a wallet without the anchor's USDC
+ * can receive the deposit. Same builder/timeout/unsigned-XDR discipline as
+ * {@link buildBalancePaymentTransaction}; the term "trustline" never
+ * leaves this module.
+ */
+export async function buildChangeTrustTransaction(
+  input: BuildChangeTrustInput,
+  deps: BuildPaymentDeps = {},
+): Promise<BuildBalancePaymentResult> {
+  const getAccount = deps.getAccount ?? defaultGetAccount;
+  const sourceAccount = await getAccount(input.sourceAddress);
+  const asset = new Asset(input.assetCode, input.assetIssuer);
+  const tx = new TransactionBuilder(sourceAccount, { fee: BASE_FEE, networkPassphrase: config.stellarNetworkPassphrase })
+    .addOperation(Operation.changeTrust({ asset }))
+    .setTimeout(PAYMENT_TIMEOUT_SECONDS)
+    .build();
+  return { unsignedXdr: tx.toXDR(), txHash: Buffer.from(tx.hash()).toString("hex").toLowerCase() };
+}
+
 export interface SubmitPaymentDeps {
   sendTransaction?: (tx: Transaction) => Promise<rpc.Api.SendTransactionResponse>;
   waitForTransaction?: (hash: string) => Promise<rpc.Api.GetTransactionResponse>;

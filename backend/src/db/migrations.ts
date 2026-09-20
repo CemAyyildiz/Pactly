@@ -273,4 +273,31 @@ export function runMigrations(sqlite: Database): void {
   if (!hasColumn(sqlite, "bookings", "balance_payment_tx_hash")) {
     sqlite.exec(`ALTER TABLE bookings ADD COLUMN balance_payment_tx_hash TEXT`);
   }
+
+  // Story 2.4: SEP-6 local-currency deposit columns -- nullable, a booking
+  // created before this story never had a local-currency path.
+  if (!hasColumn(sqlite, "bookings", "anchor_deposit_id")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN anchor_deposit_id TEXT`);
+  }
+  if (!hasColumn(sqlite, "bookings", "anchor_deposit_status")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN anchor_deposit_status TEXT`);
+  }
+  if (!hasColumn(sqlite, "bookings", "anchor_deposit_more_info_url")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN anchor_deposit_more_info_url TEXT`);
+  }
+  if (!hasColumn(sqlite, "bookings", "anchor_deposit_bank_details")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN anchor_deposit_bank_details TEXT`);
+  }
+  if (!hasColumn(sqlite, "bookings", "anchor_deposit_expires_at")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN anchor_deposit_expires_at INTEGER`);
+  }
+  if (!hasColumn(sqlite, "bookings", "anchor_deposit_amount_in")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN anchor_deposit_amount_in TEXT`);
+  }
+  if (!hasColumn(sqlite, "bookings", "anchor_deposit_updated_at")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN anchor_deposit_updated_at INTEGER`);
+  }
+  if (!hasColumn(sqlite, "bookings", "anchor_trustline_tx_hash")) {
+    sqlite.exec(`ALTER TABLE bookings ADD COLUMN anchor_trustline_tx_hash TEXT`);
+  }
 }

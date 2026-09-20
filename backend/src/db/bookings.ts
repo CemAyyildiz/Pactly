@@ -633,3 +633,43 @@ export async function listBookingRowsForProvider(db: Db, providerProfileId: stri
     .where(eq(bookings.providerProfileId, providerProfileId));
   return rows.map((row) => ({ booking: row.booking, slotStartsAt: row.slotStartsAt ?? null }));
 }
+
+export interface AnchorDepositSnapshot {
+  id: string;
+  status: string;
+  moreInfoUrl?: string | null;
+  bankDetailsJson?: string | null;
+  expiresAt?: number | null;
+  amountIn?: string | null;
+  updatedAt: number;
+}
+
+/** Story 2.4: persists the SEP-6 deposit snapshot on the booking. */
+export async function setAnchorDeposit(db: Db, bookingId: string, snapshot: AnchorDepositSnapshot): Promise<void> {
+  await db
+    .update(bookings)
+    .set({
+      anchorDepositId: snapshot.id,
+      anchorDepositStatus: snapshot.status,
+      anchorDepositMoreInfoUrl: snapshot.moreInfoUrl ?? null,
+      anchorDepositBankDetails: snapshot.bankDetailsJson ?? null,
+      anchorDepositExpiresAt: snapshot.expiresAt ?? null,
+      anchorDepositAmountIn: snapshot.amountIn ?? null,
+      anchorDepositUpdatedAt: snapshot.updatedAt,
+    })
+    .where(eq(bookings.id, bookingId));
+}
+
+/** Story 2.4: extend the hold while a local-currency transfer is still
+ * progressing -- only while `escrow_state` is still null, so a lock that
+ * lands mid-poll cannot have its hold rewritten. */
+export async function extendHoldExpiresAt(db: Db, bookingId: string, holdExpiresAt: number): Promise<void> {
+  await db
+    .update(bookings)
+    .set({ holdExpiresAt })
+    .where(and(eq(bookings.id, bookingId), isNull(bookings.escrowState)));
+}
+
+export async function setAnchorTrustlineTxHash(db: Db, bookingId: string, txHash: string): Promise<void> {
+  await db.update(bookings).set({ anchorTrustlineTxHash: txHash }).where(eq(bookings.id, bookingId));
+}

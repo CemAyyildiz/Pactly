@@ -81,8 +81,29 @@ import type { SubmitPaymentDeps } from "./payments/stellar.js";
 import { config } from "./config.js";
 import { DISPUTE_OUTCOMES, type DisputeOutcome, type DisputeReason } from "./db/schema.js";
 import { getBookingById } from "./db/bookings.js";
-import { AnchorQuoteUnavailableError, AnchorQuoteUnsupportedError } from "./anchor/errors.js";
+import {
+  AmountOutOfRangeError,
+  AnchorAuthError,
+  AnchorAuthRequiredError,
+  AnchorDepositError,
+  AnchorDiscoveryError,
+  AnchorKycError,
+  AnchorQuoteUnavailableError,
+  AnchorQuoteUnsupportedError,
+  AnchorUnavailableError,
+} from "./anchor/errors.js";
 import { fetchIndicativePrice, type Sep38FetchLike } from "./anchor/sep38.js";
+import type { AnchorFetchLike } from "./anchor/http.js";
+import {
+  SandboxOnlyError,
+  beginBookingAnchorAuth,
+  completeBookingAnchorAuth,
+  openLocalDeposit,
+  pollLocalDeposit,
+  simulateLocalDeposit,
+  submitLocalDepositTrustline,
+  type LocalDepositDeps,
+} from "./services/localDeposit.js";
 
 export interface Variables {
   /** Set by `requirePactlyAuth` once a request's Pactly JWT verifies --
@@ -216,6 +237,10 @@ export interface CreateAppOptions {
    * exercise the quote route's success/unavailable/unsupported paths
    * without a real anchor. */
   quoteFetchImpl?: Sep38FetchLike;
+  /** Story 2.4: overrides every network call the local-currency deposit
+   * path makes (toml, SEP-10/12/6, SEP-38 limits, Horizon trustline check,
+   * change-trust build/submit) -- a test never reaches the live anchor. */
+  localDepositDeps?: LocalDepositDeps;
 }
 
 export function createApp(db: Db, options: CreateAppOptions = {}): App {
@@ -224,6 +249,10 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
   const buildBalancePaymentDeps = options.buildBalancePaymentDeps ?? {};
   const submitBalancePaymentDeps = options.submitBalancePaymentDeps ?? {};
   const quoteFetchImpl = options.quoteFetchImpl;
+  const localDepositDeps: LocalDepositDeps = {
+    ...options.localDepositDeps,
+    fetchImpl: options.localDepositDeps?.fetchImpl ?? (quoteFetchImpl as AnchorFetchLike | undefined),
+  };
 
   // Every route above handles its own typed failures and returns the
   // `{code, message}` envelope itself; this is only the backstop for a
@@ -594,6 +623,170 @@ export function createApp(db: Db, options: CreateAppOptions = {}): App {
       if (error instanceof BookingNotFoundError) {
         return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
       }
+      throw error;
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // Story 2.4: SEP-6 local-currency deposit. The client signs the anchor's
+  // own challenge in their wallet; the JWT never leaves this backend.
+  // ---------------------------------------------------------------------
+
+  function localDepositErrorResponse(error: unknown, c: Context<{ Variables: Variables }>) {
+    if (error instanceof BookingNotFoundError) {
+      return c.json({ code: "BOOKING_NOT_FOUND", message: error.message }, 404);
+    }
+    if (error instanceof BookingHoldExpiredError) {
+      return c.json({ code: "HOLD_EXPIRED", message: error.message }, 409);
+    }
+    if (error instanceof BookingEscrowStateError) {
+      return c.json({ code: "BOOKING_STATE", message: error.message }, 409);
+    }
+    if (error instanceof XdrMismatchError) {
+      return c.json({ code: "XDR_MISMATCH", message: error.message }, 409);
+    }
+    if (error instanceof AmountOutOfRangeError) {
+      return c.json(
+        {
+          code: "AMOUNT_OUT_OF_RANGE",
+          message: error.message,
+          details: { min: error.min, max: error.max, currency: error.currency },
+        },
+        409,
+      );
+    }
+    if (error instanceof AnchorAuthRequiredError) {
+      return c.json({ code: "ANCHOR_AUTH_REQUIRED", message: "Sign in with the anchor to continue." }, 401);
+    }
+    if (error instanceof AnchorAuthError) {
+      return c.json({ code: "ANCHOR_AUTH_FAILED", message: "The wallet signature did not match. Try again." }, 401);
+    }
+    if (error instanceof AnchorKycError) {
+      return c.json({ code: "ANCHOR_KYC_FAILED", message: error.message }, 502);
+    }
+    if (error instanceof AnchorDepositError) {
+      console.error("[app] SEP-6 deposit refused", error.message);
+      return c.json(
+        {
+          code: "ANCHOR_DEPOSIT_FAILED",
+          message: error.simulate
+            ? "The simulated bank transfer did not go through."
+            : "The local-currency transfer could not be started.",
+        },
+        502,
+      );
+    }
+    if (error instanceof AnchorUnavailableError || error instanceof AnchorDiscoveryError) {
+      return c.json({ code: "ANCHOR_UNAVAILABLE", message: "We couldn't reach the local-currency rail just now." }, 503);
+    }
+    if (error instanceof SandboxOnlyError) {
+      return c.json({ code: "NOT_FOUND", message: error.message }, 404);
+    }
+    if (error instanceof PaymentFailedError) {
+      return c.json({ code: "PAYMENT_FAILED", message: "Getting your wallet ready did not go through." }, 502);
+    }
+    if (error instanceof PaymentUnavailableError) {
+      return c.json({ code: "PAYMENT_UNAVAILABLE", message: "We couldn't reach the network just now." }, 503);
+    }
+    return undefined;
+  }
+
+  app.post("/bookings/:id/anchor/challenge", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    try {
+      const result = await beginBookingAnchorAuth(db, bookingId, c.get("walletAddress"), localDepositDeps);
+      return c.json(result);
+    } catch (error) {
+      const mapped = localDepositErrorResponse(error, c);
+      if (mapped) return mapped;
+      throw error;
+    }
+  });
+
+  app.post("/bookings/:id/anchor/verify", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    const body = await c.req.json().catch(() => undefined);
+    const signedXdr = typeof body?.signedXdr === "string" ? body.signedXdr : undefined;
+    if (!signedXdr) {
+      return c.json({ code: "invalid_request", message: "signedXdr is required." }, 400);
+    }
+    try {
+      await completeBookingAnchorAuth(db, bookingId, c.get("walletAddress"), signedXdr, localDepositDeps);
+      return c.json({ ok: true });
+    } catch (error) {
+      const mapped = localDepositErrorResponse(error, c);
+      if (mapped) return mapped;
+      throw error;
+    }
+  });
+
+  app.post("/bookings/:id/deposit/local", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    try {
+      const result = await openLocalDeposit(db, bookingId, c.get("walletAddress"), localDepositDeps);
+      return c.json(result);
+    } catch (error) {
+      const mapped = localDepositErrorResponse(error, c);
+      if (mapped) return mapped;
+      throw error;
+    }
+  });
+
+  app.post("/bookings/:id/deposit/local/trustline", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    const body = await c.req.json().catch(() => undefined);
+    const signedXdr = typeof body?.signedXdr === "string" ? body.signedXdr : undefined;
+    if (!signedXdr) {
+      return c.json({ code: "invalid_request", message: "signedXdr is required." }, 400);
+    }
+    try {
+      const result = await submitLocalDepositTrustline(db, bookingId, c.get("walletAddress"), signedXdr, localDepositDeps);
+      return c.json(result);
+    } catch (error) {
+      const mapped = localDepositErrorResponse(error, c);
+      if (mapped) return mapped;
+      throw error;
+    }
+  });
+
+  app.get("/bookings/:id/deposit/local", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    try {
+      const result = await pollLocalDeposit(db, bookingId, c.get("walletAddress"), localDepositDeps);
+      return c.json(result);
+    } catch (error) {
+      const mapped = localDepositErrorResponse(error, c);
+      if (mapped) return mapped;
+      throw error;
+    }
+  });
+
+  app.post("/bookings/:id/deposit/local/simulate", requirePactlyAuth, async (c) => {
+    const bookingId = c.req.param("id");
+    if (!bookingId) {
+      return c.json({ code: "invalid_request", message: "booking id is required." }, 400);
+    }
+    try {
+      const result = await simulateLocalDeposit(db, bookingId, c.get("walletAddress"), localDepositDeps);
+      return c.json(result);
+    } catch (error) {
+      const mapped = localDepositErrorResponse(error, c);
+      if (mapped) return mapped;
       throw error;
     }
   });

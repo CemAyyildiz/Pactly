@@ -63,3 +63,63 @@ export class AnchorQuoteUnsupportedError extends Error {
     this.name = "AnchorQuoteUnsupportedError";
   }
 }
+
+/** Story 2.4: the anchor's SEP-12 customer endpoint refused the wallet or
+ * returned a status this backend cannot treat as approved. Maps to
+ * `502 ANCHOR_KYC_FAILED`. */
+export class AnchorKycError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AnchorKycError";
+  }
+}
+
+/** Story 2.4: the anchor's SEP-6 deposit call (open, poll, or simulate)
+ * failed in a way that is the deposit itself going wrong -- a refused
+ * request, an `error` status, or a body this backend cannot use. Maps to
+ * `502 ANCHOR_DEPOSIT_FAILED`. */
+export class AnchorDepositError extends Error {
+  readonly simulate: boolean;
+  constructor(message: string, options: { simulate?: boolean } = {}) {
+    super(message);
+    this.name = "AnchorDepositError";
+    this.simulate = options.simulate === true;
+  }
+}
+
+/** Story 2.4: the anchor (or a required SEP endpoint on it) could not be
+ * reached, or its `stellar.toml` does not declare a server this call
+ * needs. Maps to `503 ANCHOR_UNAVAILABLE`. Distinct from a deposit that
+ * opened and then failed. */
+export class AnchorUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AnchorUnavailableError";
+  }
+}
+
+/** Story 2.4: the booking's deposit, converted at the anchor's own
+ * indicative rate, sits outside the advertised min/max. Maps to
+ * `409 AMOUNT_OUT_OF_RANGE` with `details.min/max/currency`. */
+export class AmountOutOfRangeError extends Error {
+  readonly min: string;
+  readonly max: string;
+  readonly currency: string;
+  constructor(min: string, max: string, currency: string) {
+    super(`This amount is outside the ${min}–${max} ${currency} range for a local-currency transfer.`);
+    this.name = "AmountOutOfRangeError";
+    this.min = min;
+    this.max = max;
+    this.currency = currency;
+  }
+}
+
+/** Story 2.4: a SEP-6/12 call was attempted without a still-valid cached
+ * anchor JWT. Maps to `401 ANCHOR_AUTH_REQUIRED` so the client can run the
+ * challenge flow. */
+export class AnchorAuthRequiredError extends Error {
+  constructor(message = "Sign in with the anchor to continue.") {
+    super(message);
+    this.name = "AnchorAuthRequiredError";
+  }
+}

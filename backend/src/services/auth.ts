@@ -16,8 +16,13 @@ import type { Keypair } from "@stellar/stellar-sdk";
 import { verifyPactlyJwt, type PactlyJwtOptions, type VerifiedPactlyJwt } from "../auth/challenge.js";
 import { config } from "../config.js";
 import { discoverAnchorSepEndpoints, type FetchLike } from "../anchor/stellar-toml.js";
-import { runAnchorSep10, type Sep10FetchLike } from "../anchor/sep10.js";
-import { AnchorSignerMismatchError } from "../anchor/errors.js";
+import {
+  fetchAnchorSep10Challenge,
+  runAnchorSep10,
+  submitAnchorSep10Challenge,
+  type Sep10FetchLike,
+} from "../anchor/sep10.js";
+import { AnchorAuthRequiredError, AnchorSignerMismatchError } from "../anchor/errors.js";
 import { getAnchorJwt, upsertAnchorJwt } from "../db/anchorJwts.js";
 import type { Db } from "../db/client.js";
 
@@ -80,4 +85,89 @@ export async function getOrRefreshAnchorJwt(
   );
   await upsertAnchorJwt(db, { walletAddress, jwt: token, expiresAt, updatedAt: now() });
   return token;
+}
+
+/** Returns a still-fresh cached anchor JWT, or `undefined` when none
+ * exists / it is inside the freshness margin of expiry. Never hits the
+ * network -- Story 2.4's "Reuse" row. */
+export async function getFreshAnchorJwt(
+  db: Db,
+  walletAddress: string,
+  deps: Pick<GetOrRefreshAnchorJwtDeps, "now"> = {},
+): Promise<string | undefined> {
+  const now = deps.now ?? (() => Date.now());
+  const cached = await getAnchorJwt(db, walletAddress);
+  if (cached && cached.expiresAt > now() + CACHE_FRESHNESS_MARGIN_MS) {
+    return cached.jwt;
+  }
+  return undefined;
+}
+
+/** Throws {@link AnchorAuthRequiredError} when the wallet has no still-valid
+ * cached anchor JWT -- the deposit/poll/simulate path never silently
+ * starts a new challenge (the client must sign that). */
+export async function requireFreshAnchorJwt(
+  db: Db,
+  walletAddress: string,
+  deps: Pick<GetOrRefreshAnchorJwtDeps, "now"> = {},
+): Promise<string> {
+  const token = await getFreshAnchorJwt(db, walletAddress, deps);
+  if (!token) {
+    throw new AnchorAuthRequiredError();
+  }
+  return token;
+}
+
+export interface BeginAnchorSep10Result {
+  /** `true` when a still-valid cached JWT exists -- no challenge to sign. */
+  authenticated: boolean;
+  unsignedXdr?: string;
+}
+
+/** Story 2.4: either reuses a fresh cached JWT or returns the unsigned
+ * challenge XDR for the client to sign in their wallet. */
+export async function beginAnchorSep10(
+  db: Db,
+  walletAddress: string,
+  deps: GetOrRefreshAnchorJwtDeps = {},
+): Promise<BeginAnchorSep10Result> {
+  if (await getFreshAnchorJwt(db, walletAddress, deps)) {
+    return { authenticated: true };
+  }
+  const endpoints = await discoverAnchorSepEndpoints(config.anchorHomeDomain, deps.tomlFetch);
+  const { unsignedXdr } = await fetchAnchorSep10Challenge(
+    {
+      webAuthEndpoint: endpoints.webAuthEndpoint,
+      signingKey: endpoints.signingKey,
+      homeDomain: config.anchorHomeDomain,
+      networkPassphrase: config.stellarNetworkPassphrase,
+      account: walletAddress,
+    },
+    deps.sep10Fetch,
+  );
+  return { authenticated: false, unsignedXdr };
+}
+
+/** Story 2.4: submits the client-signed challenge, stores the JWT, never
+ * returns the token to the caller (AD-5). */
+export async function completeAnchorSep10(
+  db: Db,
+  walletAddress: string,
+  signedXdr: string,
+  deps: GetOrRefreshAnchorJwtDeps = {},
+): Promise<void> {
+  const now = deps.now ?? (() => Date.now());
+  const endpoints = await discoverAnchorSepEndpoints(config.anchorHomeDomain, deps.tomlFetch);
+  const { token, expiresAt } = await submitAnchorSep10Challenge(
+    {
+      webAuthEndpoint: endpoints.webAuthEndpoint,
+      signingKey: endpoints.signingKey,
+      homeDomain: config.anchorHomeDomain,
+      networkPassphrase: config.stellarNetworkPassphrase,
+      account: walletAddress,
+      signedXdr,
+    },
+    deps.sep10Fetch,
+  );
+  await upsertAnchorJwt(db, { walletAddress, jwt: token, expiresAt, updatedAt: now() });
 }
