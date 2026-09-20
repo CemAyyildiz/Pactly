@@ -105,6 +105,132 @@
   border-bottom-color: var(--color-ink);
 }
 
+/* ---------- "List your shop": the application form and its status ---------- */
+
+.apply-steps {
+  list-style: none;
+  counter-reset: apply-step;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+
+.apply-steps li {
+  counter-increment: apply-step;
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  background: var(--color-card);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+}
+
+.apply-steps li::before {
+  content: counter(apply-step, decimal-leading-zero);
+  font-family: var(--font-display);
+  font-size: var(--text-24);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--color-warm);
+  flex: none;
+  min-width: 2ch;
+}
+
+.apply-steps b {
+  display: block;
+  color: var(--color-ink);
+  margin-bottom: 2px;
+}
+
+.apply-steps p {
+  margin: 0;
+  font-size: var(--text-14);
+  color: var(--color-muted);
+}
+
+.apply-form {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.apply-form__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+}
+
+@media (max-width: 700px) {
+  .apply-form__row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.field select,
+.field textarea {
+  min-height: 40px;
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1.5px solid var(--color-rule-strong);
+  border-radius: 0;
+  background: transparent;
+  font-size: var(--text-16);
+  font-family: inherit;
+  color: var(--color-ink);
+  resize: vertical;
+}
+
+.field select:focus,
+.field textarea:focus {
+  outline: none;
+  border-bottom-color: var(--color-ink);
+}
+
+.field__hint {
+  font-size: var(--text-13);
+  color: var(--color-muted);
+  margin: 0;
+}
+
+.apply-status {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+
+.apply-status svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.apply-status--pending svg {
+  color: var(--color-warm);
+}
+
+.apply-status--approved svg {
+  color: var(--color-ok);
+}
+
+.apply-status--rejected svg {
+  color: var(--color-alert);
+}
+
+.apply-status h2 {
+  margin: 0 0 var(--space-2);
+}
+
+.apply-status p {
+  margin: 0 0 var(--space-3);
+  color: var(--color-body);
+}
+
+.apply-status__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
 /* ---------- Trust strip ---------- */
 
 .editorial-trust {

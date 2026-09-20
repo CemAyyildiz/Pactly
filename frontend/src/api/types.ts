@@ -364,3 +364,58 @@ export interface AnchorChallengeResponse {
   authenticated: boolean;
   unsignedXdr?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Story 4.1/4.2: "List your shop". Mirrors `backend/src/services/
+// providerApplications.ts`'s view shapes exactly.
+// ---------------------------------------------------------------------------
+
+export type ProviderApplicationState = "pending" | "approved" | "rejected";
+
+export interface ProviderApplication {
+  id: string;
+  state: ProviderApplicationState;
+  name: string;
+  title: string;
+  category: Category;
+  serviceDescription: string;
+  sessionFormat: string;
+  sessionLengthMinutes: number;
+  price: Money;
+  deposit: Money;
+  depositRateBps: number;
+  cancellationWindowHours: number;
+  rejectionReason: string | null;
+  /** UTC epoch milliseconds. */
+  createdAt: number;
+  decisionAt: number | null;
+  profileId: string | null;
+}
+
+export interface AdminProviderApplication extends ProviderApplication {
+  walletAddress: string;
+}
+
+export interface ProviderApplicationInput {
+  name: string;
+  title: string;
+  categoryId: string;
+  location: string;
+  serviceDescription: string;
+  sessionFormat: string;
+  sessionLengthMinutes: number;
+  /** Integer string, smallest unit (AD-7). */
+  priceAmount: string;
+  depositRateBps: number;
+  cancellationWindowHours: number;
+}
+
+export interface OwnProviderApplicationResponse {
+  application: ProviderApplication;
+}
+
+export interface AdminApplicationsResponse {
+  applications: AdminProviderApplication[];
+}
+
+export type ProviderApplicationOutcome = "approve" | "reject";

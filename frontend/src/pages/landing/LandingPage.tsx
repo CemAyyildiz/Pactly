@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { ArrowRightIcon, CalendarBlankIcon, LockKeyIcon, ShieldCheckIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon, CalendarBlankIcon, CheckCircleIcon, LockKeyIcon, ShieldCheckIcon, StorefrontIcon } from "@phosphor-icons/react";
 
 import { providerPhotoSrc } from "../../lib/providerPhotos";
 
@@ -47,7 +47,7 @@ export function LandingPage() {
               <Link to="/discover" className="button-primary" style={{ textDecoration: "none" }}>
                 Explore providers
               </Link>
-              <Link to="/panel/availability" className="button-ghost" style={{ textDecoration: "none" }}>
+              <Link to="/providers/apply" className="button-ghost" style={{ textDecoration: "none" }}>
                 List your shop
               </Link>
             </div>
@@ -121,6 +121,49 @@ export function LandingPage() {
                 first for a transparent, chain-backed resolution.
               </p>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="landing__section">
+        <div className="landing__section-inner">
+          <div className="landing__section-head">
+            <div className="eyebrow-label">For shops</div>
+            <h2>The other half of every booking</h2>
+          </div>
+          <div className="landing__steps">
+            <div className="landing__step">
+              <span className="landing__step-num-ghost">01</span>
+              <div className="landing__step-icon">
+                <StorefrontIcon size={22} aria-hidden="true" />
+              </div>
+              <h3>See who locked a chair</h3>
+              <p>Incoming holds and deposits land in your panel — the slot is yours until the policy says otherwise.</p>
+            </div>
+            <div className="landing__step">
+              <span className="landing__step-num-ghost">02</span>
+              <div className="landing__step-icon">
+                <CheckCircleIcon size={22} aria-hidden="true" />
+              </div>
+              <h3>Mark the appointment complete</h3>
+              <p>You declare it happened. The client approves. Neither of you can move the deposit alone.</p>
+            </div>
+            <div className="landing__step">
+              <span className="landing__step-num-ghost">03</span>
+              <div className="landing__step-icon">
+                <ShieldCheckIcon size={22} aria-hidden="true" />
+              </div>
+              <h3>Deposit releases to you</h3>
+              <p>Sign release and the escrow pays out. Set your price, deposit rate and open slots under Availability.</p>
+            </div>
+          </div>
+          <div className="landing__hero-ctas" style={{ marginTop: 28 }}>
+            <Link to="/panel/bookings" className="button-primary" style={{ textDecoration: "none" }}>
+              Open provider panel
+            </Link>
+            <Link to="/providers/apply" className="button-ghost" style={{ textDecoration: "none" }}>
+              List your shop
+            </Link>
           </div>
         </div>
       </section>
@@ -201,7 +244,7 @@ export function LandingPage() {
             <Link to="/discover" className="button-primary" style={{ textDecoration: "none" }}>
               Explore providers
             </Link>
-            <Link to="/panel/availability" className="landing__cta-ghost" style={{ textDecoration: "none" }}>
+            <Link to="/providers/apply" className="landing__cta-ghost" style={{ textDecoration: "none" }}>
               List your shop
             </Link>
           </div>

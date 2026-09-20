@@ -85,11 +85,12 @@ export function BookingsPage() {
     return (
       <div className="page">
         <div className="banner" role="status">
-          <p>
-            {notAProvider
-              ? "This wallet doesn't have a provider profile yet. Becoming a provider is a separate step, coming in a later update."
-              : "Connection dropped. Try again."}
-          </p>
+          <p>{notAProvider ? "This wallet doesn't have a provider profile yet." : "Connection dropped. Try again."}</p>
+          {notAProvider && (
+            <Link to="/providers/apply" className="button-primary" style={{ textDecoration: "none", marginTop: "var(--space-3)" }}>
+              List your shop
+            </Link>
+          )}
         </div>
         <button type="button" className="button-ghost" onClick={handleSignOut} style={{ marginTop: "var(--space-4)" }}>
           Sign out

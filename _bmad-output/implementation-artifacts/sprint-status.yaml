@@ -69,8 +69,8 @@ development_status:
   epic-3-retrospective: optional
 
   epic-4: backlog
-  4-1-provider-application-flow: backlog
-  4-2-admin-approval-queue: backlog
+  4-1-provider-application-flow: done
+  4-2-admin-approval-queue: done
   4-3-verified-session-counter: backlog
   4-4-reviews: backlog
   epic-4-retrospective: optional

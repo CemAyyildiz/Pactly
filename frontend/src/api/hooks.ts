@@ -28,6 +28,11 @@ import type {
   AnchorChallengeResponse,
   LocalDepositView,
   OpenLocalDepositResponse,
+  AdminApplicationsResponse,
+  AdminProviderApplication,
+  OwnProviderApplicationResponse,
+  ProviderApplicationInput,
+  ProviderApplicationOutcome,
 } from "./types";
 import type { Session } from "../wallet";
 
@@ -400,4 +405,64 @@ export function getLocalDeposit(bookingId: string, session: Session): Promise<Lo
 
 export function simulateLocalDeposit(bookingId: string, session: Session): Promise<LocalDepositView> {
   return apiPost<LocalDepositView>(`/bookings/${bookingId}/deposit/local/simulate`, {}, session.token);
+}
+
+// ---------------------------------------------------------------------------
+// Story 4.1/4.2: "List your shop" -- the wallet's own application, the
+// submit, and the admin queue.
+// ---------------------------------------------------------------------------
+
+const OWN_APPLICATION_KEY = (walletAddress: string | undefined) => ["me", "provider", "application", walletAddress] as const;
+
+/** `null` means "signed in, never applied" -- the form's own starting
+ * state, not an error. */
+export function useOwnProviderApplication(session: Session | undefined) {
+  return useQuery({
+    queryKey: OWN_APPLICATION_KEY(session?.walletAddress),
+    queryFn: async () => {
+      try {
+        const response = await apiGet<OwnProviderApplicationResponse>("/me/provider/application", session?.token);
+        return response.application;
+      } catch (error) {
+        if (error instanceof ApiError && error.code === "NO_APPLICATION") {
+          return null;
+        }
+        throw error;
+      }
+    },
+    enabled: Boolean(session),
+    retry: false,
+  });
+}
+
+export function useSubmitProviderApplication(session: Session | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ProviderApplicationInput) =>
+      apiPost<OwnProviderApplicationResponse>("/me/provider/application", input, session?.token),
+    onSuccess: (response) => {
+      queryClient.setQueryData(OWN_APPLICATION_KEY(session?.walletAddress), response.application);
+      // Applying creates the (unapproved) profile -- the panel's own query
+      // must not keep serving a cached NOT_A_PROVIDER.
+      void queryClient.invalidateQueries({ queryKey: OWN_PROVIDER_KEY(session?.walletAddress) });
+    },
+  });
+}
+
+export function useAdminApplications(session: Session | undefined) {
+  return useQuery({
+    queryKey: ["admin", "applications", session?.walletAddress],
+    queryFn: () => apiGet<AdminApplicationsResponse>("/admin/applications", session?.token),
+    enabled: Boolean(session),
+    retry: false,
+  });
+}
+
+export function decideProviderApplication(
+  id: string,
+  outcome: ProviderApplicationOutcome,
+  session: Session,
+  reason?: string,
+): Promise<{ application: AdminProviderApplication }> {
+  return apiPost<{ application: AdminProviderApplication }>(`/admin/applications/${id}/decide`, { outcome, reason }, session.token);
 }

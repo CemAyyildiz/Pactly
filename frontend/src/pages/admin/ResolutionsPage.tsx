@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { ScalesIcon } from "@phosphor-icons/react";
 
 import { ApiError } from "../../api/client";
@@ -253,9 +254,12 @@ export function ResolutionsPage() {
         icon={<ScalesIcon size={14} weight="bold" aria-hidden="true" />}
         title="Resolutions"
         actions={
-          <button type="button" className="button-ghost" onClick={handleSignOut}>
-            Sign out
-          </button>
+          <>
+            <Link to="/admin/applications">Applications</Link>
+            <button type="button" className="button-ghost" onClick={handleSignOut}>
+              Sign out
+            </button>
+          </>
         }
       />
 
