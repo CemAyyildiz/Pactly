@@ -330,3 +330,37 @@ export interface QuoteResponse {
   quotedAt: number;
   spreadApplied: true;
 }
+
+// ---------------------------------------------------------------------------
+// Story 2.4: SEP-6 local-currency deposit. Mirrors
+// `backend/src/services/localDeposit.ts`'s `LocalDepositView`.
+// ---------------------------------------------------------------------------
+
+export interface BankDetails {
+  iban?: string;
+  organization?: string;
+  reference?: string;
+  how?: string;
+  extraMessage?: string;
+}
+
+export type LocalDepositStatus = "waiting" | "paying" | "received" | "failed" | "needs_trustline";
+
+export interface LocalDepositView {
+  status: LocalDepositStatus;
+  statusLabel: string;
+  bankDetails: BankDetails;
+  moreInfoUrl?: string;
+  expiresAt?: number;
+  holdExpiresAt: number | null;
+  sandbox: boolean;
+  stale?: boolean;
+  reason?: string;
+}
+
+export type OpenLocalDepositResponse = { needsTrustline: true; unsignedXdr: string } | (LocalDepositView & { needsTrustline?: false });
+
+export interface AnchorChallengeResponse {
+  authenticated: boolean;
+  unsignedXdr?: string;
+}

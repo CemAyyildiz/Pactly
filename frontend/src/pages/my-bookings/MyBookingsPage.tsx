@@ -132,6 +132,11 @@ export function MyBookingsPage() {
               session={session}
               onActionSubmitted={() => bookingsQuery.refetch()}
               onUnauthorized={handleSignOut}
+              continueHref={
+                booking.escrowState === null && booking.slotStartsAt !== null
+                  ? `/book/${booking.provider.id}?slot=${booking.slotStartsAt}`
+                  : undefined
+              }
             />
           ))}
         </div>

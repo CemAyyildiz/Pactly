@@ -3,21 +3,28 @@ import { Link, useParams, useSearchParams } from "react-router";
 
 import {
   fundDepositWithRetry,
+  getLocalDeposit,
   lockDeposit,
+  openLocalDeposit,
+  requestAnchorChallenge,
+  simulateLocalDeposit,
+  submitLocalDepositTrustline,
   submitSignedTransaction,
   useBooking,
   useHoldSlot,
   usePublicProviderProfile,
+  verifyAnchorChallenge,
 } from "../../api/hooks";
 import { ApiError } from "../../api/client";
-import type { HoldSlotResponse } from "../../api/types";
+import type { HoldSlotResponse, LocalDepositView } from "../../api/types";
 import { DepositPill } from "../../components/DepositPill";
 import { EscrowLane } from "../../components/EscrowLane";
 import { IndicativeEquivalent } from "../../components/IndicativeEquivalent";
+import { LocalCurrencyPanel, localDepositErrorMessage } from "../../components/LocalCurrencyPanel";
 import { LockButton } from "../../components/LockButton";
 import { ProviderHeader } from "../../components/ProviderHeader";
 import { Seal } from "../../components/Seal";
-import { LOCAL_CURRENCY_UNAVAILABLE_NOTE, formatMoney } from "../../lib/money";
+import { formatMoney } from "../../lib/money";
 import { formatSlotDay, formatSlotTime } from "../../lib/time";
 import { getSession, signIn, signOut, signXdr, type Session } from "../../wallet";
 
@@ -98,6 +105,10 @@ export function BookingPage() {
   const [flowNotice, setFlowNotice] = useState<string | undefined>();
   const [flowFatalError, setFlowFatalError] = useState<string | undefined>();
   const [needsSignIn, setNeedsSignIn] = useState(false);
+  const [payMethod, setPayMethod] = useState<"wallet" | "local">("wallet");
+  const [localDeposit, setLocalDeposit] = useState<LocalDepositView | undefined>();
+  const [localBusy, setLocalBusy] = useState(false);
+  const [localNotice, setLocalNotice] = useState<string | undefined>();
 
   // Review follow-up: the flow's own "engine" state (which contractId is in
   // play, whether a deploy has actually been submitted) lives in a ref, not
@@ -112,6 +123,8 @@ export function BookingPage() {
   // concurrent one.
   const inFlightRef = useRef(false);
   const reconcileStartedAtRef = useRef<number | undefined>(undefined);
+
+  const resumeAttemptedRef = useRef(false);
 
   const isLocked = phase === "locked";
   const booking = useBooking(hold?.bookingId, session, {
@@ -157,6 +170,27 @@ export function BookingPage() {
     }
   }, [phase, booking.data?.escrowState]);
 
+  // Story 2.4: poll the local-currency transfer while it is waiting, so
+  // a completed (or simulated) bank transfer surfaces as "Money received"
+  // without a reload. 4s is coarse enough not to hammer the anchor.
+  useEffect(() => {
+    if (!hold || !session || payMethod !== "local" || !localDeposit) return;
+    if (localDeposit.status !== "waiting" && localDeposit.status !== "paying" && localDeposit.status !== "needs_trustline") return;
+    const interval = setInterval(() => {
+      void getLocalDeposit(hold.bookingId, session)
+        .then((next) => {
+          setLocalDeposit(next);
+          if (next.holdExpiresAt) {
+            setHold((current) => (current ? { ...current, holdExpiresAt: next.holdExpiresAt ?? current.holdExpiresAt } : current));
+          }
+        })
+        .catch(() => {
+          /* last known status stays on screen */
+        });
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [hold, session, payMethod, localDeposit]);
+
   // Review follow-up: after 3 minutes without `locked`, stop implying an
   // endless spinner is normal -- the deposit is still safe (the reconciler
   // keeps trying independently of this tab), just say so plainly.
@@ -167,6 +201,51 @@ export function BookingPage() {
       return () => clearTimeout(timer);
     }
   }, [phase]);
+
+  // A signed-in client who already holds this slot (refresh, My bookings
+  // continue, or a second visit) gets that hold back without tapping Hold
+  // again. The hold endpoint is idempotent for the same wallet + slot.
+  useEffect(() => {
+    if (resumeAttemptedRef.current) return;
+    if (!session || !providerId || slotStartsAt === undefined || hold) return;
+    resumeAttemptedRef.current = true;
+    void holdMutation
+      .mutateAsync({ providerId, slotStartsAt, token: session.token, tzOffsetMinutes: new Date().getTimezoneOffset() })
+      .then((result) => {
+        setHold(result);
+        setHoldEndedWhileIdle(false);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ApiError && error.status === 401) {
+          resumeAttemptedRef.current = false;
+          handleUnauthorized();
+          return;
+        }
+        if (error instanceof ApiError && error.code === "TOO_MANY_HOLDS") {
+          setHoldError({
+            message: "You already have other slots on hold. Continue one from My bookings.",
+          });
+          return;
+        }
+        resumeAttemptedRef.current = false;
+      });
+  }, [session, providerId, slotStartsAt, hold, holdMutation]);
+
+  // Restore an in-flight local-currency transfer after hold resume.
+  useEffect(() => {
+    if (!hold || !session) return;
+    let cancelled = false;
+    void getLocalDeposit(hold.bookingId, session)
+      .then((view) => {
+        if (!cancelled) setLocalDeposit(view);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ApiError && (error.code === "BOOKING_STATE" || error.status === 409)) return;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hold, session]);
 
   function handleUnauthorized(): void {
     signOut();
@@ -215,7 +294,9 @@ export function BookingPage() {
           return;
         }
         if (error.code === "TOO_MANY_HOLDS") {
-          setHoldError({ message: error.message });
+          setHoldError({
+            message: "You already have slots on hold. Open My bookings and continue one of those — don't hold a new slot.",
+          });
           return;
         }
       }
@@ -387,6 +468,106 @@ export function BookingPage() {
     void runLockFlow({ rebuild: true });
   }
 
+  async function ensureAnchorAuth(activeSession: Session, bookingId: string): Promise<boolean> {
+    const challenge = await requestAnchorChallenge(bookingId, activeSession);
+    if (challenge.authenticated || !challenge.unsignedXdr) {
+      return true;
+    }
+    let signed: string;
+    try {
+      signed = await signXdr(challenge.unsignedXdr, activeSession.walletAddress);
+    } catch {
+      setLocalNotice(`You didn't sign. The slot is still yours for ${formatCountdown(holdSecondsLeft)}.`);
+      return false;
+    }
+    await verifyAnchorChallenge(bookingId, signed, activeSession);
+    return true;
+  }
+
+  async function applyLocalDepositResponse(
+    activeSession: Session,
+    bookingId: string,
+    result: Awaited<ReturnType<typeof openLocalDeposit>>,
+  ): Promise<void> {
+    if ("needsTrustline" in result && result.needsTrustline) {
+      setLocalNotice("Getting your wallet ready");
+      let signed: string;
+      try {
+        signed = await signXdr(result.unsignedXdr, activeSession.walletAddress);
+      } catch {
+        setLocalNotice(`You didn't sign. The slot is still yours for ${formatCountdown(holdSecondsLeft)}.`);
+        return;
+      }
+      const opened = await submitLocalDepositTrustline(bookingId, signed, activeSession);
+      if ("needsTrustline" in opened && opened.needsTrustline) {
+        setLocalNotice("Getting your wallet ready did not finish. Try again.");
+        return;
+      }
+      setLocalDeposit(opened);
+      if (opened.holdExpiresAt) {
+        setHold((current) => (current ? { ...current, holdExpiresAt: opened.holdExpiresAt ?? current.holdExpiresAt } : current));
+      }
+      return;
+    }
+    setLocalDeposit(result);
+    if (result.holdExpiresAt) {
+      setHold((current) => (current ? { ...current, holdExpiresAt: result.holdExpiresAt ?? current.holdExpiresAt } : current));
+    }
+  }
+
+  async function startLocalCurrency(): Promise<void> {
+    if (!hold || !session) return;
+    setLocalBusy(true);
+    setLocalNotice(undefined);
+    setHoldError(undefined);
+    try {
+      const authed = await ensureAnchorAuth(session, hold.bookingId);
+      if (!authed) return;
+      const result = await openLocalDeposit(hold.bookingId, session);
+      await applyLocalDepositResponse(session, hold.bookingId, result);
+    } catch (error) {
+      const message = localDepositErrorMessage(error);
+      if (message === "unauthorized") {
+        handleUnauthorized();
+        return;
+      }
+      if (error instanceof ApiError && error.code === "HOLD_EXPIRED") {
+        setHold(undefined);
+        setHoldError({ message });
+        setPhase("idle");
+        return;
+      }
+      setLocalNotice(message);
+    } finally {
+      setLocalBusy(false);
+    }
+  }
+
+  async function handleSimulate(): Promise<void> {
+    if (!hold || !session) return;
+    setLocalBusy(true);
+    setLocalNotice(undefined);
+    try {
+      const result = await simulateLocalDeposit(hold.bookingId, session);
+      setLocalDeposit(result);
+      if (result.holdExpiresAt) {
+        setHold((current) => (current ? { ...current, holdExpiresAt: result.holdExpiresAt ?? current.holdExpiresAt } : current));
+      }
+    } catch (error) {
+      const message = localDepositErrorMessage(error);
+      if (message === "unauthorized") {
+        handleUnauthorized();
+        return;
+      }
+      setLocalNotice(message);
+    } finally {
+      setLocalBusy(false);
+    }
+  }
+
+  const localReceived = localDeposit?.status === "received";
+  const showLock = hold && (payMethod === "wallet" || localReceived);
+
   if (!providerId || slotStartsAt === undefined) {
     return (
       <div className="page">
@@ -476,46 +657,143 @@ export function BookingPage() {
             </p>
           </div>
 
-          <div className="payment-method">
-            <div className="payment-method__option payment-method__option--selected">
-              <span>Wallet · USDC</span>
-            </div>
-            <div className="payment-method__option payment-method__option--disabled">
-              <span>{LOCAL_CURRENCY_UNAVAILABLE_NOTE}</span>
-            </div>
-          </div>
-
           {needsSignIn && (
             <div className="banner banner--alert" role="alert">
               <p>Your session ended. Sign in again to continue.</p>
             </div>
           )}
 
+          {holdError && (
+            <div className="banner banner--alert" role="alert">
+              <p>{holdError.message}</p>
+              {holdError.message.includes("My bookings") && (
+                <p style={{ marginTop: "var(--space-3)" }}>
+                  <Link to="/me/bookings">Open My bookings</Link>
+                </p>
+              )}
+              {holdError.sameDaySlots && holdError.sameDaySlots.length > 0 && (
+                <div className="slot-day__chips" style={{ marginTop: "var(--space-3)" }}>
+                  {holdError.sameDaySlots.map((startsAt) => (
+                    <Link key={startsAt} to={`/book/${providerId}?slot=${startsAt}`} className="slot-chip tabular-nums">
+                      {formatSlotTime(startsAt)}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {!hold && (
-            <>
+            <div className="booking-pay">
+              <p className="booking-step">Step 1 · Hold the slot</p>
               {holdEndedWhileIdle && (
                 <div className="banner" role="status">
                   <p>Your hold ended. Hold this slot again.</p>
                 </div>
               )}
-              {holdError && (
-                <div className="banner banner--alert" role="alert">
-                  <p>{holdError.message}</p>
-                  {holdError.sameDaySlots && holdError.sameDaySlots.length > 0 && (
-                    <div className="slot-day__chips" style={{ marginTop: "var(--space-3)" }}>
-                      {holdError.sameDaySlots.map((startsAt) => (
-                        <Link key={startsAt} to={`/book/${providerId}?slot=${startsAt}`} className="slot-chip tabular-nums">
-                          {formatSlotTime(startsAt)}
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
               <button type="button" className="button-primary" onClick={ensureSessionAndHold} disabled={connecting || holdMutation.isPending}>
                 {connecting ? "Connect your wallet…" : holdMutation.isPending ? "Holding your slot…" : session ? "Hold this slot" : "Connect wallet and hold"}
               </button>
-            </>
+            </div>
+          )}
+
+          {hold && !isLocked && (
+            <div className="booking-pay">
+              <p className="booking-step">Step 1 · Slot held{holdSecondsLeft !== undefined ? ` · ${formatCountdown(holdSecondsLeft)} left` : ""}</p>
+              <p className="booking-step">Step 2 · How you'll pay</p>
+              <div className="payment-method" role="radiogroup" aria-label="How you'll pay">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={payMethod === "wallet"}
+                  className={`payment-method__option${payMethod === "wallet" ? " payment-method__option--selected" : ""}`}
+                  onClick={() => setPayMethod("wallet")}
+                  disabled={localDeposit?.status === "received"}
+                >
+                  <span className="payment-method__title">Wallet · USDC</span>
+                  <span className="payment-method__hint">Pay from your wallet and lock now.</span>
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={payMethod === "local"}
+                  className={`payment-method__option${payMethod === "local" ? " payment-method__option--selected" : ""}`}
+                  onClick={() => setPayMethod("local")}
+                >
+                  <span className="payment-method__title">Bank transfer · TRY</span>
+                  <span className="payment-method__hint">Sandbox local-currency rail, then lock.</span>
+                </button>
+              </div>
+
+              {payMethod === "wallet" && (
+                <div className="booking-pay__action">
+                  <p className="booking-step">Step 3 · Lock the deposit</p>
+                  <p className="local-deposit__how">Approve the wallet prompts. The deposit stays in escrow until the appointment is settled.</p>
+                  {phase === "deploy-failed" ? (
+                    <button type="button" className="button-primary" onClick={tryAgainAfterFailedDeploy}>
+                      Try again
+                    </button>
+                  ) : (
+                    <LockButton
+                      waitingOn={waitingOn}
+                      disabled={busy && !waitingOn}
+                      onClick={() => void runLockFlow()}
+                      onOpenWalletAgain={() => void retryPendingSignature()}
+                    />
+                  )}
+                  {phase === "reconciling-slow" && (
+                    <p className="escrow-lane__notice" aria-live="polite">
+                      This is taking longer than usual. Your deposit is safe; check My bookings shortly.
+                    </p>
+                  )}
+                  {flowNotice && (
+                    <p className="escrow-lane__notice" aria-live="polite">
+                      {flowNotice}
+                    </p>
+                  )}
+                  {flowFatalError && (
+                    <p className="escrow-lane__notice escrow-lane__notice--alert" role="alert">
+                      {flowFatalError}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {payMethod === "local" && (
+                <div className="booking-pay__action">
+                  <p className="booking-step">Step 3 · Send TRY</p>
+                  {!localDeposit && (
+                    <button type="button" className="button-primary" onClick={() => void startLocalCurrency()} disabled={localBusy}>
+                      {localBusy ? "Opening the transfer…" : "Get bank details"}
+                    </button>
+                  )}
+                  {localDeposit && (
+                    <LocalCurrencyPanel
+                      deposit={localDeposit}
+                      busy={localBusy}
+                      onSimulate={() => void handleSimulate()}
+                      onUseWallet={() => setPayMethod("wallet")}
+                    />
+                  )}
+                  {localReceived && (
+                    <>
+                      <p className="booking-step">Step 4 · Lock the deposit</p>
+                      <LockButton
+                        waitingOn={waitingOn}
+                        disabled={busy && !waitingOn}
+                        onClick={() => void runLockFlow()}
+                        onOpenWalletAgain={() => void retryPendingSignature()}
+                      />
+                    </>
+                  )}
+                  {localNotice && (
+                    <p className="escrow-lane__notice" aria-live="polite">
+                      {localNotice}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </section>
 
@@ -525,9 +803,9 @@ export function BookingPage() {
           holdCountdownLabel={hold && !isLocked ? formatCountdown(holdSecondsLeft) : undefined}
           contractId={engineRef.current.contractId}
           showProof={isLocked}
-          stateLabel={escrowStateLabel(phase)}
+          stateLabel={!hold ? "Hold the slot to pay" : escrowStateLabel(phase)}
         >
-          {hold && !isLocked && (
+          {showLock && !isLocked && (
             <>
               {phase === "deploy-failed" ? (
                 <button type="button" className="button-escrow" onClick={tryAgainAfterFailedDeploy}>

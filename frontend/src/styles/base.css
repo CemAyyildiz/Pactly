@@ -1434,7 +1434,7 @@ button {
 }
 
 .payment-method {
-  margin-top: var(--space-4);
+  margin-top: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -1444,16 +1444,32 @@ button {
   background: var(--color-card);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-sm);
-  padding: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   font-size: var(--text-14);
   color: var(--color-body);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  min-height: 44px;
+}
+
+.payment-method__title {
+  display: block;
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.payment-method__hint {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--text-12);
+  font-weight: 400;
+  color: var(--color-muted);
 }
 
 .payment-method__option--selected {
   border-color: var(--color-ink);
   box-shadow: inset 3px 0 0 var(--color-stellar);
-  color: var(--color-ink);
-  font-weight: 600;
 }
 
 .payment-method__option--disabled {
@@ -1461,6 +1477,116 @@ button {
   font-weight: 400;
   background: #fbfaf8;
   cursor: not-allowed;
+}
+
+.payment-method__option:disabled {
+  cursor: not-allowed;
+}
+
+.booking-pay {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-rule);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.booking-step {
+  margin: 0;
+  font-family: var(--font-label);
+  font-size: var(--text-11);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  font-weight: 500;
+}
+
+.booking-pay__action {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+
+.booking-pay .lock-button-group {
+  align-items: stretch;
+}
+
+.booking-pay .lock-button-group__hint,
+.booking-pay .escrow-lane__notice {
+  color: var(--color-body);
+}
+
+.booking-pay .lock-button-group__retry {
+  color: var(--color-ink);
+  border-color: var(--color-rule);
+}
+
+.local-deposit-wrap {
+  margin-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.local-deposit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.local-deposit__status {
+  font-weight: 600;
+  color: var(--color-ink);
+  margin: 0;
+}
+
+.local-deposit__details {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  font-size: var(--text-14);
+}
+
+.local-deposit__details dt {
+  color: var(--color-muted);
+  padding-top: 6px;
+}
+
+.local-deposit__details dd {
+  margin: 0;
+  color: var(--color-ink);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.copy-chip {
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  background: var(--color-card);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: var(--text-12);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.copy-chip:hover {
+  background: var(--color-stellar-soft);
+}
+
+.local-deposit__how,
+.local-deposit__reason {
+  margin: 0;
+  font-size: var(--text-14);
+  color: var(--color-body);
 }
 
 .escrow-lane {

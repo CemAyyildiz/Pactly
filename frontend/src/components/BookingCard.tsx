@@ -1,3 +1,5 @@
+import { Link } from "react-router";
+
 import { BookingActions } from "./BookingActions";
 import { Countdown } from "./Countdown";
 import { StateLabel } from "./StateLabel";
@@ -48,6 +50,8 @@ export interface BookingCardProps {
   /** A 401 from any action -- the caller's own sign-out-and-prompt-again
    * flow (mirrors 3.4's `handleUnauthorized`). */
   onUnauthorized?: () => void;
+  /** Held, not yet locked: resume the booking screen for this slot. */
+  continueHref?: string;
 }
 
 /** The balance row's own three-state wording (Epic 3 context: "Balance
@@ -87,6 +91,7 @@ export function BookingCard({
   session,
   onActionSubmitted,
   onUnauthorized,
+  continueHref,
 }: BookingCardProps) {
   return (
     <article className="booking-card">
@@ -126,6 +131,12 @@ export function BookingCard({
       )}
 
       <Countdown cancelDeadline={cancelDeadline} />
+
+      {continueHref && (
+        <Link to={continueHref} className="button-primary" style={{ textDecoration: "none", display: "inline-flex", marginTop: "var(--space-3)" }}>
+          Continue booking
+        </Link>
+      )}
 
       {contractId && (
         <a className="booking-card__explorer-link" href={stellarExplorerContractUrl(contractId)} target="_blank" rel="noreferrer">

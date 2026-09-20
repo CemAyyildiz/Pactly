@@ -112,7 +112,7 @@ Seven steps a presenter can run through in about five minutes. Reset first (`npm
 
 1. **Discover** (no wallet) — open <http://localhost:5173>. Browse categories (therapy, education, consulting, fitness and beauty); each provider card shows the deposit pill (amount + free-cancellation window) and its next open slots.
 2. **Provider profile** (no wallet) — open Marmara Hair Clinic's profile (`/providers/demo-marmara-hair-clinic`), the hero scenario. Pick a slot.
-3. **Hold → Lock with Pactly** (**client wallet**) — on the booking screen (`/book/:providerId?slot=...`), review the summary, then tap **Continue** to connect a wallet and hold the slot for 10 minutes. Tap **Lock with Pactly**: two prompts follow, "Create your escrow" then "Lock your deposit" — both signed by the client. The screen reads "Locking with Pactly…" until the reconciler confirms funding on chain, then the seal stamps and the escrow proof (contract id, explorer link) appears.
+3. **Hold → Lock with Pactly** (**client wallet**) — on the booking screen (`/book/:providerId?slot=...`), review the summary, then connect a wallet and hold the slot. **Wallet · USDC** shows **Lock with Pactly** immediately. **Bank transfer · TRY** opens a SEP-6 deposit against the hackathon sandbox (`tr-mock-anchor.fly.dev`), shows bank details, and **Confirm TRY sent** (sandbox only). If the sandbox is slow to pay USDC, switch back to **Wallet · USDC** and lock. Two prompts follow, "Create your escrow" then "Lock your deposit" — both signed by the client. The screen reads "Locking with Pactly…" until the reconciler confirms funding on chain, then the seal stamps and the escrow proof (contract id, explorer link) appears.
 4. **My bookings** (**client wallet**) — <http://localhost:5173/me/bookings> shows the booking's escrow state (Funded) and balance state (unpaid) as two separate lines, plus the free-cancellation countdown.
 5. **Pay the balance** (**client wallet**) — still on `/me/bookings`, tap **Pay balance**. This signs a plain Stellar USDC payment straight to the provider (not an escrow action), independent of the deposit; the balance line moves to "paid through Pactly". As the provider at `/panel/bookings`, **Mark paid in person** is the alternative when a client pays in cash instead.
 6. **Complete → approve → release** (**provider wallet**, then **client wallet**, then **provider wallet**) — sign in as the provider at `/panel/bookings` and tap **Mark appointment complete**; sign in as the client at `/me/bookings` and tap **Approve**; back as the provider, tap **Release deposit**. Both sides read **Released** once the reconciler confirms it.
@@ -140,14 +140,14 @@ graph TD
   end
   subgraph chain["Stellar testnet"]
     RPC["Soroban RPC"]
-    ANCHOR["anchor · tr-mock-anchor.fly.dev<br/>SEP-1 (USDC asset discovery)"]
+    ANCHOR["anchor · tr-mock-anchor.fly.dev<br/>SEP-1 / SEP-10 / SEP-12 / SEP-6 / SEP-38<br/>(TRY ↔ USDC sandbox)"]
   end
 
   FE -->|"REST + Pactly JWT"| BE
   FE -->|"signed transaction"| TWAPI
   BE --> DB
   BE -->|"build unsigned XDR"| TWAPI
-  BE -->|"resolve USDC asset (SEP-1)"| ANCHOR
+  BE -->|"SEP-10/12/6 deposit, SEP-38 quote"| ANCHOR
   RC -->|"list/read escrow state"| TWAPI
   RC --> DB
   HX --> DB
@@ -190,7 +190,7 @@ Built against [`sprint-status.yaml`](_bmad-output/implementation-artifacts/sprin
 | Two-sided status panel, countdown, explorer link (Story 3.5) | **Built** | `escrow_state`/`balance_state` always shown separately |
 | Complete → approve → release, dispute → resolve (Story 3.6) | **Built** | `backend/src/app.ts`'s `/bookings/:id/{complete,approve,release,dispute}` and `/admin/bookings/:id/resolve`, wired to `frontend/src/components/BookingActions.tsx` |
 | Paying the balance before the session (Story 3.7) | **Built** | The client pays the balance in USDC directly to the provider (`POST /bookings/:id/balance/pay`+`/submit`, a plain Stellar payment independent of the escrow — `backend/src/payments/stellar.ts`); the provider can mark it paid in person (`/bookings/:id/balance/mark-cash`); both panels show unpaid / paid through Pactly / paid in person |
-| Local-currency pay-in / cash-out via SEP-6 (Stories 2.2–2.4) | **Not built** | The demo pays and settles entirely in USDC; the anchor's SEP-1/SEP-10 modules exist (Story 2.1) but SEP-6 deposit/withdraw routes do not |
+| Local-currency pay-in / cash-out via SEP-6 (Stories 2.2–2.4) | **Pay-in built; cash-out not built** | A client on the booking screen can pay the deposit in TRY via the hackathon sandbox (`tr-mock-anchor.fly.dev`): SEP-10 in their wallet, SEP-12 (auto-approved), SEP-6 deposit, then Lock with Pactly once the USDC lands. Provider cash-out (Story 2.3) is not built yet. |
 | Trustless Work live compatibility, real operator key (Story 1.8) | **In progress** | The adapter and reconciler are built and unit-tested against a fake Trustless Work server; no lock, release or resolve has yet run against a real operator key on testnet — the first live lock is unproven |
 | Provider application + admin approval queue (Epic 4) | **Not built** | Demo providers are seeded pre-approved (`backend/src/seed/demoData.ts`); there is no application form or approval queue yet |
 | Reviews, verified-session counter (Epic 4) | **Not built** | Vision-scoped, not started |
@@ -233,6 +233,8 @@ As required by the hackathon, planning and delivery were run with BMAD Method sk
 
 | Skill | Path |
 |---|---|
+| Stellar Wallets Kit | `frontend/src/wallet/index.ts` |
+| Anchors (SEP-1/6/10/12/38) | `backend/src/anchor/` — discovery, auth, quote, KYC, TRY deposit against `tr-mock-anchor.fly.dev` |
 | bmad-prd | `.claude/skills/bmad-prd/SKILL.md` |
 | bmad-ux | `.claude/skills/bmad-ux/SKILL.md` |
 | ui-ux-pro-max | `.claude/skills/ui-ux-pro-max/SKILL.md` |

@@ -25,6 +25,9 @@ import type {
   ResolveDisputeResponse,
   SubmitResponse,
   SuggestResponse,
+  AnchorChallengeResponse,
+  LocalDepositView,
+  OpenLocalDepositResponse,
 } from "./types";
 import type { Session } from "../wallet";
 
@@ -368,4 +371,33 @@ export function submitBalancePayment(bookingId: string, signedXdr: string, sessi
 
 export function markBalancePaidCash(bookingId: string, session: Session): Promise<{ ok: true }> {
   return apiPost<{ ok: true }>(`/bookings/${bookingId}/balance/mark-cash`, {}, session.token);
+}
+
+// ---------------------------------------------------------------------------
+// Story 2.4: local-currency deposit. Imperative like lock/fund -- each
+// step waits on a wallet signature, so these are plain async functions.
+// ---------------------------------------------------------------------------
+
+export function requestAnchorChallenge(bookingId: string, session: Session): Promise<AnchorChallengeResponse> {
+  return apiPost<AnchorChallengeResponse>(`/bookings/${bookingId}/anchor/challenge`, {}, session.token);
+}
+
+export function verifyAnchorChallenge(bookingId: string, signedXdr: string, session: Session): Promise<{ ok: true }> {
+  return apiPost<{ ok: true }>(`/bookings/${bookingId}/anchor/verify`, { signedXdr }, session.token);
+}
+
+export function openLocalDeposit(bookingId: string, session: Session): Promise<OpenLocalDepositResponse> {
+  return apiPost<OpenLocalDepositResponse>(`/bookings/${bookingId}/deposit/local`, {}, session.token);
+}
+
+export function submitLocalDepositTrustline(bookingId: string, signedXdr: string, session: Session): Promise<OpenLocalDepositResponse> {
+  return apiPost<OpenLocalDepositResponse>(`/bookings/${bookingId}/deposit/local/trustline`, { signedXdr }, session.token);
+}
+
+export function getLocalDeposit(bookingId: string, session: Session): Promise<LocalDepositView> {
+  return apiGet<LocalDepositView>(`/bookings/${bookingId}/deposit/local`, session.token);
+}
+
+export function simulateLocalDeposit(bookingId: string, session: Session): Promise<LocalDepositView> {
+  return apiPost<LocalDepositView>(`/bookings/${bookingId}/deposit/local/simulate`, {}, session.token);
 }
