@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Pactly — editorial direction</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Libre+Bodoni:ital,wght@0,400;0,500;0,600;1,400&family=Public+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --paper:#FAFAF9; --card:#FFFFFF; --ink:#1C1917; --body:#3B3733; --muted:#6F6862;
+  --rule:#E3DED6; --ruleStrong:#CFC8BE;
+  /* Stellar's own yellow (#FDDA24, "Generous Gold"). Too light to be text on
+     paper, so it never carries words here: it marks, underlines and sits
+     behind ink. --goldInk is the darkened tone used when a word must be gold. */
+  --stellar:#FDDA24; --stellarSoft:#FFF6D1; --goldInk:#8A6410;
+  --escrow:#14110F; --escrowInk:#F5F1EA; --alert:#9A3412;
+  --serif:"Libre Bodoni",Georgia,serif; --sans:"Public Sans",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--body);font-family:var(--sans);font-weight:400;font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 32px}
+@media(max-width:700px){.wrap{padding:0 20px}}
+a{color:inherit}
+.label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:500}
+.num{font-variant-numeric:tabular-nums}
+.serif{font-family:var(--serif);color:var(--ink);font-weight:400}
+
+/* masthead */
+.top{border-bottom:1px solid var(--rule);background:var(--paper);position:sticky;top:0;z-index:20}
+.top .wrap{display:flex;align-items:center;gap:24px;height:64px}
+.brand{font-family:var(--serif);font-size:23px;letter-spacing:.01em;color:var(--ink)}
+.top nav{margin-left:auto;display:flex;gap:26px;font-size:14px}
+.top nav a{text-decoration:none;color:var(--body);padding-bottom:2px;border-bottom:1px solid transparent}
+.top nav a:hover{border-bottom-color:var(--ink)}
+.top .proof{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);display:inline-flex;align-items:center;gap:8px}
+.top .proof::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--stellar);box-shadow:0 0 0 3px var(--stellarSoft)}
+@media(max-width:820px){.top .proof{display:none}}
+
+.masthead{padding:56px 0 28px;border-bottom:1px solid var(--rule)}
+.masthead h1{font-family:var(--serif);font-weight:400;color:var(--ink);font-size:56px;line-height:1.02;letter-spacing:-.01em;margin:0 0 14px;max-width:16ch}
+.masthead p{margin:0;max-width:54ch;font-size:16px;color:var(--body)}
+.masthead .kicker{margin:0 0 18px;display:inline-flex;align-items:center;gap:10px}
+.masthead .kicker::before{content:"";width:26px;height:3px;background:var(--stellar);border-radius:2px}
+@media(max-width:700px){.masthead h1{font-size:38px}.masthead{padding:34px 0 22px}}
+
+/* search + categories */
+.tools{display:flex;align-items:flex-end;gap:36px;padding:26px 0 0;flex-wrap:wrap}
+.search{flex:1;min-width:260px}
+.search input{width:100%;border:0;border-bottom:1px solid var(--ruleStrong);background:transparent;padding:8px 0 10px;font-family:var(--sans);font-size:17px;color:var(--ink)}
+.search input::placeholder{color:#9C958D}
+.search input:focus{outline:none;border-bottom-color:var(--ink)}
+.cats{display:flex;gap:22px;flex-wrap:wrap;padding:22px 0 0}
+.cat{display:inline-flex;align-items:baseline;gap:7px;font-size:14px;text-decoration:none;color:var(--body);padding-bottom:6px;border-bottom:1px solid transparent;cursor:pointer}
+.cat span{font-size:11px;color:var(--muted)}
+.cat.on{color:var(--ink);border-bottom-width:2px;border-bottom-color:var(--stellar);padding-bottom:5px}
+.cat:hover{border-bottom-color:var(--ruleStrong)}
+
+/* layout */
+.body{display:grid;grid-template-columns:1fr 216px;gap:56px;padding:34px 0 80px;align-items:start}
+@media(max-width:980px){.body{grid-template-columns:1fr;gap:28px}}
+.filters{position:sticky;top:92px;display:flex;flex-direction:column;gap:26px}
+@media(max-width:980px){.filters{position:static;flex-direction:row;flex-wrap:wrap;gap:20px;border-top:1px solid var(--rule);padding-top:20px}}
+.fgroup h4{margin:0 0 10px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:500}
+.fopt{display:flex;align-items:center;gap:9px;font-size:14px;padding:5px 0;cursor:pointer}
+.fopt i{width:13px;height:13px;border:1px solid var(--ruleStrong);border-radius:2px;display:inline-block}
+.fopt.on i{background:var(--ink);border-color:var(--ink)}
+.frange{display:flex;gap:10px}
+.frange input{width:100%;min-width:0;border:0;border-bottom:1px solid var(--ruleStrong);background:transparent;padding:6px 0;font-family:var(--sans);font-size:14px}
+.frange input:focus{outline:none;border-bottom-color:var(--ink)}
+
+/* list */
+.count{font-size:13px;color:var(--muted);padding-bottom:18px;border-bottom:1px solid var(--ruleStrong)}
+.row{display:grid;grid-template-columns:132px 1fr 190px;gap:28px;padding:30px 0;border-bottom:1px solid var(--rule)}
+@media(max-width:820px){.row{grid-template-columns:96px 1fr;gap:20px}}
+.shot{aspect-ratio:4/5;border-radius:2px;position:relative;overflow:hidden;background:#EAE5DC}
+.shot.clinic{background:linear-gradient(160deg,#1F2A30 0%,#476A74 55%,#A9C7CB 100%)}
+.shot.salon{background:linear-gradient(160deg,#3F2A30 0%,#9C6B72 55%,#E5C9C6 100%)}
+.shot.studio{background:linear-gradient(160deg,#23231F 0%,#6B5F49 55%,#C9B48C 100%)}
+.shot.office{background:linear-gradient(160deg,#20262B 0%,#5F6E77 60%,#C3CCD2 100%)}
+.shot em{position:absolute;left:8px;bottom:7px;font-style:normal;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.82)}
+.name{font-family:var(--serif);color:var(--ink);font-size:27px;line-height:1.14;margin:0 0 6px;letter-spacing:-.005em}
+.deck{margin:0 0 12px;font-size:15px;color:var(--body);max-width:58ch}
+.meta{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--muted);margin-bottom:16px}
+.meta b{font-weight:500;color:var(--body)}
+.meta .vsep{color:var(--ruleStrong)}
+.approved{display:inline-flex;align-items:center;gap:7px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--goldInk)}
+.approved::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--stellar);border:1px solid rgba(0,0,0,.12)}
+.slots{display:flex;gap:8px;flex-wrap:wrap}
+.slot{font-family:var(--sans);font-size:13px;font-variant-numeric:tabular-nums;color:var(--ink);background:transparent;border:1px solid var(--ruleStrong);border-radius:2px;padding:8px 12px;min-height:40px;cursor:pointer}
+.slot{transition:border-color .2s ease,box-shadow .2s ease,background .2s ease}
+.slot:hover{border-color:var(--ink);box-shadow:inset 0 -3px 0 var(--stellar)}
+.slot.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.slot.off{color:#A9A29B;border-style:dashed;cursor:default}
+.rail{text-align:right}
+@media(max-width:820px){.rail{grid-column:1/-1;text-align:left;display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}}
+.price{font-family:var(--serif);color:var(--ink);font-size:30px;line-height:1.1;font-variant-numeric:tabular-nums}
+.price small{display:block;font-family:var(--sans);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-top:4px}
+.dep{margin-top:14px;padding-top:12px;border-top:1px solid var(--rule);font-size:13px;color:var(--body)}
+.dep b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums;box-shadow:inset 0 -6px 0 var(--stellarSoft)}
+.dep span{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+@media(max-width:820px){.dep{border-top:0;padding-top:0;margin-top:0}}
+
+/* section break */
+.sect{border-top:1px solid var(--ruleStrong);padding:56px 0 0;margin-top:20px}
+.sect > .label{display:block;margin-bottom:26px}
+
+/* provider profile */
+.profile{display:grid;grid-template-columns:1.25fr .75fr;gap:56px;align-items:start;padding-bottom:70px}
+@media(max-width:900px){.profile{grid-template-columns:1fr;gap:28px}}
+.profile h2{font-family:var(--serif);font-weight:400;color:var(--ink);font-size:44px;line-height:1.06;margin:6px 0 10px}
+.lead{font-size:16px;max-width:60ch}
+.facts{margin:26px 0 0;border-top:1px solid var(--rule)}
+.fact{display:flex;justify-content:space-between;gap:20px;padding:13px 0;border-bottom:1px solid var(--rule);font-size:14px}
+.fact dt{color:var(--muted)}
+.fact dd{margin:0;color:var(--ink);font-variant-numeric:tabular-nums}
+.day{margin-top:26px}
+.day h5{margin:0 0 9px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:500}
+.aside{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:26px 24px}
+.aside .price{font-size:34px}
+.pill{margin-top:18px;background:var(--escrow);color:var(--escrowInk);border-radius:2px;padding:14px 16px;font-size:13px;line-height:1.5}
+.pill b{font-variant-numeric:tabular-nums;color:var(--stellar)}
+.pill span{display:block;color:#B9B2A8;font-size:12px;margin-top:3px}
+.btn{display:block;width:100%;margin-top:18px;background:var(--escrow);color:var(--escrowInk);border:0;border-radius:2px;padding:15px 18px;font-family:var(--sans);font-size:14px;font-weight:600;letter-spacing:.02em;cursor:pointer;min-height:48px;transition:background .2s ease,color .2s ease}
+.btn:hover{background:#000}
+/* The one action that commits money wears Stellar's own pairing. */
+.btn--lock{color:var(--stellar);box-shadow:inset 0 -3px 0 var(--stellar)}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--ink)}
+.note{font-size:12.5px;color:var(--muted);margin-top:12px}
+
+/* booking */
+.lanes{display:grid;grid-template-columns:1fr 240px 1fr;border:1px solid var(--rule);border-radius:3px;overflow:hidden;background:var(--card)}
+@media(max-width:1000px){.lanes{grid-template-columns:1fr}}
+.lane{padding:28px 26px}
+.lane h6{margin:0 0 16px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:500}
+.lane.you{background:#FCFBF8}
+.lane.pro{background:#FCFBF8;border-left:1px solid var(--rule)}
+@media(max-width:1000px){.lane.pro{border-left:0;border-top:1px solid var(--rule)}}
+.lane .line{display:flex;justify-content:space-between;gap:16px;font-size:14px;padding:9px 0;border-bottom:1px solid var(--rule)}
+.lane .line:last-of-type{border-bottom:0}
+.lane .line b{font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}
+.escrowlane{background:var(--escrow);color:var(--escrowInk);padding:28px 24px;display:flex;flex-direction:column;justify-content:center;gap:10px;text-align:center;border-top:3px solid var(--stellar)}
+.escrowlane .amount{font-family:var(--serif);font-size:34px;color:var(--stellar);font-variant-numeric:tabular-nums}
+.escrowlane .cap{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#B9B2A8}
+.escrowlane .mini{font-size:12px;color:#B9B2A8;line-height:1.5}
+.pay{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}
+.pay label{flex:1;min-width:190px;border:1px solid var(--rule);border-radius:2px;padding:13px 15px;font-size:14px;cursor:pointer;background:#fff}
+.pay label.on{border-color:var(--ink);box-shadow:inset 3px 0 0 var(--stellar)}
+.pay label small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.pay label.off{color:#A9A29B;cursor:not-allowed;background:#FBFAF8}
+:where(a,button,input,label,.fopt,.cat):focus-visible{outline:2px solid var(--ink);outline-offset:2px;border-radius:2px}
+@media (prefers-reduced-motion: reduce){*{transition:none !important;animation:none !important}}
+footer{padding:40px 0 70px;border-top:1px solid var(--rule);font-size:12.5px;color:var(--muted)}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">Pactly</div>
+    <div class="proof">Escrow powered by Trustless Work · Stellar</div>
+    <nav>
+      <a href="#">Discover</a>
+      <a href="#">My bookings</a>
+      <a href="#">List your practice</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="masthead">
+    <p class="label kicker">Istanbul · 9 practices open</p>
+    <h1>Appointments worth keeping.</h1>
+    <p>Your deposit waits in an escrow neither side controls. It returns to you on a timely cancellation, and reaches the provider when the appointment happens — with the policy stated before you pay, not after.</p>
+  </section>
+
+  <div class="tools">
+    <div class="search">
+      <label class="label" for="q">Search</label>
+      <input id="q" placeholder="hair transplant, therapy, Kadıköy…" />
+    </div>
+  </div>
+
+  <nav class="cats">
+    <a class="cat on">All practices <span class="num">9</span></a>
+    <a class="cat">Therapy &amp; wellbeing <span class="num">1</span></a>
+    <a class="cat">Education &amp; lessons <span class="num">1</span></a>
+    <a class="cat">Consulting <span class="num">4</span></a>
+    <a class="cat">Fitness &amp; beauty <span class="num">3</span></a>
+  </nav>
+
+  <div class="body">
+    <div>
+      <p class="count">Sorted by soonest opening</p>
+
+      <article class="row">
+        <div class="shot clinic"><em>Koşuyolu</em></div>
+        <div>
+          <p class="approved">Approved practice</p>
+          <h3 class="name">Marmara Hair Clinic</h3>
+          <p class="deck">FUE consultation that holds your procedure date. The deposit is large because the clinic blocks a full surgical day for you.</p>
+          <p class="meta"><b>In person</b><span class="vsep">·</span>45 min<span class="vsep">·</span>Koşuyolu, Istanbul<span class="vsep">·</span>0 verified sessions</p>
+          <div class="slots">
+            <button class="slot">Mon 09:00</button>
+            <button class="slot">Wed 14:00</button>
+            <button class="slot">Thu 09:00</button>
+            <button class="slot off">Fri 11:00</button>
+          </div>
+        </div>
+        <div class="rail">
+          <div class="price num">900.00 <small>USDC · consult</small></div>
+          <div class="dep"><b>450.00 USDC</b> deposit<span>Full refund up to 72h before</span></div>
+        </div>
+      </article>
+
+      <article class="row">
+        <div class="shot salon"><em>Caferağa</em></div>
+        <div>
+          <p class="approved">Approved practice</p>
+          <h3 class="name">Atelier Lale</h3>
+          <p class="deck">Full colour refresh and blowout. Chair time is reserved for you; the deposit is what stops the double-booking.</p>
+          <p class="meta"><b>In person</b><span class="vsep">·</span>120 min<span class="vsep">·</span>Caferağa, Kadıköy<span class="vsep">·</span>0 verified sessions</p>
+          <div class="slots">
+            <button class="slot on">Fri 13:00</button>
+            <button class="slot">Fri 17:00</button>
+            <button class="slot">Sat 13:00</button>
+          </div>
+        </div>
+        <div class="rail">
+          <div class="price num">85.00 <small>USDC · session</small></div>
+          <div class="dep"><b>21.25 USDC</b> deposit<span>Full refund up to 24h before</span></div>
+        </div>
+      </article>
+
+      <article class="row">
+        <div class="shot office"><em>Osmanağa</em></div>
+        <div>
+          <p class="approved">Approved practice</p>
+          <h3 class="name">Dr. Elif Aydın</h3>
+          <p class="deck">Fifty minutes in a private office. The deposit protects the hour when a client does not arrive.</p>
+          <p class="meta"><b>In person</b><span class="vsep">·</span>50 min<span class="vsep">·</span>Osmanağa, Kadıköy<span class="vsep">·</span>0 verified sessions</p>
+          <div class="slots">
+            <button class="slot">Fri 14:00</button>
+            <button class="slot">Fri 16:00</button>
+            <button class="slot">Sat 11:00</button>
+          </div>
+        </div>
+        <div class="rail">
+          <div class="price num">2,000.00 <small>USDC · session</small></div>
+          <div class="dep"><b>600.00 USDC</b> deposit<span>Full refund up to 24h before</span></div>
+        </div>
+      </article>
+
+      <article class="row">
+        <div class="shot studio"><em>Nişantaşı</em></div>
+        <div>
+          <p class="approved">Approved practice</p>
+          <h3 class="name">Kerem Aslan</h3>
+          <p class="deck">Career coaching over video. One hour, prepared for in advance, with notes sent afterwards.</p>
+          <p class="meta"><b>Video call</b><span class="vsep">·</span>60 min<span class="vsep">·</span>Nişantaşı, Istanbul<span class="vsep">·</span>0 verified sessions</p>
+          <div class="slots">
+            <button class="slot">Today 11:00</button>
+            <button class="slot">Today 15:00</button>
+            <button class="slot">Tue 19:00</button>
+          </div>
+        </div>
+        <div class="rail">
+          <div class="price num">100.00 <small>USDC · session</small></div>
+          <div class="dep"><b>50.00 USDC</b> deposit<span>Full refund up to 48h before</span></div>
+        </div>
+      </article>
+    </div>
+
+    <aside class="filters">
+      <div class="fgroup">
+        <h4>When</h4>
+        <div class="fopt on"><i></i> Any time</div>
+        <div class="fopt"><i></i> Today / next 24h</div>
+        <div class="fopt"><i></i> This week</div>
+      </div>
+      <div class="fgroup">
+        <h4>Session</h4>
+        <div class="fopt"><i></i> In person</div>
+        <div class="fopt"><i></i> Video call</div>
+      </div>
+      <div class="fgroup">
+        <h4>Price · USDC</h4>
+        <div class="frange"><input placeholder="Min" /><input placeholder="Max" /></div>
+      </div>
+      <div class="fgroup">
+        <h4>Deposit</h4>
+        <div class="frange"><input placeholder="Max %" /></div>
+      </div>
+    </aside>
+  </div>
+
+  <section class="sect">
+    <span class="label">Provider profile</span>
+    <div class="profile">
+      <div>
+        <p class="approved">Approved practice · 0 verified sessions · 0 cancellations</p>
+        <h2>Marmara Hair Clinic</h2>
+        <p class="lead">Hair transplant · FUE consultation. A paid consultation locks a procedure date, and the clinic blocks a full surgical day around it.</p>
+        <dl class="facts">
+          <div class="fact"><dt>Session</dt><dd>In person · 45 minutes</dd></div>
+          <div class="fact"><dt>Where</dt><dd>Koşuyolu, Istanbul</dd></div>
+          <div class="fact"><dt>Free cancellation</dt><dd>Up to 72 hours before</dd></div>
+          <div class="fact"><dt>Escrow</dt><dd>Trustless Work on Stellar</dd></div>
+        </dl>
+        <div class="day">
+          <h5>Monday, 22 September</h5>
+          <div class="slots">
+            <button class="slot on">09:00</button>
+            <button class="slot">11:00</button>
+            <button class="slot off">14:00</button>
+          </div>
+        </div>
+        <div class="day">
+          <h5>Wednesday, 24 September</h5>
+          <div class="slots">
+            <button class="slot">14:00</button>
+            <button class="slot">16:00</button>
+          </div>
+        </div>
+      </div>
+      <aside class="aside">
+        <div class="price num">900.00 <small>USDC · consultation</small></div>
+        <div class="pill"><b>450.00 USDC</b> deposit<span>Full refund up to 72h before · the rest is due before the session</span></div>
+        <button class="btn">Continue · Mon 09:00</button>
+        <p class="note">The wallet is only asked for at the payment step.</p>
+      </aside>
+    </div>
+  </section>
+
+  <section class="sect">
+    <span class="label">Booking &amp; payment</span>
+    <div class="lanes">
+      <div class="lane you">
+        <h6>You give</h6>
+        <div class="line"><span>Appointment</span><b>Mon 22 Sep · 09:00</b></div>
+        <div class="line"><span>Deposit now</span><b>450.00 USDC</b></div>
+        <div class="line"><span>Balance before the session</span><b>450.00 USDC</b></div>
+        <div class="line"><span>Free cancellation until</span><b>Fri 19 Sep · 09:00</b></div>
+        <div class="pay">
+          <label class="on">Stablecoin wallet<small>Freighter · USDC on Stellar</small></label>
+          <label class="off">Local currency<small>Not available yet</small></label>
+        </div>
+      </div>
+      <div class="escrowlane">
+        <div class="cap">In escrow</div>
+        <div class="amount num">450.00</div>
+        <div class="mini">Neither side can move it alone. Released on completion, returned on a timely cancellation.</div>
+      </div>
+      <div class="lane pro">
+        <h6>The practice commits</h6>
+        <div class="line"><span>Provider</span><b>Marmara Hair Clinic</b></div>
+        <div class="line"><span>Holds</span><b>A full surgical day</b></div>
+        <div class="line"><span>Releases the deposit</span><b>After the appointment</b></div>
+        <div class="line"><span>Resolution signed by</span><b>Pactly</b></div>
+        <button class="btn btn--lock" style="margin-top:22px">Lock with Pactly</button>
+        <p class="note">Two wallet approvals: create the escrow, then lock the deposit.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap">Editorial direction · Libre Bodoni + Public Sans · warm paper and ink, with Stellar's yellow (#FDDA24) as the single accent: it marks and underlines, and carries words only on black.</footer>
+</body>
+</html>
