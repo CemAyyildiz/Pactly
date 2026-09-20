@@ -48,9 +48,9 @@ development_status:
 
   epic-2: backlog
   2-1-sep-1-discovery-and-sep-10-authentication: done
-  2-2-sep-38-quote: backlog
+  2-2-sep-38-quote: in-progress
   2-3-sep-6-withdraw-professional-cashing-out: backlog
-  2-4-sep-6-deposit-client-paying-in-local-currency: backlog
+  2-4-sep-6-deposit-client-paying-in-local-currency: in-progress
   2-5-backend-service-layer-and-data-model: done
   2-6-trustless-work-escrow-adapter-and-reconciliation: done
   epic-2-retrospective: optional
@@ -65,7 +65,7 @@ development_status:
   3-7-paying-the-balance-before-the-session: done
   3-8-demo-preparation-and-documentation: done
   3-9-discover-v2-visual-realignment: done
-  3-10-editorial-design-system: in-progress
+  3-10-editorial-design-system: done
   epic-3-retrospective: optional
 
   epic-4: backlog

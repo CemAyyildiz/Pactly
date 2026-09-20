@@ -2,7 +2,7 @@
 title: 'Story 3.10 — Editorial design system across every screen'
 type: 'feature'
 created: '2026-09-20'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: 'ea3a727d43b6737dfe164c3baed0a41ea5f9aa45'
 followup_review_recommended: false
@@ -93,3 +93,15 @@ deferred: []
 
 **Manual checks:**
 - Open every screen at 1440px and 375px beside the mockup; confirm the yellow appears only as a mark, rule, underline, soft highlight or on black.
+
+## Auto Run Result
+
+Status: done
+
+**Özet:** Sekiz ekran ve paylaşılan bileşenler `mockups/editorial-v1.html`'in diline taşındı; DESIGN.md aynı dile göre yeniden yazıldı. Stellar sarısı yalnızca işaret, çizgi, vurgu ve siyah üstünde yazı olarak kullanıldı.
+
+**Commit'ler:** `9997e09` spec, `d8f9e0a` feat.
+
+**Review:** Katmanlı review çalıştırılmadı; görsel kabul sahibinin. Otomatik kontroller (typecheck, build, eski token taraması, backend 448/448) temiz.
+
+**Kalan riskler:** Tarayıcıda hiçbir ekran görülmedi. Discover'ın yapısı değişti (kategoriler üstte tam genişlik, filtreler sağda dar kolon). Mockup'taki ikinci siyah buton ("Continue") niyet sözleşmesi gereği çerçeveli yapıldı.
